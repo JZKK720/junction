@@ -1,0 +1,19 @@
+node_modules
+out
+dist
+*.vsix
+.vscode-test
+.cursor
+.agents
+.vscode
+
+# Private runtime/agent state — never commit (may contain tokens/session state)
+.openclaw/
+.claude/
+.archive/
+.futures/
+futures/
+agents/
+
+# Local working notes / scratch
+drone-summary.md

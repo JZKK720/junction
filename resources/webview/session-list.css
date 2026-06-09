@@ -1,0 +1,133 @@
+/* ==========================================================================
+   session-list.css — Session card styles for Junction
+   ==========================================================================
+   Uses only --vscode-* / --space-* tokens from tokens.css. No hardcoded colors.
+   ========================================================================== */
+
+/* ── Container ─────────────────────────────────────────────────────── */
+
+#session-list-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-small) var(--space-medium);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ── Card ─────────────────────────────────────────────────────────── */
+
+.session-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-small) var(--space-medium);
+  border-radius: var(--corner-radius-medium);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 80ms ease;
+  border: 1px solid transparent;
+  border-left: 3px solid transparent;
+}
+
+.session-card:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.session-card.active {
+  background-color: var(--vscode-list-activeSelectionBackground);
+  border-left-color: var(--vscode-focusBorder);
+}
+
+/* ── Archived cards: hidden by default ────────────────────────────── */
+
+.session-card.archived {
+  opacity: 0.5;
+  display: none;
+}
+
+#session-list-items.show-archived .session-card.archived {
+  display: flex;
+}
+
+/* ── Card title ───────────────────────────────────────────────────── */
+
+.session-card-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--vscode-editor-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+/* ── Meta row (model + count + archived badge) ────────────────────── */
+
+.session-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-small);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.session-card-model {
+  color: var(--vscode-focusBorder);
+  font-weight: 500;
+  padding: 0 4px;
+  border-radius: var(--corner-radius-small);
+  background-color: color-mix(in srgb, var(--vscode-focusBorder) 15%, transparent);
+}
+
+.session-card-count {
+  color: var(--vscode-descriptionForeground);
+}
+
+.session-card-archived-badge {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+/* ── Empty state ──────────────────────────────────────────────────── */
+
+.session-card-empty {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  text-align: center;
+  padding: var(--space-xlarge) var(--space-medium);
+  font-style: italic;
+}
+
+/* ── Input area ───────────────────────────────────────────────────── */
+
+#session-list-input-container {
+  border-top: 1px solid var(--vscode-input-border);
+  padding: var(--space-small) var(--space-medium);
+}
+
+#session-list-input {
+  width: 100%;
+  box-sizing: border-box;
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-editor-foreground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-medium);
+  padding: var(--space-small) var(--space-medium);
+  font-family: var(--vscode-chat-font-family, inherit);
+  font-size: var(--vscode-chat-font-size, 13px);
+  resize: none;
+  outline: none;
+  line-height: 1.4;
+  transition: border-color 80ms ease;
+}
+
+#session-list-input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+#session-list-input::placeholder {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
+}

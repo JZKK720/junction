@@ -1,0 +1,98 @@
+/* Shared webview choice menu for footer/header controls. */
+
+.choice-menu {
+  position: fixed;
+  z-index: 1200;
+  min-width: 220px;
+  max-width: min(420px, calc(100vw - 16px));
+  max-height: min(360px, calc(100vh - 16px));
+  overflow: hidden;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-large);
+  background: var(--vscode-menu-background);
+  color: var(--vscode-editor-foreground);
+}
+
+.choice-menu-submenu {
+  z-index: 1201;
+}
+
+.choice-menu-header {
+  padding: var(--space-small) var(--space-large);
+  border-bottom: 1px solid var(--vscode-input-border);
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.choice-menu-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: var(--space-small) 0;
+  scrollbar-width: thin;
+}
+
+.choice-menu-section {
+  padding: var(--space-small) var(--space-large);
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+.choice-menu-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: var(--space-small);
+  width: 100%;
+  padding: 5px var(--space-large);
+  border: 0;
+  background: transparent;
+  color: var(--vscode-editor-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choice-menu-item:hover,
+.choice-menu-item.active {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.choice-menu-item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.choice-menu-item-main {
+  min-width: 0;
+}
+
+.choice-menu-item-label,
+.choice-menu-item-description {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.choice-menu-item-label {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.choice-menu-item-description {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 15px;
+}
+
+.choice-menu-item .codicon {
+  color: var(--vscode-descriptionForeground);
+}
+
+.choice-menu-state {
+  padding: var(--space-large);
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}

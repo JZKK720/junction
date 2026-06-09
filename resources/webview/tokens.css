@@ -1,0 +1,21 @@
+/* ==========================================================================
+   tokens.css — Layout constants for the Junction webview
+   ==========================================================================
+   Colors come straight from VS Code's native --vscode-* theme tokens (used
+   inline in the component stylesheets), so they resolve per-theme — including
+   light, dark, and high-contrast — with no alias layer. This file holds only
+   the non-theme constants (spacing + corner radii) that VS Code does not
+   provide.
+   ========================================================================== */
+:root {
+  /* ── Spacing ─────────────────────────────────────────────────────────── */
+  --space-small:  4px;   /* tight gaps, icon padding */
+  --space-medium: 8px;   /* standard element gap */
+  --space-large:  12px;  /* section/block padding */
+  --space-xlarge: 16px;  /* page-level padding */
+
+  /* ── Corner radii ────────────────────────────────────────────────────── */
+  --corner-radius-small:  4px; /* inputs, small buttons */
+  --corner-radius-medium: 6px; /* cards, panels */
+  --corner-radius-large:  8px; /* modals, dialogs */
+}

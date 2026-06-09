@@ -1,0 +1,289 @@
+/* ==========================================================================
+   chat-stream.css — Message transcript + chat-view controls
+   ==========================================================================
+   Depends on tokens.css (--vscode-* / --space-*) and codicon.css. Class names are
+   VS Code descriptive class names.
+   ========================================================================== */
+
+/* ── Base layout ──────────────────────────────────────────────────────────── */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+#chat-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-medium);
+  scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-medium);
+}
+
+/* ── Message rows ─────────────────────────────────────────────────────────── */
+.chat-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-small);
+  position: relative;
+}
+
+.chat-row .msg-text {
+  border-radius: var(--corner-radius-medium);
+  padding: var(--space-small) var(--space-medium);
+  line-height: 1.5;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.chat-row .msg-text pre {
+  overflow-x: auto;
+  padding: var(--space-medium);
+  border-radius: var(--corner-radius-small);
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+}
+
+.chat-row .msg-text code {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.95em;
+}
+
+.chat-row.user {
+  align-items: flex-end;
+}
+
+.chat-row.user .msg-text {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  max-width: 85%;
+}
+
+.chat-row.assistant .msg-text {
+  background: transparent;
+  padding-left: 0;
+}
+
+/* Subagent nesting */
+.chat-row.subagent { margin-left: 16px; opacity: 0.95; border-left: 2px solid var(--vscode-focusBorder); padding-left: var(--space-medium); }
+.chat-row.subagent-deep { margin-left: 32px; opacity: 0.85; border-left: 2px solid var(--vscode-focusBorder); padding-left: var(--space-medium); }
+.subagent-label {
+  font-size: 0.7em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+  padding: 2px 0;
+}
+
+/* ── Per-message hover actions ───────────────────────────────────────────── */
+.msg-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.checkpoint-marker {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 2px 6px 0 auto;
+  border-radius: 50%;
+  background: var(--vscode-descriptionForeground);
+  opacity: 0.35;
+}
+
+.checkpoint-marker.available {
+  background: var(--vscode-focusBorder);
+  opacity: 0.9;
+}
+.chat-row:hover .msg-actions { opacity: 1; }
+.msg-action {
+  background: transparent;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--corner-radius-small);
+  font-size: 13px;
+}
+.msg-action:hover {
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* ── Reasoning disclosure (inline, auto-collapse) ────────────────────────── */
+.reasoning-disclosure {
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-medium);
+  background: var(--vscode-sideBar-background);
+  overflow: hidden;
+}
+.reasoning-disclosure > summary {
+  cursor: pointer;
+  padding: var(--space-small) var(--space-medium);
+  font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-small);
+}
+.reasoning-disclosure > summary::-webkit-details-marker { display: none; }
+.reasoning-disclosure[open] > summary { border-bottom: 1px solid var(--vscode-input-border); }
+.reasoning-label { flex: 0 1 auto; }
+
+/* Loading widget for thinking mode — mount point only; NO spinner yet.
+   When .reasoning-disclosure.thinking is set, an animation can hook here later. */
+.thinking-loader {
+  display: none;            /* hidden until a spinner/indicator is added */
+  width: 12px;
+  height: 12px;
+}
+.reasoning-disclosure.thinking .thinking-loader {
+  display: inline-block;    /* slot becomes visible while thinking (still empty) */
+}
+.reasoning-content {
+  margin: 0;
+  padding: var(--space-medium);
+  max-height: 240px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.82em;
+  color: var(--vscode-descriptionForeground);
+  scrollbar-width: thin;
+}
+
+/* ── Tool-call cards ─────────────────────────────────────────────────────── */
+.tool-calls { display: flex; flex-direction: column; gap: var(--space-small); margin-top: var(--space-small); }
+.tool-call-card {
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-medium);
+  overflow: hidden;
+}
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-small);
+  padding: var(--space-small) var(--space-medium);
+  background: var(--vscode-editor-lineHighlightBackground, var(--vscode-sideBarSectionHeader-background));
+  font-size: 0.85em;
+}
+.tool-call-name { font-weight: 600; flex: 1 1 auto; }
+.tool-call-status {
+  font-size: 0.8em;
+  padding: 1px 6px;
+  border-radius: var(--corner-radius-small);
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+.tool-call-status.running {
+  background: var(--vscode-statusBarItem-warningBackground, var(--vscode-badge-background));
+  color: var(--vscode-statusBarItem-warningForeground, var(--vscode-badge-foreground));
+}
+.tool-call-status.success {
+  background: var(--vscode-terminal-ansiGreen, var(--vscode-badge-background));
+  color: var(--vscode-editor-background, var(--vscode-badge-foreground));
+}
+.tool-call-status.error {
+  background: var(--vscode-inputValidation-errorBackground, var(--vscode-badge-background));
+  color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground));
+  border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+}
+.tool-call-args, .tool-call-output, .tool-call-update {
+  margin: 0;
+  padding: var(--space-medium);
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.82em;
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  scrollbar-width: thin;
+}
+.tool-call-output { border-top: 1px solid var(--vscode-input-border); }
+
+/* ── Token footer ─────────────────────────────────────────────────────────── */
+.token-footer {
+  font-size: 0.7em;
+  color: var(--vscode-descriptionForeground);
+  padding-top: 2px;
+}
+
+/* ── Slash-command menu ──────────────────────────────────────────────────── */
+.slash-menu {
+  margin: 0 var(--space-medium);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-medium);
+  background: var(--vscode-menu-background);
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.slash-item {
+  display: flex;
+  gap: var(--space-medium);
+  align-items: baseline;
+  padding: var(--space-small) var(--space-medium);
+  cursor: pointer;
+  font-size: 0.85em;
+}
+.slash-item:hover { background: var(--vscode-list-hoverBackground); }
+.slash-name { font-weight: 600; }
+.slash-desc { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
+
+/* ── Footer chips (model / reasoning / context) ───────────────────────────── */
+.composer-chip {
+  background: var(--vscode-sideBar-background);
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: var(--space-small);
+}
+.composer-chip:hover { color: var(--vscode-editor-foreground); border-color: var(--vscode-focusBorder); }
+.context-badge { white-space: nowrap; }
+
+/* ── Environment switcher (header) ───────────────────────────────────────── */
+.env-switcher, .chat-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  border: 1px solid transparent;
+  border-radius: var(--corner-radius-small);
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.env-switcher:hover, .chat-scope:hover {
+  color: var(--vscode-editor-foreground);
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--vscode-input-border);
+}
+
+/* ── Responsive: hide chip labels on narrow widths ───────────────────────── */
+@container (max-width: 360px) {
+  .composer-chip { max-width: 6rem; }
+}

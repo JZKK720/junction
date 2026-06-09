@@ -1,0 +1,184 @@
+/* ==========================================================================
+   attached-files-bar.css — File pill bar + @-mention autocomplete popup
+   ========================================================================== */
+
+/* ── Container (#attached-files-bar in template.html) ──────────────────── */
+#attached-files-bar {
+  display: flex;
+  gap: 4px;
+  padding: 4px 8px 4px 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  min-height: 0;
+  /* hidden when empty — JS toggles this */
+}
+
+#attached-files-bar:empty {
+  display: none;
+}
+
+/* ── Base pill ─────────────────────────────────────────────────────────── */
+.file-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  min-width: 0;
+  max-width: 180px;
+  padding: 0 4px 0 6px;
+  box-sizing: border-box;
+  border-radius: var(--corner-radius-small, 4px);
+  background: color-mix(in srgb,
+      var(--vscode-input-background) 85%,
+      var(--vscode-descriptionForeground));
+  border: 1px solid var(--vscode-input-border);
+  cursor: default;
+  position: relative;
+  transition: border-color 0.15s;
+  flex-shrink: 0;
+}
+
+.file-pill:hover {
+  border-color: var(--vscode-focusBorder);
+}
+
+/* ── Pill icon (file type codicon) ──────────────────────────────────────── */
+.file-pill-icon {
+  color: var(--vscode-descriptionForeground);
+  flex-shrink: 0;
+  font-size: 12px;
+  width: 12px;
+  height: 12px;
+  line-height: 12px;
+}
+
+/* ── Pill label (file name / display text) ──────────────────────────────── */
+.file-pill-label {
+  color: var(--vscode-editor-foreground);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ── Remove button ──────────────────────────────────────────────────────── */
+.file-pill-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  border-radius: 2px;
+  font-size: 12px;
+  line-height: 12px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.file-pill:hover .file-pill-remove {
+  opacity: 1;
+}
+
+.file-pill-remove:hover {
+  background: var(--vscode-list-hoverBackground);
+  color: var(--vscode-editor-foreground);
+}
+
+.file-pill-remove:focus-visible {
+  opacity: 1;
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+/* ── Live-selection pill (distinct visual: accent border) ───────────────── */
+.file-pill-live {
+  /* base pill styles carry forward — this adds live accent */
+}
+
+.file-pill-live.enabled {
+  border-color: var(--vscode-focusBorder);
+  background: color-mix(in srgb,
+      var(--vscode-focusBorder) 12%,
+      var(--vscode-input-background));
+}
+
+.file-pill-live.enabled .file-pill-remove {
+  /* show remove button on live pill when enabled */
+}
+
+/* ── @-mention autocomplete popup ───────────────────────────────────────── */
+.file-mention-popup {
+  position: absolute;
+  z-index: 100;
+  background: var(--vscode-menu-background);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-medium, 6px);
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow, transparent);
+  max-height: 200px;
+  overflow-y: auto;
+  min-width: 240px;
+  padding: 4px 0;
+  /* positioned by JS relative to the composer input */
+}
+
+.file-mention-popup-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--vscode-editor-foreground);
+}
+
+.file-mention-popup-item:hover,
+.file-mention-popup-item.selected {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.file-mention-popup-item .codicon {
+  color: var(--vscode-descriptionForeground);
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.file-mention-popup-item-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.file-mention-popup-item-path {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 120px;
+  direction: rtl;
+  text-align: left;
+}
+
+/* ── Loading / empty states ─────────────────────────────────────────────── */
+.file-mention-popup-loading,
+.file-mention-popup-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  text-align: center;
+}

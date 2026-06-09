@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none';
+                 script-src 'nonce-${NONCE_PLACEHOLDER}';
+                 style-src ${CSP_SOURCE_PLACEHOLDER};
+                 img-src ${CSP_SOURCE_PLACEHOLDER} https: data:;
+                 font-src ${CSP_SOURCE_PLACEHOLDER} data:;
+                 media-src 'none';
+                 connect-src 'none';
+                 frame-src 'none';">
+  <link rel="stylesheet" href="${TOKENS_CSS_URI}">
+  <link rel="stylesheet" href="${CODICON_CSS_URI}">
+  <link rel="stylesheet" href="${CHAT_CSS_URI}">
+</head>
+<body>
+  <!-- ============================================================
+       CHATS LIST VIEW (home screen)
+       ============================================================ -->
+  <div id="session-list">
+    <div id="session-list-header">
+      <span class="title">Chats</span>
+      <!-- Scope dropdown: current-binding chats vs all chats (label is dynamic) -->
+      <button id="chat-scope" class="chat-scope" title="Filter chats">
+        <span id="chat-scope-label">This folder</span>
+        <span class="codicon codicon-chevron-down"></span>
+      </button>
+      <span class="header-spacer"></span>
+      <button id="btn-new-chat" class="codicon codicon-plus" title="New chat"></button>
+    </div>
+    <div id="session-list-items">
+      <!-- session cards injected by session-list.js -->
+    </div>
+    <div id="session-list-input-container">
+      <textarea id="session-list-input"
+                placeholder="Type a message to start a new chat..."
+                rows="1"></textarea>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       CHAT VIEW (hidden initially)
+       ============================================================ -->
+  <div id="chat-view" style="display:none">
+    <div id="chat-header">
+      <button id="btn-back" class="codicon codicon-arrow-left" title="Back to chats"></button>
+      <span id="chat-title" class="title" title="Click to rename">New chat</span>
+      <!-- Environment switcher: bridge/runtime + agent -->
+      <button id="env-switcher" class="env-switcher" title="Switch bridge / agent">
+        <span class="codicon codicon-server-environment"></span>
+        <span id="env-switcher-label">local</span>
+        <span class="codicon codicon-chevron-down"></span>
+      </button>
+      <div class="header-spacer"></div>
+      <button id="btn-menu" class="codicon codicon-menu" title="Chat actions"></button>
+      <button id="btn-settings" class="codicon codicon-gear" title="Settings"></button>
+      <button id="btn-new-chat-view" class="codicon codicon-plus" title="New chat"></button>
+    </div>
+
+    <div id="chat-messages">
+      <!-- message rows injected by chat-stream.js -->
+    </div>
+
+    <!-- floating slash-command menu (positioned above the composer) -->
+    <div id="slash-menu" class="slash-menu" hidden></div>
+
+    <div id="attached-files-bar">
+      <!-- file pills injected by attached-files-bar.js -->
+    </div>
+
+    <div id="context-hints" class="context-hints">
+      <button class="context-hint" data-action="attach-current" title="Attach current file">
+        <span class="codicon codicon-file-add"></span>
+        <span>Attach current</span>
+      </button>
+      <button class="context-hint" data-action="plan" title="Draft a plan">
+        <span class="codicon codicon-list-ordered"></span>
+        <span>Plan</span>
+      </button>
+      <button class="context-hint" data-action="external-compose" title="Compose in editor">
+        <span class="codicon codicon-edit"></span>
+        <span>Editor</span>
+      </button>
+      <button id="context-hints-dismiss" class="codicon codicon-close" title="Hide suggestions"></button>
+    </div>
+
+    <div id="composer">
+      <button id="btn-attach-file" class="codicon codicon-plus" title="Attach file"></button>
+      <textarea id="composer-input"
+                placeholder="Ask agent..."
+                rows="1"></textarea>
+      <button id="btn-send" class="codicon codicon-send" title="Send"></button>
+      <button id="btn-stop" class="codicon codicon-stop" title="Stop"></button>
+    </div>
+
+    <div id="composer-footer">
+      <button id="model-display" class="composer-chip model-chip" title="Change model">Model</button>
+      <button id="sandbox-display" class="composer-chip sandbox-chip" title="Sandbox / approvals">Sandbox</button>
+      <span class="footer-spacer"></span>
+      <span id="context-badge" class="context-badge" title="0 files attached">0 files</span>
+    </div>
+  </div>
+
+  <script nonce="${NONCE_PLACEHOLDER}">
+    // Single VS Code API handle, shared (global) with every component module
+    // loaded after this script. Modules own all DOM wiring; view-router.js
+    // posts the boot signal (`initRequest`).
+    const vscode = acquireVsCodeApi();
+  </script>
+</body>
+</html>

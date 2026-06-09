@@ -1,0 +1,96 @@
+/**
+ * view-router.js — Stage 3, Worker 3
+ *
+ * View navigation state machine for the Junction webview.
+ * Coordinates between the session-list home screen and the chat view.
+ *
+ * Architecture:
+ *   - Both #session-list and #chat-view live in the DOM permanently.
+ *   - Navigation toggles `display: flex` / `display: none`.
+ *   - Views are never removed from the DOM — only hidden.
+ *   - Calls Worker 1 (renderSessionCards) and Worker 2 (setChatTitle)
+ *     by name; both are defined in the global scope.
+ *   - renderHistory is a no-op stub until Stage 6 provides the real
+ *     message renderer.
+ */
+
+// ── View navigation (override template.html inline stubs) ──────
+
+function showSessionList() {
+  var sl = document.getElementById('session-list');
+  var cv = document.getElementById('chat-view');
+  if (sl) {
+    sl.style.display = 'flex';
+    sl.classList.add('view-visible');
+    sl.classList.remove('view-hidden');
+  }
+  if (cv) {
+    cv.style.display = 'none';
+    cv.classList.add('view-hidden');
+    cv.classList.remove('view-visible');
+  }
+}
+
+function showChatView() {
+  var sl = document.getElementById('session-list');
+  var cv = document.getElementById('chat-view');
+  if (sl) {
+    sl.style.display = 'none';
+    sl.classList.add('view-hidden');
+    sl.classList.remove('view-visible');
+  }
+  if (cv) {
+    cv.style.display = 'flex';
+    cv.classList.add('view-visible');
+    cv.classList.remove('view-hidden');
+  }
+}
+
+// ── History delegate ───────────────────────────────────────────
+
+function renderRouterHistory(history) {
+  if (typeof window.renderHistory === 'function') {
+    window.renderHistory(history);
+  }
+}
+
+// ── Message routing (central dispatcher) ───────────────────────
+
+window.addEventListener('message', function (event) {
+  var msg = event.data;
+  if (!msg || !msg.type) return;
+
+  switch (msg.type) {
+
+    // ── Navigation ──────────────────────────────────────────────
+
+    case 'switchToHome':
+      showSessionList();
+      if (msg.sessions) {
+        renderSessionCards(msg.sessions);
+      }
+      break;
+
+    case 'switchToChat':
+      setChatTitle(msg.title);
+      showChatView();
+      if (msg.history) {
+        renderRouterHistory(msg.history);
+      }
+      break;
+
+    // ── Data updates ────────────────────────────────────────────
+
+    case 'renderSessions':
+      renderSessionCards(msg.sessions);
+      break;
+
+    case 'updateTitle':
+      setChatTitle(msg.title);
+      break;
+  }
+});
+
+// ── Init — smart reopen ────────────────────────────────────────
+
+vscode.postMessage({ type: 'initRequest' });

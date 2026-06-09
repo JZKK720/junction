@@ -1,0 +1,233 @@
+{
+  "name": "junction",
+  "displayName": "Junction",
+  "description": "Junction — local AI coding agent bridge for OpenClaw, Hermes, and Souveraine",
+  "version": "0.0.1",
+  "publisher": "Plaer1",
+  "icon": "resources/icon.png",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "repository": "https://github.com/Plaer1/junction",
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "junction-explorer",
+          "title": "Junction",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "junction-explorer": [
+        {
+          "type": "webview",
+          "id": "junction.chatView",
+          "name": "Junction",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "junction.configureRuntime",
+        "title": "Junction: Configure Runtime"
+      },
+      {
+        "command": "junction.openChat",
+        "title": "Junction: Open Sidebar",
+        "icon": "resources/icon.svg"
+      },
+      {
+        "command": "junction.showLogs",
+        "title": "Junction: Show Logs",
+        "icon": "resources/icon.svg"
+      },
+      {
+        "command": "junction.addToThread",
+        "title": "Add to Junction Thread"
+      },
+      {
+        "command": "junction.addFileToThread",
+        "title": "Add File to Junction Thread"
+      },
+      {
+        "command": "junction.openExternalComposer",
+        "title": "Junction: Compose in Editor"
+      },
+      {
+        "command": "junction.sendExternalComposer",
+        "title": "Junction: Send Composer"
+      },
+      {
+        "command": "junction.rewindToCheckpoint",
+        "title": "Junction: Rewind to Checkpoint"
+      }
+    ],
+    "keybindings": [],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "junction.addToThread",
+          "when": "resourceScheme == file",
+          "group": "junction"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "junction.addFileToThread",
+          "when": "resourceScheme == file",
+          "group": "2_junction"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "junction.addFileToThread",
+          "when": "resourceScheme == file",
+          "group": "junction"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Junction",
+      "properties": {
+        "junction.activeBridge": {
+          "type": "string",
+          "enum": ["openclaw", "hermes", "souveraine"],
+          "default": "openclaw",
+          "description": "Active local agent bridge."
+        },
+        "junction.openclaw.gatewayUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:18789",
+          "description": "WebSocket URL of the OpenClaw runtime."
+        },
+        "junction.openclaw.configPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the openclaw.json config file for the selected OpenClaw runtime."
+        },
+        "junction.hermes.dashboardUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:9119",
+          "description": "Local Hermes dashboard URL used for native WebSocket integration."
+        },
+        "junction.hermes.wsUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:9119/api/ws",
+          "description": "Local Hermes dashboard JSON-RPC WebSocket URL."
+        },
+        "junction.hermes.apiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8642",
+          "description": "Local Hermes API server URL for REST fallback/status."
+        },
+        "junction.hermes.home": {
+          "type": "string",
+          "default": "~/.hermes-hermling",
+          "description": "Hermes home used for the managed hermling test runtime."
+        },
+        "junction.souveraine.baseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8484",
+          "description": "Local Souveraine HTTP server URL."
+        },
+        "junction.souveraine.home": {
+          "type": "string",
+          "default": "~/.souveraine-souvieling-home",
+          "description": "HOME directory used for the managed souvieling test runtime."
+        },
+        "junction.autoSendFileContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically stage editor context when switching files."
+        },
+        "junction.fileContextInterval": {
+          "type": "number",
+          "default": 5000,
+          "description": "Interval (in ms) for automatically staging editor context."
+        },
+        "junction.sendBehavior": {
+          "type": "string",
+          "enum": ["enter", "ctrlEnter", "smartEnter"],
+          "enumDescriptions": [
+            "Enter sends; Shift+Enter inserts a newline",
+            "Ctrl/Cmd+Enter sends; Enter inserts a newline",
+            "Enter sends on a single line; multiline requires Ctrl/Cmd+Enter"
+          ],
+          "default": "ctrlEnter",
+          "description": "How the chat composer submits a message."
+        },
+        "junction.followUpMode": {
+          "type": "string",
+          "enum": ["queue", "steer", "interrupt"],
+          "enumDescriptions": [
+            "Hold the message until the current run finishes, then send",
+            "Inject the message into the running turn (needs gateway support; falls back to queue)",
+            "Stop the current run, then send the new message"
+          ],
+          "default": "queue",
+          "description": "What happens when you send a message while the agent is still running."
+        },
+        "junction.reasoningDisplay": {
+          "type": "string",
+          "enum": ["expanded", "compact"],
+          "enumDescriptions": [
+            "Stream the reasoning expanded, then auto-collapse to a summary when it finishes",
+            "Show a compact 'Thinking… ~N tokens' line while reasoning, then reveal the block when it finishes"
+          ],
+          "default": "expanded",
+          "description": "How reasoning/thinking blocks are displayed in the chat."
+        },
+        "junction.checkpoints.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Snapshot the workspace at each turn so you can 'Rewind code to here' (uses a shadow git repo in extension storage, never your real .git)."
+        },
+        "junction.sandboxMode": {
+          "type": "string",
+          "enum": ["default", "readonly", "workspace-write", "full-access"],
+          "default": "default",
+          "description": "Local UI preference for agent sandbox display. Applied only when the active bridge supports a matching control surface."
+        },
+        "junction.approvalMode": {
+          "type": "string",
+          "enum": ["default", "ask", "never"],
+          "default": "default",
+          "description": "Local UI preference for approval display. Applied only when the active bridge supports a matching control surface."
+        },
+        "junction.todoCodeLensEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show CodeLens actions above TODO/FIXME/HACK comments to send them to Junction."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "pretest": "npm run build",
+    "test": "npx tsc --noEmit --pretty false && node tests/bridge-protocol.test.js"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.95.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.19.0",
+    "typescript": "^5.3.0"
+  }
+}

@@ -1,0 +1,226 @@
+/* ==========================================================================
+   composer.css — Composer input, send/stop buttons, and footer bar
+   ==========================================================================
+   Dependencies: tokens.css (--vscode-* / --space-*), template.html (#composer / #composer-footer slots)
+   ========================================================================== */
+
+/* ── Composer container ─────────────────────────────────────────────────── */
+
+.context-hints {
+  display: flex;
+  align-items: center;
+  gap: var(--space-small);
+  padding: var(--space-small) var(--space-medium) 0;
+  flex-wrap: wrap;
+}
+
+.context-hint,
+#context-hints-dismiss {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-small);
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+#context-hints-dismiss {
+  width: 24px;
+  justify-content: center;
+  padding: 0;
+  font-family: codicon;
+}
+
+.context-hint:hover,
+#context-hints-dismiss:hover {
+  background: var(--vscode-list-hoverBackground);
+  color: var(--vscode-editor-foreground);
+}
+
+#composer {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: var(--space-small);
+  padding: var(--space-small) var(--space-medium);
+  border-top: 1px solid var(--vscode-input-border);
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+/* ── Textarea (grows to fill available space) ──────────────────────────── */
+
+#composer-input {
+  flex: 1 1 auto;
+  min-height: 20px;
+  max-height: 200px;
+  padding: 6px 10px;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-medium);
+  background: var(--vscode-input-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+  line-height: 1.4;
+  resize: none;
+  overflow-y: auto;
+  outline: none;
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  transition: border-color 0.15s;
+}
+
+#composer-input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+#composer-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+#composer-input::placeholder {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
+}
+
+/* ── Send / Stop buttons (icon buttons) ─────────────────────────────────── */
+
+#btn-attach-file,
+#btn-send,
+#btn-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--corner-radius-small);
+  cursor: pointer;
+  font-family: codicon;
+  font-size: 16px;
+  line-height: 1;
+  transition: background-color 0.15s, opacity 0.15s;
+  box-sizing: border-box;
+}
+
+#btn-attach-file {
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+}
+
+#btn-attach-file:hover {
+  background: var(--vscode-list-hoverBackground);
+  color: var(--vscode-editor-foreground);
+}
+
+#btn-send {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+
+#btn-send:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+#btn-send:active {
+  opacity: 0.8;
+}
+
+#btn-send:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+/* ── Stop button — hidden by default, visible when agent is running ────── */
+
+#btn-stop {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  display: none;
+}
+
+#btn-stop.visible {
+  display: inline-flex;
+}
+
+#btn-stop:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+
+#btn-stop:active {
+  opacity: 0.8;
+}
+
+#btn-stop:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+
+/* ── Composer footer bar ────────────────────────────────────────────────── */
+
+#composer-footer {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px var(--space-medium) var(--space-small) var(--space-medium);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+#composer-footer span {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ── Clickable elements in footer ───────────────────────────────────────── */
+
+#composer-footer .clickable {
+  cursor: pointer;
+}
+
+#composer-footer .clickable:hover {
+  color: var(--vscode-editor-foreground);
+}
+
+/* ── Footer spacer (pushes context badge to the right) ───────────────────── */
+
+#composer-footer .footer-spacer {
+  flex: 1 1 auto;
+}
+
+/* ── Context badge ──────────────────────────────────────────────────────── */
+
+#context-badge {
+  white-space: nowrap;
+}
+
+.composer-chip {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-small);
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.composer-chip:hover {
+  background: var(--vscode-list-hoverBackground);
+  color: var(--vscode-editor-foreground);
+}

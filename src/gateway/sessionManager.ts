@@ -1,0 +1,341 @@
+import { EventEmitter } from 'events';
+import * as vscode from 'vscode';
+import { GatewayConnection } from './connection';
+import { Logger } from '../utils/logger';
+import {
+  folderRootKey,
+  ensureFolderSession,
+  newChat,
+  validateOwnedSessions,
+  registerSessionChangeHandler,
+  getSessionState,
+  saveSessionState,
+  isOwned,
+  sessionToFolder,
+  resolveSession,
+  deleteSession,
+  resetSession,
+  subscribeMessages,
+  getOwnedSessions,
+  FolderSessionState
+} from './folderSessions';
+
+export class SessionManager extends EventEmitter {
+  private gateway: GatewayConnection;
+  private logger: Logger;
+  private ctx: vscode.ExtensionContext;
+
+  /** Active session key per folder (folderUri.toString() → sessionKey) */
+  private activeSessions: Map<string, string> = new Map();
+
+  get context(): vscode.ExtensionContext { return this.ctx; }
+
+  constructor(gateway: GatewayConnection, ctx: vscode.ExtensionContext) {
+    super();
+    this.gateway = gateway;
+    this.ctx = ctx;
+    this.logger = Logger.getInstance();
+
+    // ── T3 + T5: Wire reconnection hooks ──
+    this.gateway.on('reconnected', () => {
+      this.onReconnected();
+    });
+
+    // ── T6: Register sessions.changed handler ──
+    registerSessionChangeHandler(gateway, ctx);
+
+    // Track current session from agent/chat events
+    this.gateway.on('event', (event) => {
+      if (
+        (event.type === 'agent' || event.type === 'chat') &&
+        event.payload?.sessionKey
+      ) {
+        const key = event.payload.sessionKey;
+        if (sessionToFolder.has(key)) {
+          const folderUri = sessionToFolder.get(key)!;
+          this.activeSessions.set(folderUri.toString(), key);
+        }
+        this.logger.debug(`Event session key: ${key}`);
+      }
+    });
+
+    this.gateway.on('processed_event', (event) => {
+      this.emit('stream', event);
+    });
+  }
+
+  // ── T3 + T5: Re-establish sessions on every reconnect ──
+  private async onReconnected(): Promise<void> {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) return;
+
+    for (const wf of folders) {
+      try {
+        if (getSessionState(this.ctx, wf.uri)) {
+          await validateOwnedSessions(this.gateway, this.ctx, wf.uri);
+        }
+      } catch (err) {
+        this.logger.error(
+          `Failed to re-establish session for ${wf.uri.fsPath}`,
+          err
+        );
+      }
+    }
+  }
+
+  /**
+   * Initialize sessions for all workspace folders.
+   * Call once during extension activate.
+   */
+  async initializeFolderSessions(): Promise<void> {
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) {
+      this.logger.warn('No workspace folders open');
+      return;
+    }
+
+    for (const wf of folders) {
+      try {
+        if (getSessionState(this.ctx, wf.uri)) {
+          await validateOwnedSessions(this.gateway, this.ctx, wf.uri);
+        }
+      } catch (err) {
+        this.logger.error(
+          `Failed to initialize sessions for ${wf.uri.fsPath}`,
+          err
+        );
+      }
+    }
+  }
+
+  // ── Session key resolution ──
+
+  /**
+   * Get or determine the active session key for a folder.
+   * Prefers cached active key → stored activeKey → root session.
+   */
+  async ensureSession(folderUri?: vscode.Uri): Promise<string> {
+    if (!folderUri) {
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders || folders.length === 0) {
+        throw new Error('No workspace folder open');
+      }
+      folderUri = folders[0].uri;
+    }
+
+    // 1. Cached active key
+    const cached = this.activeSessions.get(folderUri.toString());
+    if (cached && isOwned(cached)) {
+      return cached;
+    }
+
+    // 2. Stored state activeKey
+    const state = getSessionState(this.ctx, folderUri);
+    if (state && state.activeKey && isOwned(state.activeKey)) {
+      this.activeSessions.set(folderUri.toString(), state.activeKey);
+      return state.activeKey;
+    }
+
+    // 3. Ensure root exists, use as default
+    const rootKey = await ensureFolderSession(
+      this.gateway,
+      this.ctx,
+      folderUri
+    );
+    this.activeSessions.set(folderUri.toString(), rootKey);
+    return rootKey;
+  }
+
+  /**
+   * Create a new chat session under the folder root. (T4)
+   */
+  async createNewChat(folderUri?: vscode.Uri): Promise<string> {
+    if (!folderUri) {
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders || folders.length === 0) {
+        throw new Error('No workspace folder open');
+      }
+      folderUri = folders[0].uri;
+    }
+
+    const key = await newChat(this.gateway, this.ctx, folderUri);
+    this.activeSessions.set(folderUri.toString(), key);
+    return key;
+  }
+
+  /**
+   * Switch the active session for a folder.
+   */
+  setActiveSession(folderUri: vscode.Uri, key: string): void {
+    if (!isOwned(key)) {
+      this.logger.warn(`Attempted to activate unowned session: ${key}`);
+      return;
+    }
+    this.activeSessions.set(folderUri.toString(), key);
+
+    const state = getSessionState(this.ctx, folderUri);
+    if (state) {
+      state.activeKey = key;
+      saveSessionState(this.ctx, folderUri, state);
+    }
+  }
+
+  // ── Messaging ──
+
+  /**
+   * Send a chat message on the active session.
+   */
+  /** Keys that have already had workspace context injected this session. */
+  private injectedSessions = new Set<string>();
+
+  /** Agent overrides set from the webview menus. */
+  private agentOverrides: { agentId?: string; provider?: string; model?: string; thinking?: string } = {};
+
+  setAgentOverrides(o: { agentId?: string; provider?: string; model?: string; thinking?: string }): void {
+    this.agentOverrides = { ...this.agentOverrides, ...o };
+  }
+
+  async sendChatMessage(message: string, context?: any): Promise<any> {
+    const folderUri = context?.workspaceFolder
+      ? vscode.Uri.file(context.workspaceFolder)
+      : undefined;
+    const sessionKey = await this.ensureSession(folderUri);
+
+    try {
+      this.logger.info('Sending chat message', { sessionKey, messageLength: message.length });
+
+      // Set verboseLevel so tool events are visible
+      try {
+        await this.gateway.sendRequest('sessions.patch', { key: sessionKey, verboseLevel: 'on' });
+      } catch (patchError) {
+        this.logger.warn('Failed to set verboseLevel, tool events may not be visible', patchError);
+      }
+
+      // Inject workspace context once per session via chat.inject (not per-message prepend)
+      if (!this.injectedSessions.has(sessionKey) && context?.workspace) {
+        this.injectedSessions.add(sessionKey);
+        const systemContext = [
+          'This session is driven from the VS Code extension.',
+          `The user is working in: ${context.workspace}`,
+          'When file paths are mentioned, treat them as relative to that workspace unless they are absolute.',
+        ].join(' ');
+        try {
+          await this.gateway.sendRequest('chat.inject', {
+            sessionKey,
+            message: systemContext,
+          });
+        } catch (injectErr) {
+          this.logger.warn('chat.inject failed for workspace context', injectErr);
+        }
+      }
+
+      const result = await this.gateway.sendRequest(
+        'agent',
+        {
+          sessionKey,
+          message,
+          idempotencyKey: this.generateId(),
+          ...(this.agentOverrides.agentId ? { agentId: this.agentOverrides.agentId } : {}),
+          ...(this.agentOverrides.provider ? { provider: this.agentOverrides.provider } : {}),
+          ...(this.agentOverrides.model ? { model: this.agentOverrides.model } : {}),
+          ...(this.agentOverrides.thinking ? { thinking: this.agentOverrides.thinking } : {}),
+        },
+        { idleTimeoutMs: 15000 }
+      );
+
+      return result;
+    } catch (error) {
+      this.logger.error('Failed to send chat message', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get chat history. (T11)
+   *
+   * NOTE: `chat.history { sessionKey, limit }` may not return entries for
+   * agent-initiated runs. The agent event stream is the primary transcript
+   * source. When this returns incomplete data, fall back to replaying
+   * buffered agent events.
+   */
+  async getSessionHistory(
+    limit: number = 50,
+    folderUri?: vscode.Uri
+  ): Promise<any> {
+    const sessionKey = await this.ensureSession(folderUri);
+
+    try {
+      this.logger.info('Fetching chat history', { sessionKey, limit });
+
+      const result = await this.gateway.sendRequest('chat.history', {
+        sessionKey,
+        limit
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.warn(
+        'chat.history may not work for agent-initiated sessions. ' +
+          'The agent event stream is the primary transcript source.',
+        error
+      );
+      throw error;
+    }
+  }
+
+  // ── Utilities ──
+
+  private generateId(): string {
+    return `vscode-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  }
+
+  getCurrentSessionKey(folderUri?: vscode.Uri): string | null {
+    if (folderUri) {
+      return this.activeSessions.get(folderUri.toString()) ?? null;
+    }
+    const first = this.activeSessions.values().next();
+    return first.done ? null : first.value;
+  }
+
+  clearSession(folderUri?: vscode.Uri): void {
+    if (folderUri) {
+      this.activeSessions.delete(folderUri.toString());
+    } else {
+      this.activeSessions.clear();
+    }
+    this.logger.info('Session(s) cleared');
+  }
+
+  // ── Delegates to folderSessions ──
+
+  isOwned = isOwned;
+
+  resolveSession(params: { label?: string; agentId?: string }) {
+    return resolveSession(this.gateway, params);
+  }
+
+  deleteSession(key: string) {
+    return deleteSession(this.gateway, key);
+  }
+
+  resetSession(key: string) {
+    return resetSession(this.gateway, key);
+  }
+
+  subscribeMessages(key: string) {
+    return subscribeMessages(this.gateway, key);
+  }
+
+  getOwnedSessions() {
+    return getOwnedSessions(this.gateway);
+  }
+
+  getFolderState(folderUri: vscode.Uri): FolderSessionState | undefined {
+    return getSessionState(this.ctx, folderUri);
+  }
+
+  /** Expose sessionToFolder for read access */
+  getSessionToFolder(): ReadonlyMap<string, vscode.Uri> {
+    return sessionToFolder;
+  }
+}
