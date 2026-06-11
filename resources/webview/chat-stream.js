@@ -1391,7 +1391,8 @@
       // Use animated canvas for first render, then swap to DOM for interaction
       var existingCanvas = text.querySelector('.pretext-canvas');
       if (!existingCanvas && !text.dataset.settled) {
-        var canvas = createAnimatedCanvas(fullText, { duration: 800 });
+        var width = Math.max(200, (text.clientWidth || (messagesDiv && messagesDiv.clientWidth) || 340) - 40);
+        var canvas = createAnimatedCanvas(fullText, { duration: 800, width: width });
         if (canvas) {
           text.innerHTML = '';
           text.appendChild(canvas);
@@ -2191,7 +2192,7 @@
       }
       
       // Calculate width to stretch the whole window
-      var w = Math.max(300, messagesDiv.clientWidth - 24);
+      var w = Math.max(100, messagesDiv.clientWidth - 24);
       var fontSize = parseInt(getComputedStyle(document.body).fontSize) || 13;
       var charWidth = fontSize * 0.6;
       var lineCharCount = Math.max(10, Math.floor(w / charWidth));
@@ -2512,32 +2513,47 @@
     var fontSize = parseFloat(getComputedStyle(parent).fontSize) || 13;
     var lineHeight = parseFloat(getComputedStyle(parent).lineHeight) || (fontSize * 1.5);
 
-    var canvas = document.createElement('canvas');
-    canvas.className = 'pretext-canvas static-text';
-    canvas.dataset.originalText = text;
-
-    var ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.font = font;
-
+    var parts = text.split(/(\s+)/);
+    var fragment = document.createDocumentFragment();
     var dpr = window.devicePixelRatio || 1;
-    var tw = Math.ceil(ctx.measureText(text).width) + 2;
-    var th = Math.ceil(lineHeight) + 2;
 
-    canvas.width = tw * dpr;
-    canvas.height = th * dpr;
-    canvas.style.width = tw + 'px';
-    canvas.style.height = th + 'px';
-    canvas.style.display = 'inline-block';
-    canvas.style.verticalAlign = 'baseline';
+    parts.forEach(function (part) {
+      if (!part) return;
+      if (/^\s+$/.test(part)) {
+        fragment.appendChild(document.createTextNode(part));
+      } else {
+        var canvas = document.createElement('canvas');
+        canvas.className = 'pretext-canvas static-text';
+        canvas.dataset.originalText = part;
 
-    ctx.scale(dpr, dpr);
-    ctx.font = font;
-    ctx.fillStyle = color;
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, 1, th / 2);
+        var ctx = canvas.getContext('2d');
+        if (!ctx) {
+          fragment.appendChild(document.createTextNode(part));
+          return;
+        }
+        ctx.font = font;
 
-    parent.replaceChild(canvas, textNode);
+        var tw = Math.ceil(ctx.measureText(part).width) + 2;
+        var th = Math.ceil(lineHeight) + 2;
+
+        canvas.width = tw * dpr;
+        canvas.height = th * dpr;
+        canvas.style.width = tw + 'px';
+        canvas.style.height = th + 'px';
+        canvas.style.display = 'inline-block';
+        canvas.style.verticalAlign = 'baseline';
+
+        ctx.scale(dpr, dpr);
+        ctx.font = font;
+        ctx.fillStyle = color;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(part, 1, th / 2);
+
+        fragment.appendChild(canvas);
+      }
+    });
+
+    parent.replaceChild(fragment, textNode);
   }
 
   function convertDocumentToCanvas() {
@@ -2604,7 +2620,8 @@
       }
 
       delete textEl.dataset.settled;
-      var canvas = createAnimatedCanvas(fullText, { duration: 800 });
+      var width = Math.max(200, (textEl.clientWidth || (messagesDiv && messagesDiv.clientWidth) || 340) - 40);
+      var canvas = createAnimatedCanvas(fullText, { duration: 800, width: width });
       if (canvas) {
         textEl.innerHTML = '';
         textEl.appendChild(canvas);
