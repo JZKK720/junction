@@ -441,6 +441,67 @@
       colorRow.appendChild(themeBtn);
       box.appendChild(colorRow);
 
+      // Background color mode toggle
+      var bgRow = document.createElement('div');
+      bgRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:6px;margin-bottom:4px;';
+      var bgLabel = document.createElement('span');
+      bgLabel.textContent = 'BG Color:';
+      bgLabel.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);';
+      
+      var bgThemeBtn = document.createElement('button');
+      bgThemeBtn.textContent = 'Theme';
+      bgThemeBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window.animConfig.bgColor === 'theme' ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window.animConfig.bgColor === 'theme' ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
+      
+      var bgBlackBtn = document.createElement('button');
+      bgBlackBtn.textContent = 'Black';
+      bgBlackBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window.animConfig.bgColor === '#000' ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window.animConfig.bgColor === '#000' ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
+
+      var bgWhiteBtn = document.createElement('button');
+      bgWhiteBtn.textContent = 'White';
+      bgWhiteBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window.animConfig.bgColor === '#fff' ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window.animConfig.bgColor === '#fff' ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
+
+      bgThemeBtn.addEventListener('click', function () {
+        window.animConfig.bgColor = 'theme';
+        bgThemeBtn.style.background = 'var(--vscode-button-background)';
+        bgThemeBtn.style.color = 'var(--vscode-button-foreground)';
+        bgBlackBtn.style.background = 'var(--vscode-input-background)';
+        bgBlackBtn.style.color = 'var(--vscode-editor-foreground)';
+        bgWhiteBtn.style.background = 'var(--vscode-input-background)';
+        bgWhiteBtn.style.color = 'var(--vscode-editor-foreground)';
+        if (typeof window.refreshWorking === 'function') window.refreshWorking();
+      });
+
+      bgBlackBtn.addEventListener('click', function () {
+        window.animConfig.bgColor = '#000';
+        bgBlackBtn.style.background = 'var(--vscode-button-background)';
+        bgBlackBtn.style.color = 'var(--vscode-button-foreground)';
+        bgThemeBtn.style.background = 'var(--vscode-input-background)';
+        bgThemeBtn.style.color = 'var(--vscode-editor-foreground)';
+        bgWhiteBtn.style.background = 'var(--vscode-input-background)';
+        bgWhiteBtn.style.color = 'var(--vscode-editor-foreground)';
+        if (typeof window.refreshWorking === 'function') window.refreshWorking();
+      });
+
+      bgWhiteBtn.addEventListener('click', function () {
+        window.animConfig.bgColor = '#fff';
+        bgWhiteBtn.style.background = 'var(--vscode-button-background)';
+        bgWhiteBtn.style.color = 'var(--vscode-button-foreground)';
+        bgThemeBtn.style.background = 'var(--vscode-input-background)';
+        bgThemeBtn.style.color = 'var(--vscode-editor-foreground)';
+        bgBlackBtn.style.background = 'var(--vscode-input-background)';
+        bgBlackBtn.style.color = 'var(--vscode-editor-foreground)';
+        if (typeof window.refreshWorking === 'function') window.refreshWorking();
+      });
+
+      bgRow.appendChild(bgLabel);
+      bgRow.appendChild(bgThemeBtn);
+      bgRow.appendChild(bgBlackBtn);
+      bgRow.appendChild(bgWhiteBtn);
+      box.appendChild(bgRow);
+
+      // BG Alpha trail decay slider
+      box.appendChild(makeSlider('BG Trail', 'bgAlpha', 0.01, 0.4, 0.01));
+
       // Transparency slider
       box.appendChild(makeSlider('Alpha', 'opacity', 0.1, 1, 0.05, function (v) {
         document.querySelectorAll('canvas.pretext-canvas').forEach(function (c) { c.style.opacity = v; });

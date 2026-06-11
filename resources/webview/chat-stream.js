@@ -94,7 +94,9 @@
     density: 1.0,  // 0.25–2.0
     intensity: 1.0,// 0.25–2.0
     loop: false,
-    length: 2.0    // duration in seconds
+    length: 2.0,   // duration in seconds
+    bgColor: 'theme',
+    bgAlpha: 0.05
   };
   window.animConfig = animConfig; // expose for composer.js cross-script access
   var ANIM_MODES = ['matrix','zalgo','fire','bounce','spiral'];
@@ -107,6 +109,32 @@
   function getAnimFontSize() { return animConfig.fontSize; }
   function getAnimDensity() { return animConfig.density; }
   function getAnimIntensity() { return animConfig.intensity; }
+
+  function getAnimationBgColor(alpha) {
+    var bg = getComputedStyle(document.body).backgroundColor || 'rgba(30,30,30,1)';
+    if (bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') bg = 'rgb(30, 30, 30)';
+    var configBg = animConfig.bgColor || 'theme';
+    if (configBg !== 'theme') {
+      bg = configBg;
+    }
+    var a = (alpha !== undefined) ? alpha : (animConfig.bgAlpha || 0.05);
+
+    // Parse rgb(r, g, b) or rgba(r, g, b, a)
+    var m = bg.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)$/);
+    if (m) {
+      return 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',' + a + ')';
+    }
+    // Parse #hex
+    if (bg.startsWith('#')) {
+      var hex = bg.substring(1);
+      if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+      var r = parseInt(hex.substring(0,2), 16);
+      var g = parseInt(hex.substring(2,4), 16);
+      var b = parseInt(hex.substring(4,6), 16);
+      return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+    }
+    return 'rgba(0,0,0,' + a + ')';
+  }
 
   // ── Fire mode ─────────────────────────────────────────────────────────────
   function createFireCanvas(text, opts) {
@@ -915,7 +943,7 @@
     var animId = null;
     function draw() {
       if (canvas.closest && canvas.closest('#startup-loader.dismissed')) return;
-      ctx.fillStyle = 'rgba(0,0,0,0.05)';
+      ctx.fillStyle = getAnimationBgColor(animConfig.bgAlpha || 0.05);
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
       ctx.font = fontSize + 'px monospace';
@@ -2357,27 +2385,22 @@
     textarea.style.caretColor = 'var(--vscode-foreground, currentColor)';
     textarea.style.background = 'transparent';
 
-    var wrapper = document.createElement('div');
-    wrapper.style.position = 'relative';
-    wrapper.style.display = 'flex';
-    wrapper.style.flexDirection = 'column';
-    wrapper.style.width = '100%';
-    wrapper.style.height = '100%';
-
-    textarea.parentNode.insertBefore(wrapper, textarea);
-    wrapper.appendChild(textarea);
+    var parent = textarea.parentNode;
+    var parentStyle = getComputedStyle(parent);
+    if (parentStyle.position === 'static') {
+      parent.style.position = 'relative';
+    }
 
     var canvas = document.createElement('canvas');
     canvas.className = 'pretext-canvas static-text textarea-canvas';
     canvas.style.position = 'absolute';
-    canvas.style.top = '0';
-    canvas.style.left = '0';
     canvas.style.pointerEvents = 'none'; // click goes through to textarea
-    wrapper.insertBefore(canvas, textarea);
+    canvas.style.zIndex = '0'; // place behind text cursor but above background
+    parent.appendChild(canvas);
 
     function updateCanvas() {
       var font = getComputedStyle(textarea).font;
-      var realColor = getComputedStyle(wrapper).color || getComputedStyle(document.body).color || '#ccc';
+      var realColor = getComputedStyle(parent).color || getComputedStyle(document.body).color || '#ccc';
       var text = textarea.value || textarea.placeholder || '';
       var fontHeight = parseFloat(getComputedStyle(textarea).fontSize) || 13;
       var paddingLeft = parseFloat(getComputedStyle(textarea).paddingLeft) || 4;
@@ -2388,15 +2411,20 @@
       ctx.font = font;
 
       var dpr = window.devicePixelRatio || 1;
-      var w = textarea.clientWidth;
-      var h = textarea.clientHeight;
+      var w = textarea.offsetWidth;
+      var h = textarea.offsetHeight;
+      var left = textarea.offsetLeft;
+      var top = textarea.offsetTop;
 
       if (w <= 0 || h <= 0) return;
 
-      canvas.width = w * dpr;
-      canvas.height = h * dpr;
+      canvas.style.left = left + 'px';
+      canvas.style.top = top + 'px';
       canvas.style.width = w + 'px';
       canvas.style.height = h + 'px';
+
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
 
       ctx.scale(dpr, dpr);
       ctx.font = font;
@@ -2429,8 +2457,12 @@
     textarea.addEventListener('focus', updateCanvas);
     textarea.addEventListener('blur', updateCanvas);
 
+    var resizeTimeout = null;
     if (window.ResizeObserver) {
-      var ro = new ResizeObserver(updateCanvas);
+      var ro = new ResizeObserver(function () {
+        if (resizeTimeout) cancelAnimationFrame(resizeTimeout);
+        resizeTimeout = requestAnimationFrame(updateCanvas);
+      });
       ro.observe(textarea);
     } else {
       textarea.addEventListener('resize', updateCanvas);
