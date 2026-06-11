@@ -1578,18 +1578,9 @@
       });
     });
 
-    // Line numbers + code content
+    // Code content
     var body = document.createElement('div');
     body.className = 'code-editor-body';
-    var lines = text.split('\n');
-    var lineNums = document.createElement('div');
-    lineNums.className = 'code-editor-lines';
-    for (var i = 1; i <= lines.length; i++) {
-      var ln = document.createElement('span');
-      ln.className = 'code-editor-line-num';
-      ln.textContent = i;
-      lineNums.appendChild(ln);
-    }
     var code = document.createElement('pre');
     code.className = 'code-editor-code';
     if (isJson) {
@@ -1599,7 +1590,6 @@
     } else {
       code.innerHTML = simpleHighlight(text, lang || 'javascript');
     }
-    body.appendChild(lineNums);
     body.appendChild(code);
 
     editor.appendChild(header);
@@ -2356,4 +2346,194 @@
       vscode.postMessage({ type: 'openFile', filePath: filePath });
     }
   });
+
+  // ── Global Canvas Text Renderer ──────────────────────────────────────────
+  function bindTextareaToCanvas(textarea) {
+    if (!textarea || textarea.dataset.hasCanvas) return;
+    textarea.dataset.hasCanvas = 'true';
+
+    // Make textarea text transparent, keep caret visible
+    textarea.style.color = 'transparent';
+    textarea.style.caretColor = 'var(--vscode-foreground, currentColor)';
+    textarea.style.background = 'transparent';
+
+    var wrapper = document.createElement('div');
+    wrapper.style.position = 'relative';
+    wrapper.style.display = 'flex';
+    wrapper.style.flexDirection = 'column';
+    wrapper.style.width = '100%';
+    wrapper.style.height = '100%';
+
+    textarea.parentNode.insertBefore(wrapper, textarea);
+    wrapper.appendChild(textarea);
+
+    var canvas = document.createElement('canvas');
+    canvas.className = 'pretext-canvas static-text textarea-canvas';
+    canvas.style.position = 'absolute';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+    canvas.style.pointerEvents = 'none'; // click goes through to textarea
+    wrapper.insertBefore(canvas, textarea);
+
+    function updateCanvas() {
+      var font = getComputedStyle(textarea).font;
+      var realColor = getComputedStyle(wrapper).color || getComputedStyle(document.body).color || '#ccc';
+      var text = textarea.value || textarea.placeholder || '';
+      var fontHeight = parseFloat(getComputedStyle(textarea).fontSize) || 13;
+      var paddingLeft = parseFloat(getComputedStyle(textarea).paddingLeft) || 4;
+      var paddingTop = parseFloat(getComputedStyle(textarea).paddingTop) || 4;
+
+      var ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.font = font;
+
+      var dpr = window.devicePixelRatio || 1;
+      var w = textarea.clientWidth;
+      var h = textarea.clientHeight;
+
+      if (w <= 0 || h <= 0) return;
+
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = w + 'px';
+      canvas.style.height = h + 'px';
+
+      ctx.scale(dpr, dpr);
+      ctx.font = font;
+      ctx.fillStyle = textarea.value ? realColor : 'rgba(128, 128, 128, 0.5)'; // placeholder color if empty
+      ctx.textBaseline = 'top';
+
+      var lines = [];
+      if (PretextAPI && PretextAPI.prepareWithSegments && PretextAPI.layoutWithLines) {
+        try {
+          var prepared = PretextAPI.prepareWithSegments(text, font);
+          var layoutResult = PretextAPI.layoutWithLines(prepared, w - paddingLeft * 2, fontHeight * 1.4);
+          lines = (layoutResult.lines || []).map(function (l) { return l.text || l; });
+        } catch (e) {
+          lines = text.split('\n');
+        }
+      } else {
+        lines = text.split('\n');
+      }
+
+      lines.forEach(function (line, idx) {
+        ctx.fillText(line, paddingLeft, paddingTop + idx * fontHeight * 1.4 - textarea.scrollTop);
+      });
+    }
+
+    textarea.addEventListener('input', updateCanvas);
+    textarea.addEventListener('scroll', updateCanvas);
+    textarea.addEventListener('keyup', updateCanvas);
+    textarea.addEventListener('keydown', updateCanvas);
+    textarea.addEventListener('change', updateCanvas);
+    textarea.addEventListener('focus', updateCanvas);
+    textarea.addEventListener('blur', updateCanvas);
+
+    if (window.ResizeObserver) {
+      var ro = new ResizeObserver(updateCanvas);
+      ro.observe(textarea);
+    } else {
+      textarea.addEventListener('resize', updateCanvas);
+    }
+
+    setTimeout(updateCanvas, 50);
+  }
+
+  function convertTextNodeToCanvas(textNode) {
+    if (!textNode || !textNode.parentNode) return;
+    var text = textNode.nodeValue;
+    if (!text || !text.trim()) return; // skip empty or whitespace-only nodes
+
+    var parent = textNode.parentNode;
+    var parentTag = parent.tagName.toLowerCase();
+    if (parentTag === 'script' || parentTag === 'style' || parentTag === 'canvas' ||
+        parentTag === 'textarea' || parentTag === 'input' || parent.classList.contains('pretext-canvas') ||
+        parent.classList.contains('code-editor-line-num')) {
+      return;
+    }
+
+    var font = getComputedStyle(parent).font;
+    var color = getComputedStyle(parent).color;
+    var fontSize = parseFloat(getComputedStyle(parent).fontSize) || 13;
+    var lineHeight = parseFloat(getComputedStyle(parent).lineHeight) || (fontSize * 1.5);
+
+    var canvas = document.createElement('canvas');
+    canvas.className = 'pretext-canvas static-text';
+    canvas.dataset.originalText = text;
+
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.font = font;
+
+    var dpr = window.devicePixelRatio || 1;
+    var tw = Math.ceil(ctx.measureText(text).width) + 2;
+    var th = Math.ceil(lineHeight) + 2;
+
+    canvas.width = tw * dpr;
+    canvas.height = th * dpr;
+    canvas.style.width = tw + 'px';
+    canvas.style.height = th + 'px';
+    canvas.style.display = 'inline-block';
+    canvas.style.verticalAlign = 'baseline';
+
+    ctx.scale(dpr, dpr);
+    ctx.font = font;
+    ctx.fillStyle = color;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 1, th / 2);
+
+    parent.replaceChild(canvas, textNode);
+  }
+
+  function convertDocumentToCanvas() {
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+    var node;
+    var nodes = [];
+    while (node = walker.nextNode()) {
+      nodes.push(node);
+    }
+    nodes.forEach(function (n) {
+      convertTextNodeToCanvas(n);
+    });
+
+    document.querySelectorAll('textarea').forEach(function (t) {
+      bindTextareaToCanvas(t);
+    });
+  }
+
+  // Run on startup
+  if (document.body) {
+    convertDocumentToCanvas();
+  } else {
+    document.addEventListener('DOMContentLoaded', convertDocumentToCanvas);
+  }
+
+  // Intercept all future DOM mutations
+  var observer = new MutationObserver(function (mutations) {
+    mutations.forEach(function (mutation) {
+      mutation.addedNodes.forEach(function (node) {
+        if (node.nodeType === Node.TEXT_NODE) {
+          convertTextNodeToCanvas(node);
+        } else if (node.nodeType === Node.ELEMENT_NODE) {
+          if (node.tagName && node.tagName.toLowerCase() === 'textarea') {
+            bindTextareaToCanvas(node);
+          }
+          var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
+          var childTextNode;
+          var childTextNodes = [];
+          while (childTextNode = walker.nextNode()) {
+            childTextNodes.push(childTextNode);
+          }
+          childTextNodes.forEach(function (n) {
+            convertTextNodeToCanvas(n);
+          });
+          node.querySelectorAll('textarea').forEach(function (t) {
+            bindTextareaToCanvas(t);
+          });
+        }
+      });
+    });
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
 })();
