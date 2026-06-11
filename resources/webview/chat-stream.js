@@ -2609,28 +2609,75 @@
   observer.observe(document.body, { childList: true, subtree: true });
 
   function reanimateAllMessages() {
-    var bubbles = document.querySelectorAll('#chat-messages .msg-text');
-    bubbles.forEach(function (textEl) {
-      var fullText = textEl.dataset.rawText || textEl.textContent;
-      if (!fullText) return;
+    var rows = Array.from(document.querySelectorAll('#chat-messages .chat-row'));
+    if (rows.length === 0) return;
 
-      var oldCanvas = textEl.querySelector('canvas.pretext-canvas');
-      if (oldCanvas && oldCanvas._stopAnimation) {
-        try { oldCanvas._stopAnimation(); } catch (e) {}
+    // Stop active canvas animations
+    rows.forEach(function (row) {
+      var textEl = row.querySelector('.msg-text');
+      if (textEl) {
+        var oldCanvas = textEl.querySelector('canvas.pretext-canvas');
+        if (oldCanvas && oldCanvas._stopAnimation) {
+          try { oldCanvas._stopAnimation(); } catch (e) {}
+        }
+      }
+    });
+
+    // Hide all rows
+    rows.forEach(function (row) {
+      row.style.display = 'none';
+    });
+
+    var index = 0;
+    function next() {
+      if (index >= rows.length) return;
+      var row = rows[index];
+      row.style.display = '';
+      forceScrollToBottom();
+
+      var textEl = row.querySelector('.msg-text');
+      if (!textEl) {
+        index++;
+        next();
+        return;
+      }
+
+      var fullText = textEl.dataset.rawText || textEl.textContent;
+      if (!fullText) {
+        index++;
+        next();
+        return;
       }
 
       delete textEl.dataset.settled;
-      var width = Math.max(200, (textEl.clientWidth || (messagesDiv && messagesDiv.clientWidth) || 340) - 40);
-      var canvas = createAnimatedCanvas(fullText, { duration: 800, width: width });
+      // Measure client width of messages container as fallback since textEl might be hidden initially
+      var containerWidth = (messagesDiv && messagesDiv.clientWidth) || 340;
+      var width = Math.max(200, (textEl.clientWidth || containerWidth) - 40);
+      var duration = 800;
+
+      var canvas = createAnimatedCanvas(fullText, { duration: duration, width: width });
       if (canvas) {
         textEl.innerHTML = '';
         textEl.appendChild(canvas);
+        forceScrollToBottom();
+
         setTimeout(function () {
           textEl.innerHTML = renderMarkdown(fullText);
           textEl.dataset.settled = '1';
-        }, 850);
+          forceScrollToBottom();
+          index++;
+          next();
+        }, duration + 50);
+      } else {
+        textEl.innerHTML = renderMarkdown(fullText);
+        textEl.dataset.settled = '1';
+        forceScrollToBottom();
+        index++;
+        next();
       }
-    });
+    }
+
+    next();
   }
   window.reanimateAllMessages = reanimateAllMessages;
 })();
