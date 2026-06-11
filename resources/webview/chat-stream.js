@@ -1392,7 +1392,11 @@
 
     if (messageId) row.appendChild(buildCheckpointMarker(messageId, hasCheckpoint));
     row.appendChild(buildMsgActions(messageId));
-    messagesDiv.appendChild(row);
+    if (workingRow && workingRow.parentNode === messagesDiv) {
+      messagesDiv.insertBefore(row, workingRow);
+    } else {
+      messagesDiv.appendChild(row);
+    }
     forceScrollToBottom();
     return row;
   }
@@ -1420,7 +1424,11 @@
     bubble.className = 'msg-text';
     row.appendChild(bubble);
 
-    messagesDiv.appendChild(row);
+    if (workingRow && workingRow.parentNode === messagesDiv) {
+      messagesDiv.insertBefore(row, workingRow);
+    } else {
+      messagesDiv.appendChild(row);
+    }
     if (track && runId) activeRuns.set(runId, row);
     return row;
   }
@@ -1516,19 +1524,26 @@
       // Use animated canvas for first render, then swap to DOM for interaction
       var existingCanvas = text.querySelector('.pretext-canvas');
       if (!existingCanvas && !text.dataset.settled) {
-        var width = Math.max(200, (text.clientWidth || (messagesDiv && messagesDiv.clientWidth) || 340) - 40);
-        var canvas = createAnimatedCanvas(fullText, { duration: 800, width: width });
-        if (canvas) {
-          text.innerHTML = '';
-          text.appendChild(canvas);
-          // After animation, swap to rendered markdown
-          setTimeout(function () {
-            text.innerHTML = renderMarkdown(fullText);
-            text.dataset.settled = '1';
-          }, 850);
-          ensureToolContainer(runId, row);
-          scrollToBottom();
-          return;
+        var mode = window._junctionAnimationMode || 'matrix';
+        if (mode === 'leak') {
+          // Leak mode: render DOM directly and let CSS slide-up handle the emerge transition
+          text.innerHTML = renderMarkdown(fullText);
+          text.dataset.settled = '1';
+        } else {
+          var width = Math.max(200, (text.clientWidth || (messagesDiv && messagesDiv.clientWidth) || 340) - 40);
+          var canvas = createAnimatedCanvas(fullText, { duration: 800, width: width });
+          if (canvas) {
+            text.innerHTML = '';
+            text.appendChild(canvas);
+            // After animation, swap to rendered markdown
+            setTimeout(function () {
+              text.innerHTML = renderMarkdown(fullText);
+              text.dataset.settled = '1';
+            }, 850);
+            ensureToolContainer(runId, row);
+            scrollToBottom();
+            return;
+          }
         }
       }
       // Subsequent updates — just update DOM directly
@@ -2761,7 +2776,13 @@
     function next() {
       if (index >= rows.length) return;
       var row = rows[index];
+      
+      // Force animation replay by toggling the class and forcing layout reflow
+      row.classList.remove('rise-up-anim');
+      void row.offsetWidth;
       row.style.display = '';
+      row.classList.add('rise-up-anim');
+
       if (startPlaybackSticky && userScrollSticky) {
         messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
       }
@@ -2786,15 +2807,36 @@
       var width = Math.max(200, (textEl.clientWidth || containerWidth) - 40);
       var duration = 800;
 
-      var canvas = createAnimatedCanvas(fullText, { duration: duration, width: width });
-      if (canvas) {
-        textEl.innerHTML = '';
-        textEl.appendChild(canvas);
+      var mode = window._junctionAnimationMode || 'matrix';
+      if (mode === 'leak') {
+        textEl.innerHTML = renderMarkdown(fullText);
+        textEl.dataset.settled = '1';
         if (startPlaybackSticky && userScrollSticky) {
           messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
         }
-
         setTimeout(function () {
+          index++;
+          next();
+        }, 400); // Wait for the rise-up CSS animation duration
+      } else {
+        var canvas = createAnimatedCanvas(fullText, { duration: duration, width: width });
+        if (canvas) {
+          textEl.innerHTML = '';
+          textEl.appendChild(canvas);
+          if (startPlaybackSticky && userScrollSticky) {
+            messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+          }
+
+          setTimeout(function () {
+            textEl.innerHTML = renderMarkdown(fullText);
+            textEl.dataset.settled = '1';
+            if (startPlaybackSticky && userScrollSticky) {
+              messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+            }
+            index++;
+            next();
+          }, duration + 50);
+        } else {
           textEl.innerHTML = renderMarkdown(fullText);
           textEl.dataset.settled = '1';
           if (startPlaybackSticky && userScrollSticky) {
@@ -2802,15 +2844,7 @@
           }
           index++;
           next();
-        }, duration + 50);
-      } else {
-        textEl.innerHTML = renderMarkdown(fullText);
-        textEl.dataset.settled = '1';
-        if (startPlaybackSticky && userScrollSticky) {
-          messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
         }
-        index++;
-        next();
       }
     }
 
