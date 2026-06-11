@@ -96,7 +96,7 @@
     loop: false,
     length: 2.0,   // duration in seconds
     bgColor: 'theme',
-    bgAlpha: 0.05
+    bgAlpha: 0.0
   };
   window.animConfig = animConfig; // expose for composer.js cross-script access
   var ANIM_MODES = ['matrix','zalgo','fire','bounce','spiral'];
@@ -104,6 +104,14 @@
   if (!window._junctionAnimColor) {
     window._junctionAnimColor = getComputedStyle(document.body).color || '#ccc';
   }
+  function updateAllCanvasBackgrounds() {
+    var canvases = document.querySelectorAll('canvas.pretext-canvas');
+    canvases.forEach(function (canvas) {
+      if (canvas.classList.contains('textarea-canvas')) return;
+      canvas.style.backgroundColor = getAnimationBgColor(animConfig.bgAlpha);
+    });
+  }
+  window.updateAllCanvasBackgrounds = updateAllCanvasBackgrounds;
 
   function getAnimSpeed() { return animConfig.speed; }
   function getAnimFontSize() { return animConfig.fontSize; }
@@ -908,16 +916,22 @@
   function createAnimatedCanvas(text, opts) {
     opts = opts || {};
     var mode = window._junctionAnimationMode || 'matrix';
+    var canvas = null;
     if (opts.loader && mode === 'matrix') {
-      return createMatrixLoader(opts.width, opts.height || 40);
+      canvas = createMatrixLoader(opts.width, opts.height || 40);
+    } else {
+      switch (mode) {
+        case 'zalgo': canvas = createZalgoCanvas(text, opts); break;
+        case 'fire': canvas = createFireCanvas(text, opts); break;
+        case 'bounce': canvas = createBounceCanvas(text, opts); break;
+        case 'spiral': canvas = createSpiralCanvas(text, opts); break;
+        default: canvas = createMatrixCanvas(text, opts); break;
+      }
     }
-    switch (mode) {
-      case 'zalgo': return createZalgoCanvas(text, opts);
-      case 'fire': return createFireCanvas(text, opts);
-      case 'bounce': return createBounceCanvas(text, opts);
-      case 'spiral': return createSpiralCanvas(text, opts);
-      default: return createMatrixCanvas(text, opts);
+    if (canvas) {
+      canvas.style.backgroundColor = getAnimationBgColor(animConfig.bgAlpha);
     }
+    return canvas;
   }
   window.createAnimatedCanvas = createAnimatedCanvas; // expose for composer.js
 
@@ -943,8 +957,13 @@
     var animId = null;
     function draw() {
       if (canvas.closest && canvas.closest('#startup-loader.dismissed')) return;
-      ctx.fillStyle = getAnimationBgColor(animConfig.bgAlpha || 0.05);
+      
+      // Clear with destination-out to fade previous drawings towards transparent
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = 'rgba(0,0,0,0.08)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.globalCompositeOperation = 'source-over';
+
       ctx.fillStyle = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
       ctx.font = fontSize + 'px monospace';
       drops.forEach(function (drop, i) {
@@ -1245,6 +1264,7 @@
 
     var bubble = document.createElement('div');
     bubble.className = 'msg-text';
+    bubble.dataset.rawText = text;
     bubble.innerHTML = renderMarkdown(text);
     row.appendChild(bubble);
 
@@ -1285,6 +1305,7 @@
     try {
       var row = buildAssistantRow(runId, false);
       var bubble = row.querySelector('.msg-text');
+      bubble.dataset.rawText = item.content || '';
       bubble.innerHTML = renderMarkdown(item.content || '');
       if (item.thinking) {
         renderReasoning(runId, item.thinking, {
@@ -1363,6 +1384,8 @@
     var row = getOrCreateAssistantMessage(runId);
     var text = row.querySelector('.msg-text');
     if (!text) return;
+
+    text.dataset.rawText = fullText;
 
     if (extraRichEnabled && fullText && fullText.length > 0) {
       // Use animated canvas for first render, then swap to DOM for interaction
@@ -2568,4 +2591,29 @@
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
+
+  function reanimateAllMessages() {
+    var bubbles = document.querySelectorAll('#chat-messages .msg-text');
+    bubbles.forEach(function (textEl) {
+      var fullText = textEl.dataset.rawText || textEl.textContent;
+      if (!fullText) return;
+
+      var oldCanvas = textEl.querySelector('canvas.pretext-canvas');
+      if (oldCanvas && oldCanvas._stopAnimation) {
+        try { oldCanvas._stopAnimation(); } catch (e) {}
+      }
+
+      delete textEl.dataset.settled;
+      var canvas = createAnimatedCanvas(fullText, { duration: 800 });
+      if (canvas) {
+        textEl.innerHTML = '';
+        textEl.appendChild(canvas);
+        setTimeout(function () {
+          textEl.innerHTML = renderMarkdown(fullText);
+          textEl.dataset.settled = '1';
+        }, 850);
+      }
+    });
+  }
+  window.reanimateAllMessages = reanimateAllMessages;
 })();

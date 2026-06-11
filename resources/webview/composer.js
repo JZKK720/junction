@@ -158,6 +158,16 @@
 
   if (btnSend) btnSend.addEventListener('click', send);
 
+  // ── Re-animate all text messages ──────────────────────────────────────────
+  var btnReanimate = document.getElementById('btn-reanimate');
+  if (btnReanimate) {
+    btnReanimate.addEventListener('click', function () {
+      if (typeof window.reanimateAllMessages === 'function') {
+        window.reanimateAllMessages();
+      }
+    });
+  }
+
   // ── Animation preview + controls ──────────────────────────────────────────
   var btnPreviewAnim = document.getElementById('btn-preview-anim');
   if (btnPreviewAnim) {
@@ -238,21 +248,19 @@
         var slider = document.createElement('input');
         slider.type = 'range';
         slider.min = min; slider.max = max; slider.step = step;
-        slider.value = window.animConfig[key] !== undefined ? window.animConfig[key] : (key === 'opacity' ? 1.0 : 1.0);
+        slider.value = window.animConfig[key] !== undefined ? window.animConfig[key] : 1.0;
         slider.style.cssText = 'width:60px;height:12px;';
         var val = document.createElement('span');
         val.textContent = slider.value;
         val.style.cssText = 'font-size:9px;color:var(--vscode-descriptionForeground);min-width:20px;text-align:right;';
         slider.addEventListener('input', function () {
           var num = parseFloat(this.value);
-          if (key === 'opacity') {
-            window.animConfig.opacity = num;
-            document.querySelectorAll('canvas.pretext-canvas').forEach(function (c) { c.style.opacity = num; });
-          } else {
-            window.animConfig[key] = num;
-          }
+          window.animConfig[key] = num;
           val.textContent = this.value;
           refreshPreview();
+          if (key === 'bgAlpha' && typeof window.updateAllCanvasBackgrounds === 'function') {
+            window.updateAllCanvasBackgrounds();
+          }
           if (typeof window.refreshWorking === 'function') window.refreshWorking();
         });
         wrap.appendChild(lbl);
@@ -265,7 +273,7 @@
       ctrlRow.appendChild(makeSlider('Dens', 'density', 0.25, 2, 0.25));
       ctrlRow.appendChild(makeSlider('Int', 'intensity', 0.25, 2, 0.25));
       ctrlRow.appendChild(makeSlider('Len', 'length', 0.5, 5, 0.1));
-      ctrlRow.appendChild(makeSlider('Alpha', 'opacity', 0.1, 1.0, 0.05));
+      ctrlRow.appendChild(makeSlider('BG Opacity', 'bgAlpha', 0, 1.0, 0.05));
       box.appendChild(ctrlRow);
 
       // Toggles row (Loop & Color)
@@ -441,71 +449,52 @@
       colorRow.appendChild(themeBtn);
       box.appendChild(colorRow);
 
-      // Background color mode toggle
+      // Background color selector - single cycle button
       var bgRow = document.createElement('div');
       bgRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:6px;margin-bottom:4px;';
       var bgLabel = document.createElement('span');
       bgLabel.textContent = 'BG Color:';
-      bgLabel.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);';
-      
-      var bgThemeBtn = document.createElement('button');
-      bgThemeBtn.textContent = 'Theme';
-      bgThemeBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window.animConfig.bgColor === 'theme' ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window.animConfig.bgColor === 'theme' ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
-      
-      var bgBlackBtn = document.createElement('button');
-      bgBlackBtn.textContent = 'Black';
-      bgBlackBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window.animConfig.bgColor === '#000' ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window.animConfig.bgColor === '#000' ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
+      bgLabel.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);min-width:50px;';
 
-      var bgWhiteBtn = document.createElement('button');
-      bgWhiteBtn.textContent = 'White';
-      bgWhiteBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window.animConfig.bgColor === '#fff' ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window.animConfig.bgColor === '#fff' ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
+      var bgBtn = document.createElement('button');
+      bgBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:var(--vscode-input-background);color:var(--vscode-editor-foreground);flex:1;';
 
-      bgThemeBtn.addEventListener('click', function () {
-        window.animConfig.bgColor = 'theme';
-        bgThemeBtn.style.background = 'var(--vscode-button-background)';
-        bgThemeBtn.style.color = 'var(--vscode-button-foreground)';
-        bgBlackBtn.style.background = 'var(--vscode-input-background)';
-        bgBlackBtn.style.color = 'var(--vscode-editor-foreground)';
-        bgWhiteBtn.style.background = 'var(--vscode-input-background)';
-        bgWhiteBtn.style.color = 'var(--vscode-editor-foreground)';
+      var bgOptions = [
+        { val: 'theme', text: 'Theme BG' },
+        { val: '#000000', text: 'Black' },
+        { val: '#ffffff', text: 'White' },
+        { val: '#1e1e1e', text: 'Dark Grey' },
+        { val: '#101014', text: 'Midnight' }
+      ];
+
+      function updateBgButton() {
+        var currentVal = window.animConfig.bgColor || 'theme';
+        var currentOpt = bgOptions.find(function (o) { return o.val === currentVal; }) || bgOptions[0];
+        bgBtn.textContent = currentOpt.text;
+      }
+
+      bgBtn.addEventListener('click', function () {
+        var currentVal = window.animConfig.bgColor || 'theme';
+        var idx = bgOptions.findIndex(function (o) { return o.val === currentVal; });
+        var nextIdx = (idx + 1) % bgOptions.length;
+        window.animConfig.bgColor = bgOptions[nextIdx].val;
+        updateBgButton();
+        if (typeof window.updateAllCanvasBackgrounds === 'function') {
+          window.updateAllCanvasBackgrounds();
+        }
         if (typeof window.refreshWorking === 'function') window.refreshWorking();
       });
 
-      bgBlackBtn.addEventListener('click', function () {
-        window.animConfig.bgColor = '#000';
-        bgBlackBtn.style.background = 'var(--vscode-button-background)';
-        bgBlackBtn.style.color = 'var(--vscode-button-foreground)';
-        bgThemeBtn.style.background = 'var(--vscode-input-background)';
-        bgThemeBtn.style.color = 'var(--vscode-editor-foreground)';
-        bgWhiteBtn.style.background = 'var(--vscode-input-background)';
-        bgWhiteBtn.style.color = 'var(--vscode-editor-foreground)';
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-      });
-
-      bgWhiteBtn.addEventListener('click', function () {
-        window.animConfig.bgColor = '#fff';
-        bgWhiteBtn.style.background = 'var(--vscode-button-background)';
-        bgWhiteBtn.style.color = 'var(--vscode-button-foreground)';
-        bgThemeBtn.style.background = 'var(--vscode-input-background)';
-        bgThemeBtn.style.color = 'var(--vscode-editor-foreground)';
-        bgBlackBtn.style.background = 'var(--vscode-input-background)';
-        bgBlackBtn.style.color = 'var(--vscode-editor-foreground)';
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-      });
-
+      updateBgButton();
       bgRow.appendChild(bgLabel);
-      bgRow.appendChild(bgThemeBtn);
-      bgRow.appendChild(bgBlackBtn);
-      bgRow.appendChild(bgWhiteBtn);
+      bgRow.appendChild(bgBtn);
       box.appendChild(bgRow);
 
-      // BG Alpha trail decay slider
-      box.appendChild(makeSlider('BG Trail', 'bgAlpha', 0.01, 0.4, 0.01));
-
-      // Transparency slider
-      box.appendChild(makeSlider('Alpha', 'opacity', 0.1, 1, 0.05, function (v) {
-        document.querySelectorAll('canvas.pretext-canvas').forEach(function (c) { c.style.opacity = v; });
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
+      // BG Opacity slider (controls CSS element background color opacity)
+      box.appendChild(makeSlider('BG Opacity', 'bgAlpha', 0, 1, 0.05, function (v) {
+        if (typeof window.updateAllCanvasBackgrounds === 'function') {
+          window.updateAllCanvasBackgrounds();
+        }
       }));
 
       document.body.appendChild(box);
