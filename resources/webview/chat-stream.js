@@ -96,10 +96,11 @@
     loop: false,
     length: 2.0,   // duration in seconds
     bgColor: 'theme',
-    bgAlpha: 0.0
+    bgAlpha: 0.0,
+    widthMode: 'text' // 'text' (Text Size) or 'full' (Full Width)
   };
   window.animConfig = animConfig; // expose for composer.js cross-script access
-  var ANIM_MODES = ['matrix','zalgo','fire','bounce','spiral'];
+  var ANIM_MODES = ['matrix','zalgo','fire','bounce','spiral','leak'];
   window.ANIM_MODES = ANIM_MODES; // expose for composer.js cross-script access
   if (!window._junctionAnimColor) {
     window._junctionAnimColor = getComputedStyle(document.body).color || '#ccc';
@@ -160,7 +161,8 @@
     var lines = text ? text.split('\n') : [''];
     var maxWidth = 0;
     lines.forEach(function (l) { maxWidth = Math.max(maxWidth, ctx.measureText(l).width); });
-    var tw = Math.ceil(maxWidth) + 20;
+    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
+    var tw = isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20);
     var th = lines.length * lineHeight + 20;
 
     // Fire simulation grid (low-res)
@@ -373,7 +375,8 @@
     var lines = text ? text.split('\n') : [''];
     var maxWidth = 0;
     lines.forEach(function (l) { maxWidth = Math.max(maxWidth, ctx.measureText(l).width); });
-    var tw = Math.ceil(maxWidth) + 20;
+    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
+    var tw = isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20);
     var th = lines.length * lineHeight + 20;
     canvas.width = tw; canvas.height = th;
     canvas.style.width = tw + 'px'; canvas.style.height = th + 'px';
@@ -507,7 +510,8 @@
     var lines = text ? text.split('\n') : [''];
     var maxWidth = 0;
     lines.forEach(function (l) { maxWidth = Math.max(maxWidth, ctx.measureText(l).width); });
-    var tw = Math.ceil(maxWidth) + 20;
+    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
+    var tw = isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20);
     var th = lines.length * lineHeight + 20;
     canvas.width = tw; canvas.height = th;
     canvas.style.width = tw + 'px'; canvas.style.height = th + 'px';
@@ -658,7 +662,8 @@
     ctx.font = fontStr;
     var maxWidth = 0;
     lines.forEach(function (line) { maxWidth = Math.max(maxWidth, ctx.measureText(line).width); });
-    var tw = Math.ceil(maxWidth) + 20;
+    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
+    var tw = isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20);
     var th = lines.length * lineHeight + 20;
     canvas.width = tw; canvas.height = th;
     canvas.style.width = tw + 'px'; canvas.style.height = th + 'px';
@@ -763,11 +768,13 @@
       baselineWidth = ctx.measureText(baselineText).width;
     }
 
+    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
+    var canvasWidth = isFull ? (opts.width || 600) : (baselineWidth + 20);
+
     // Calculate columns from baseline width
     var charWidth = fontSize * 0.55;
-    var numCols = Math.max(4, Math.floor((baselineWidth / charWidth) * getAnimDensity()));
+    var numCols = Math.max(4, Math.floor((canvasWidth / charWidth) * getAnimDensity()));
     var riseHeight = fontSize * 4 * getAnimIntensity(); // how high zalgo rises above baseline
-    var canvasWidth = baselineWidth + 20;
     var canvasHeight = riseHeight + lineHeight + 10;
 
     canvas.width = Math.ceil(canvasWidth);
@@ -912,6 +919,110 @@
     return canvas;
   }
 
+  function createLeakCanvas(text, opts) {
+    opts = opts || {};
+    var canvas = document.createElement('canvas');
+    canvas.className = 'pretext-canvas';
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    var fontStr = getCurrentFont();
+    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize());
+    var lineHeight = Math.round(fontSize * 1.5);
+
+    var prepared = null;
+    var lines = [];
+    if (PretextAPI && PretextAPI.prepareWithSegments && PretextAPI.layoutWithLines) {
+      try {
+        prepared = PretextAPI.prepareWithSegments(text, fontStr);
+        var containerWidth = (opts.width || 600);
+        var layoutResult = PretextAPI.layoutWithLines(prepared, containerWidth, lineHeight);
+        lines = (layoutResult.lines || []).map(function (l) { return l.text || l; });
+      } catch (e) { lines = text.split('\n'); }
+    } else {
+      lines = text.split('\n');
+    }
+    if (lines.length === 0) lines = [''];
+
+    ctx.font = fontStr;
+    var maxWidth = 0;
+    lines.forEach(function (line) { maxWidth = Math.max(maxWidth, ctx.measureText(line).width); });
+    
+    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
+    var tw = isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20);
+    var th = lines.length * lineHeight + 25;
+    canvas.width = tw; canvas.height = th;
+    canvas.style.width = tw + 'px'; canvas.style.height = th + 'px';
+
+    var startTime = performance.now();
+    var duration = opts.duration || (window.animConfig.length * 1000) || 1200;
+    var done = false;
+    var animId = null;
+    var fgColor = getComputedStyle(document.body).color || '#ccc';
+    var animColor = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+    var thresholdY = th - 12;
+
+    function frame(now) {
+      if (done) return;
+      var elapsed = now - startTime;
+      var progress = Math.min(elapsed / duration, 1);
+      ctx.clearRect(0, 0, tw, th);
+      ctx.font = fontStr;
+
+      lines.forEach(function (line, i) {
+        var lineProgress = Math.max(0, Math.min(1, (progress - i * 0.1) / 0.5));
+        if (lineProgress > 0) {
+          ctx.globalAlpha = lineProgress;
+          ctx.fillStyle = fgColor;
+          
+          var finalY = (i + 1) * lineHeight;
+          var startY = thresholdY;
+          var currentY = startY - (startY - finalY) * lineProgress;
+          
+          var jitter = 0;
+          if (lineProgress < 0.4) {
+            jitter = (Math.random() - 0.5) * 4 * (1 - lineProgress / 0.4);
+          }
+          
+          ctx.fillText(line, 10 + jitter, currentY);
+        }
+      });
+
+      ctx.globalAlpha = Math.max(0, 1 - progress);
+      if (ctx.globalAlpha > 0) {
+        ctx.fillStyle = animColor;
+        for (var x = 10; x < tw - 10; x += 8) {
+          if (Math.random() > 0.4) {
+            var blockH = 2 + Math.random() * 6;
+            ctx.fillRect(x, thresholdY - blockH / 2, 4, blockH);
+          }
+        }
+      }
+
+      ctx.globalAlpha = 1;
+      if (progress < 1) {
+        animId = requestAnimationFrame(frame);
+      } else {
+        if (opts.loop || (window.animConfig && window.animConfig.loop)) {
+          startTime = performance.now();
+          animId = requestAnimationFrame(frame);
+        } else {
+          done = true;
+          ctx.clearRect(0, 0, tw, th);
+          ctx.font = fontStr;
+          ctx.fillStyle = fgColor;
+          lines.forEach(function (line, i) {
+            ctx.fillText(line, 10, (i + 1) * lineHeight);
+          });
+        }
+      }
+    }
+
+    animId = requestAnimationFrame(frame);
+    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); };
+    return canvas;
+  }
+
   // ── Dispatcher ────────────────────────────────────────────────────────────
   function createAnimatedCanvas(text, opts) {
     opts = opts || {};
@@ -925,6 +1036,7 @@
         case 'fire': canvas = createFireCanvas(text, opts); break;
         case 'bounce': canvas = createBounceCanvas(text, opts); break;
         case 'spiral': canvas = createSpiralCanvas(text, opts); break;
+        case 'leak': canvas = createLeakCanvas(text, opts); break;
         default: canvas = createMatrixCanvas(text, opts); break;
       }
     }
@@ -1030,11 +1142,11 @@
   }
   function scrollToBottom() {
     if (isNearBottom()) {
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
     }
   }
   function forceScrollToBottom() {
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
   }
 
   // ── Share / export chat ──────────────────────────────────────────────────
@@ -1254,12 +1366,16 @@
   var reasoningBlocks = new Map();   // runId → <details> element
   var toolCalls = new Map();         // toolCallId → tool card element
   var toolContainers = new Map();    // runId → .tool-calls container
+  var isRestoringHistory = false;
 
   // ── User rows + per-message actions ────────────────────────────────────────
   function addUserRow(text, messageId, hasCheckpoint) {
     if (isWorkspaceContext(text)) return null;
     var row = document.createElement('div');
     row.className = 'chat-row user';
+    if (!isRestoringHistory) {
+      row.classList.add('rise-up-anim');
+    }
     if (messageId) row.setAttribute('data-message-id', messageId);
 
     var bubble = document.createElement('div');
@@ -1278,6 +1394,9 @@
   function buildAssistantRow(runId, track) {
     var row = document.createElement('div');
     row.className = 'chat-row assistant';
+    if (!isRestoringHistory) {
+      row.classList.add('rise-up-anim');
+    }
     if (runId) row.setAttribute('data-run-id', runId);
 
     var reasoning = document.createElement('div');
@@ -2262,6 +2381,7 @@
   }
 
   function renderHistory(history) {
+    isRestoringHistory = true;
     clearMessages();
     (history || []).forEach(function (item, index) {
       if (!item) return;
@@ -2275,6 +2395,7 @@
         addUserRow(item.content, item.messageId, item.hasCheckpoint);
       }
     });
+    isRestoringHistory = false;
     // Restart thinking bar for active run if persisted across reload
     var activeRunId = messagesDiv.dataset.activeRun;
     if (activeRunId) {

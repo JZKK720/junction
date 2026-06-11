@@ -38,6 +38,20 @@ html, body {
   border-top: 1px solid var(--vscode-widget-border, var(--vscode-input-border, rgba(128,128,128,0.08)));
 }
 
+@keyframes rise-up {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.chat-row.rise-up-anim {
+  animation: rise-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 .chat-row .msg-text {
   border-radius: var(--corner-radius-medium);
   padding: var(--space-small) var(--space-medium);

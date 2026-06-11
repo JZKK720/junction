@@ -490,6 +490,36 @@
       bgRow.appendChild(bgBtn);
       box.appendChild(bgRow);
 
+      // Width mode selector - single cycle button
+      var widthRow = document.createElement('div');
+      widthRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:6px;margin-bottom:4px;';
+      var widthLabel = document.createElement('span');
+      widthLabel.textContent = 'Width:';
+      widthLabel.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);min-width:50px;';
+
+      var widthBtn = document.createElement('button');
+      widthBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:var(--vscode-input-background);color:var(--vscode-editor-foreground);flex:1;';
+
+      function updateWidthButton() {
+        var isFull = window.animConfig.widthMode === 'full';
+        widthBtn.textContent = isFull ? 'Full Width' : 'Text Size';
+      }
+
+      widthBtn.addEventListener('click', function () {
+        var current = window.animConfig.widthMode || 'text';
+        window.animConfig.widthMode = (current === 'text') ? 'full' : 'text';
+        updateWidthButton();
+        if (typeof window.reanimateAllMessages === 'function') {
+          window.reanimateAllMessages();
+        }
+        if (typeof window.refreshWorking === 'function') window.refreshWorking();
+      });
+
+      updateWidthButton();
+      widthRow.appendChild(widthLabel);
+      widthRow.appendChild(widthBtn);
+      box.appendChild(widthRow);
+
       // BG Opacity slider (controls CSS element background color opacity)
       box.appendChild(makeSlider('BG Opacity', 'bgAlpha', 0, 1, 0.05, function (v) {
         if (typeof window.updateAllCanvasBackgrounds === 'function') {
