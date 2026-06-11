@@ -13,7 +13,59 @@
   'use strict';
 
   // Cross-script globals (set by chat-stream.js; fallback if loaded first)
-  var ANIM_MODES = window.ANIM_MODES || ['matrix','zalgo','fire','bounce','spiral'];
+  if (!window.animConfig) {
+    window.animConfig = {
+      speed: 1.0,
+      fontSize: 1.0,
+      density: 1.0,
+      intensity: 1.0,
+      loop: false,
+      length: 2.0,
+      bgColor: 'theme',
+      bgAlpha: 0.0,
+      widthMode: 'text',
+      sizeOff: false,
+      magic: false,
+      diffusionHeight: 1.0,
+      noiseRes: 4,
+      textFade: 0.5,
+      cooling: 0.65,
+      spread: 0.3,
+
+      loaderMode: 'default',
+      loaderSpeed: 1.0,
+      loaderFontSize: 1.0,
+      loaderDensity: 1.0,
+      loaderIntensity: 1.0,
+      loaderLength: 2.0,
+      loaderBgColor: 'theme',
+      loaderBgAlpha: 0.0,
+      loaderLoop: true,
+      loaderWidthMode: 'text',
+      loaderSizeOff: false,
+      loaderMagic: false,
+      loaderNoiseRes: 4,
+      loaderTextFade: 0.5,
+      loaderCooling: 0.65,
+      loaderSpread: 0.3
+    };
+  }
+  try {
+    var savedState = vscode.getState();
+    if (savedState) {
+      if (savedState.animConfig) {
+        Object.assign(window.animConfig, savedState.animConfig);
+      }
+      if (savedState._junctionAnimationMode) {
+        window._junctionAnimationMode = savedState._junctionAnimationMode;
+      }
+      if (savedState._junctionAnimColor) {
+        window._junctionAnimColor = savedState._junctionAnimColor;
+      }
+    }
+  } catch (e) {}
+
+  var ANIM_MODES = window.ANIM_MODES || ['matrix','zalgo','fire','bounce','spiral','galaxy','leak'];
   var createAnimatedCanvas = window.createAnimatedCanvas || function () { return null; };
   var animationMode = window._junctionAnimationMode || 'matrix';
   // Re-sync when chat-stream.js loads later
@@ -78,6 +130,82 @@
   })();
 
   if (!composerInput) return;
+
+  // ── Expand button & Modal logic ──────────────────────────────────────────
+  (function () {
+    var expandBtn = document.getElementById('btn-composer-expand');
+    if (!expandBtn) return;
+
+    expandBtn.addEventListener('click', function () {
+      var modal = document.createElement('div');
+      modal.id = 'chat-expand-modal';
+      modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);';
+
+      var panel = document.createElement('div');
+      panel.style.cssText = 'width:90vw;max-width:900px;height:80vh;display:flex;flex-direction:column;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4);';
+
+      var hdr = document.createElement('div');
+      hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--vscode-input-border);';
+      var hdrTitle = document.createElement('span');
+      hdrTitle.textContent = 'Composer';
+      hdrTitle.style.cssText = 'font-size:12px;font-weight:600;color:var(--vscode-editor-foreground);';
+      var closeBtn = document.createElement('button');
+      closeBtn.className = 'codicon codicon-close';
+      closeBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--vscode-descriptionForeground);font-size:16px;padding:0;';
+      hdr.appendChild(hdrTitle);
+      hdr.appendChild(closeBtn);
+      panel.appendChild(hdr);
+
+      var ta = document.createElement('textarea');
+      ta.style.cssText = 'flex:1;padding:12px;border:none;background:transparent;color:var(--vscode-editor-foreground);font-family:var(--vscode-editor-font-family,monospace);font-size:var(--vscode-editor-font-size,14px);line-height:1.6;resize:none;outline:none;';
+      ta.placeholder = 'Ask agent...';
+      ta.value = composerInput.value;
+      panel.appendChild(ta);
+
+      var ftr = document.createElement('div');
+      ftr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-top:1px solid var(--vscode-input-border);';
+      var ftrHint = document.createElement('span');
+      ftrHint.textContent = 'ESC to close · Ctrl+Enter to send';
+      ftrHint.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);';
+      var sendBtn = document.createElement('button');
+      sendBtn.textContent = 'Send';
+      sendBtn.style.cssText = 'padding:4px 16px;border-radius:3px;border:1px solid var(--vscode-button-background);background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer;font-size:12px;';
+      ftr.appendChild(ftrHint);
+      ftr.appendChild(sendBtn);
+      panel.appendChild(ftr);
+
+      modal.appendChild(panel);
+      document.body.appendChild(modal);
+      ta.focus();
+
+      function closeModal() {
+        composerInput.value = ta.value;
+        composerInput.style.height = 'auto';
+        composerInput.style.height = composerInput.scrollHeight + 'px';
+        modal.remove();
+      }
+
+      closeBtn.addEventListener('click', closeModal);
+      sendBtn.addEventListener('click', function () {
+        closeModal();
+        send();
+      });
+
+      modal.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Escape') {
+          closeModal();
+        }
+        if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+          closeModal();
+          send();
+        }
+      });
+
+      modal.addEventListener('click', function (ev) {
+        if (ev.target === modal) closeModal();
+      });
+    });
+  })();
 
   var sendBehavior = 'enter';
   var isSending = false;
@@ -161,138 +289,282 @@
   // ── Re-animate all text messages ──────────────────────────────────────────
   var btnReanimate = document.getElementById('btn-reanimate');
   if (btnReanimate) {
-    btnReanimate.addEventListener('click', function () {
-      if (typeof window.reanimateAllMessages === 'function') {
-        window.reanimateAllMessages();
+    btnReanimate.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (window.choiceMenu) {
+        window.choiceMenu.open(btnReanimate, {
+          title: 'Play Animation',
+          items: [
+            {
+              id: 'play_splash',
+              label: 'Play splash animation',
+              icon: 'rocket',
+              action: function () {
+                if (typeof window.playSplashAnimationPreview === 'function') {
+                  window.playSplashAnimationPreview();
+                }
+              }
+            },
+            {
+              id: 'play_chat',
+              label: 'Play chat animation',
+              icon: 'comment',
+              action: function () {
+                if (typeof window.reanimateAllMessages === 'function') {
+                  window.reanimateAllMessages();
+                }
+              }
+            }
+          ]
+        });
+      } else {
+        if (typeof window.reanimateAllMessages === 'function') {
+          window.reanimateAllMessages();
+        }
       }
     });
   }
 
   // ── Animation preview + controls ──────────────────────────────────────────
   var btnPreviewAnim = document.getElementById('btn-preview-anim');
-  if (btnPreviewAnim) {
-    btnPreviewAnim.addEventListener('click', function () {
-      var existing = document.getElementById('anim-preview-box');
-      if (existing) {
-        var oldCanvas = existing.querySelector('canvas.pretext-canvas');
-        if (oldCanvas && typeof oldCanvas._stopAnimation === 'function') {
+
+  function toggleChatPreviewPanel() {
+    var existing = document.getElementById('anim-preview-box');
+    if (existing) {
+      var oldCanvas = existing.querySelector('canvas.pretext-canvas');
+      if (oldCanvas && typeof oldCanvas._stopAnimation === 'function') {
+        oldCanvas._stopAnimation();
+      }
+      existing.remove();
+      return;
+    }
+    var box = document.createElement('div');
+    box.id = 'anim-preview-box';
+    box.style.cssText = 'padding:8px;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:4px;margin:4px 0;';
+
+    // Preview area defined early so refreshPreview can reference it
+    var previewArea = document.createElement('div');
+    previewArea.style.cssText = 'display:flex;justify-content:center;padding:4px 0;min-height:60px;';
+
+    var activeTab = 'chat'; // 'chat' or 'bobber'
+
+    function refreshPreview() {
+      var oldCanvas = previewArea.querySelector('canvas.pretext-canvas');
+      if (oldCanvas) {
+        if (typeof oldCanvas._stopAnimation === 'function') {
           oldCanvas._stopAnimation();
         }
-        existing.remove();
-        return;
+        oldCanvas.remove();
       }
-      var box = document.createElement('div');
-      box.id = 'anim-preview-box';
-      box.style.cssText = 'padding:8px;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:4px;margin:4px 0;';
-
-      // Preview area defined early so refreshPreview can reference it
-      var previewArea = document.createElement('div');
-      previewArea.style.cssText = 'display:flex;justify-content:center;padding:4px 0;min-height:60px;';
-
-      function refreshPreview() {
-        var oldCanvas = previewArea.querySelector('canvas.pretext-canvas');
-        if (oldCanvas) {
-          if (typeof oldCanvas._stopAnimation === 'function') {
-            oldCanvas._stopAnimation();
-          }
-          oldCanvas.remove();
+      var existingFullScreen = document.querySelectorAll('canvas.full-screen-anim');
+      existingFullScreen.forEach(function (c) {
+        if (c._stopAnimation) {
+          try { c._stopAnimation(); } catch (e) {}
+        } else {
+          c.remove();
         }
-        var canvas = createAnimatedCanvas('Hello world, this is a test.', { width: 300 });
+      });
+
+      if (activeTab === 'chat') {
+        var isMagic = !!(window.animConfig && window.animConfig.magic);
+        var cfg = window.animConfig || {};
+        var opts = {
+          duration: Math.round((cfg.length || 2.0) * 1000),
+          mode: cfg.mode || window._junctionAnimationMode || 'matrix',
+          loop: !!cfg.loop
+        };
+        if (isMagic) {
+          var rect = previewArea.getBoundingClientRect();
+          if (rect.width <= 0) {
+            rect = { left: window.innerWidth / 2 - 150, top: window.innerHeight - 150, width: 300, height: 60 };
+          }
+          opts.unbounded = true;
+          opts.rect = rect;
+        } else {
+          opts.width = 300;
+        }
+
+        var canvas = createAnimatedCanvas('Hello world, this is a test.', opts);
+        if (canvas) {
+          if (isMagic) {
+            document.body.appendChild(canvas);
+            setTimeout(function () {
+              if (canvas && typeof canvas._stopAnimation === 'function') {
+                canvas._stopAnimation();
+              }
+              canvas.remove();
+            }, 850);
+          } else {
+            canvas.style.maxWidth = '280px';
+            if (window.animConfig.opacity !== undefined) {
+              canvas.style.opacity = window.animConfig.opacity;
+            }
+            previewArea.appendChild(canvas);
+          }
+        }
+      } else {
+        // activeTab === 'bobber'
+        var cfg = window.animConfig || {};
+        var opts = {
+          loader: true,
+          isSplash: true,
+          width: 300,
+          height: 60,
+          loaderLoop: !!cfg.loaderLoop
+        };
+        var canvas = createAnimatedCanvas('Junction', opts);
         if (canvas) {
           canvas.style.maxWidth = '280px';
-          if (window.animConfig.opacity !== undefined) {
-            canvas.style.opacity = window.animConfig.opacity;
-          }
           previewArea.appendChild(canvas);
         }
       }
+    }
 
-      // Mode selector row
+    // Tabs Row
+    var tabsRow = document.createElement('div');
+    tabsRow.style.cssText = 'display:flex;border-bottom:1px solid var(--vscode-panel-border);margin-bottom:8px;padding-bottom:4px;gap:12px;';
+
+    var tabChat = document.createElement('span');
+    tabChat.textContent = 'Chat Messages';
+    tabChat.style.cssText = 'cursor:pointer;font-size:11px;font-weight:bold;color:var(--vscode-button-foreground);border-bottom:2px solid var(--vscode-button-background);padding:2px 4px;';
+
+    var tabBobber = document.createElement('span');
+    tabBobber.textContent = 'Bobber Settings';
+    tabBobber.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
+
+    tabsRow.appendChild(tabChat);
+    tabsRow.appendChild(tabBobber);
+    box.appendChild(tabsRow);
+
+    function buildConfigSection(isLoader) {
+      var section = document.createElement('div');
+
+      // Mode Selector
       var modeRow = document.createElement('div');
       modeRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;align-items:center;';
       var modeLabel = document.createElement('span');
-      modeLabel.textContent = 'Mode:';
+      modeLabel.textContent = isLoader ? 'Style:' : 'Mode:';
       modeLabel.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);margin-right:4px;';
       modeRow.appendChild(modeLabel);
 
-      ANIM_MODES.forEach(function (mode) {
+      var modesList = isLoader 
+        ? [{val:'default', label:'Same as Chat'}, {val:'matrix', label:'Matrix'}, {val:'zalgo', label:'Zalgo'}, {val:'fire', label:'Fire'}, {val:'bounce', label:'Bounce'}, {val:'spiral', label:'Spiral'}, {val:'galaxy', label:'Galaxy'}, {val:'leak', label:'Leak'}]
+        : ANIM_MODES.map(function(m) { return {val: m, label: m.charAt(0).toUpperCase() + m.slice(1)}; });
+
+      modesList.forEach(function (opt) {
         var btn = document.createElement('button');
-        btn.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
-        btn.style.cssText = 'background:' + (animationMode === mode ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (animationMode === mode ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';border:1px solid var(--vscode-input-border);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;';
+        btn.textContent = opt.label;
+        var currentMode = isLoader 
+          ? (window.animConfig.loaderMode || 'default') 
+          : (window._junctionAnimationMode || 'matrix');
+        
+        btn.style.cssText = 'background:' + (currentMode === opt.val ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (currentMode === opt.val ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';border:1px solid var(--vscode-input-border);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;';
         btn.addEventListener('click', function () {
-          animationMode = mode;
-          window._junctionAnimationMode = mode;
+          if (isLoader) {
+            window.animConfig.loaderMode = opt.val;
+          } else {
+            animationMode = opt.val;
+            window._junctionAnimationMode = opt.val;
+          }
           refreshPreview();
-          // Update button styles
-          modeRow.querySelectorAll('button').forEach(function (b) {
-            b.style.background = 'var(--vscode-input-background)';
-            b.style.color = 'var(--vscode-editor-foreground)';
+          modeRow.querySelectorAll('button').forEach(function (b, idx) {
+            var activeVal = modesList[idx].val;
+            var isActive = isLoader 
+              ? (window.animConfig.loaderMode === activeVal)
+              : (window._junctionAnimationMode === activeVal);
+            b.style.background = isActive ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
+            b.style.color = isActive ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
           });
-          btn.style.background = 'var(--vscode-button-background)';
-          btn.style.color = 'var(--vscode-button-foreground)';
           if (typeof window.refreshWorking === 'function') window.refreshWorking();
+          if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
         });
         modeRow.appendChild(btn);
       });
-      box.appendChild(modeRow);
+      section.appendChild(modeRow);
 
-      // Controls row
+      // Sliders Row
       var ctrlRow = document.createElement('div');
       ctrlRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;align-items:center;';
+      
       function makeSlider(label, key, min, max, step) {
         var wrap = document.createElement('div');
         wrap.style.cssText = 'display:flex;align-items:center;gap:3px;';
         var lbl = document.createElement('span');
         lbl.textContent = label;
         lbl.style.cssText = 'font-size:9px;color:var(--vscode-descriptionForeground);min-width:32px;';
+        
         var slider = document.createElement('input');
         slider.type = 'range';
         slider.min = min; slider.max = max; slider.step = step;
-        slider.value = window.animConfig[key] !== undefined ? window.animConfig[key] : 1.0;
+        
+        var actualKey = isLoader ? ('loader' + key.charAt(0).toUpperCase() + key.slice(1)) : key;
+        var defaultVal = key === 'loop' ? (isLoader ? true : false) : 1.0;
+        if (key === 'length') defaultVal = 2.0;
+        if (key === 'bgAlpha') defaultVal = 0.0;
+        if (key === 'cooling') defaultVal = 0.65;
+        if (key === 'spread') defaultVal = 0.3;
+        if (key === 'textFade') defaultVal = 0.5;
+        
+        slider.value = window.animConfig[actualKey] !== undefined ? window.animConfig[actualKey] : defaultVal;
         slider.style.cssText = 'width:60px;height:12px;';
+        
         var val = document.createElement('span');
         val.textContent = slider.value;
         val.style.cssText = 'font-size:9px;color:var(--vscode-descriptionForeground);min-width:20px;text-align:right;';
+        
         slider.addEventListener('input', function () {
           var num = parseFloat(this.value);
-          window.animConfig[key] = num;
+          window.animConfig[actualKey] = num;
           val.textContent = this.value;
           refreshPreview();
           if (key === 'bgAlpha' && typeof window.updateAllCanvasBackgrounds === 'function') {
             window.updateAllCanvasBackgrounds();
           }
           if (typeof window.refreshWorking === 'function') window.refreshWorking();
+          if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
         });
         wrap.appendChild(lbl);
         wrap.appendChild(slider);
         wrap.appendChild(val);
         return wrap;
       }
+
       ctrlRow.appendChild(makeSlider('Speed', 'speed', 0.25, 4, 0.25));
       ctrlRow.appendChild(makeSlider('Size', 'fontSize', 0.5, 2, 0.1));
       ctrlRow.appendChild(makeSlider('Dens', 'density', 0.25, 2, 0.25));
       ctrlRow.appendChild(makeSlider('Int', 'intensity', 0.25, 2, 0.25));
       ctrlRow.appendChild(makeSlider('Len', 'length', 0.5, 5, 0.1));
       ctrlRow.appendChild(makeSlider('BG Opacity', 'bgAlpha', 0, 1.0, 0.05));
-      box.appendChild(ctrlRow);
+      ctrlRow.appendChild(makeSlider('Diff Area', 'diffusionHeight', 1.0, 6.0, 0.2));
+      ctrlRow.appendChild(makeSlider('Noise Res', 'noiseRes', 1, 12, 1));
+      ctrlRow.appendChild(makeSlider('Text Fade', 'textFade', 0, 1.0, 0.1));
+      ctrlRow.appendChild(makeSlider('Cooling', 'cooling', 0.4, 0.95, 0.05));
+      ctrlRow.appendChild(makeSlider('Spread', 'spread', 0.05, 0.45, 0.05));
+      section.appendChild(ctrlRow);
 
-      // Toggles row (Loop & Color)
+      // Toggles Row
       var togglesRow = document.createElement('div');
       togglesRow.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap;';
 
+      // Loop button
+      var loopKey = isLoader ? 'loaderLoop' : 'loop';
       var loopBtn = document.createElement('button');
-      loopBtn.textContent = 'Loop: ' + (window.animConfig.loop ? 'ON' : 'OFF');
-      loopBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window.animConfig.loop ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window.animConfig.loop ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
+      var isLoop = window.animConfig[loopKey] !== undefined ? window.animConfig[loopKey] : (isLoader ? true : false);
+      loopBtn.textContent = 'Loop: ' + (isLoop ? 'ON' : 'OFF');
+      loopBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (isLoop ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (isLoop ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
       loopBtn.addEventListener('click', function () {
-        window.animConfig.loop = !window.animConfig.loop;
-        loopBtn.textContent = 'Loop: ' + (window.animConfig.loop ? 'ON' : 'OFF');
-        loopBtn.style.background = window.animConfig.loop ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
-        loopBtn.style.color = window.animConfig.loop ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
+        window.animConfig[loopKey] = !window.animConfig[loopKey];
+        var updatedVal = window.animConfig[loopKey];
+        loopBtn.textContent = 'Loop: ' + (updatedVal ? 'ON' : 'OFF');
+        loopBtn.style.background = updatedVal ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
+        loopBtn.style.color = updatedVal ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
         refreshPreview();
         if (typeof window.refreshWorking === 'function') window.refreshWorking();
+        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
       });
       togglesRow.appendChild(loopBtn);
 
+      // Color labels & buttons
       var colorLabel = document.createElement('span');
       colorLabel.textContent = 'Color:';
       colorLabel.style.cssText = 'font-size:9px;color:var(--vscode-descriptionForeground);margin-left:8px;';
@@ -300,165 +572,52 @@
 
       var greenBtn = document.createElement('button');
       greenBtn.textContent = 'Green';
-      greenBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window._junctionAnimColor === '#10a37f' ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window._junctionAnimColor === '#10a37f' ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
-
       var themeBtn = document.createElement('button');
       themeBtn.textContent = 'Theme';
-      themeBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window._junctionAnimColor !== '#10a37f' ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window._junctionAnimColor !== '#10a37f' ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
+
+      function updateColorButtons() {
+        var activeColor = isLoader ? window._junctionLoaderAnimColor : window._junctionAnimColor;
+        var isGreen = (activeColor === '#10a37f');
+        greenBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (isGreen ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (isGreen ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
+        themeBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (!isGreen ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (!isGreen ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
+      }
 
       greenBtn.addEventListener('click', function () {
-        window._junctionAnimColor = '#10a37f';
-        greenBtn.style.background = 'var(--vscode-button-background)';
-        greenBtn.style.color = 'var(--vscode-button-foreground)';
-        themeBtn.style.background = 'var(--vscode-input-background)';
-        themeBtn.style.color = 'var(--vscode-editor-foreground)';
+        if (isLoader) {
+          window._junctionLoaderAnimColor = '#10a37f';
+        } else {
+          window._junctionAnimColor = '#10a37f';
+        }
+        updateColorButtons();
         refreshPreview();
         if (typeof window.refreshWorking === 'function') window.refreshWorking();
+        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
       });
 
       themeBtn.addEventListener('click', function () {
-        window._junctionAnimColor = getComputedStyle(document.body).color || '#ccc';
-        themeBtn.style.background = 'var(--vscode-button-background)';
-        themeBtn.style.color = 'var(--vscode-button-foreground)';
-        greenBtn.style.background = 'var(--vscode-input-background)';
-        greenBtn.style.color = 'var(--vscode-editor-foreground)';
+        if (isLoader) {
+          window._junctionLoaderAnimColor = '';
+        } else {
+          window._junctionAnimColor = getComputedStyle(document.body).color || '#ccc';
+        }
+        updateColorButtons();
         refreshPreview();
         if (typeof window.refreshWorking === 'function') window.refreshWorking();
+        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
       });
 
+      updateColorButtons();
       togglesRow.appendChild(greenBtn);
       togglesRow.appendChild(themeBtn);
-      box.appendChild(togglesRow);
 
-      box.appendChild(previewArea);
-      refreshPreview();
-
-      var inputArea = document.querySelector('#composer-shell');
-      if (inputArea) inputArea.parentNode.insertBefore(box, inputArea);
-    });
-  }
-
-  // ── Animation settings dropdown ──────────────────────────────────────────
-  var btnAnimSettings = document.getElementById('btn-anim-settings');
-  if (btnAnimSettings) {
-    btnAnimSettings.addEventListener('click', function (e) {
-      e.stopPropagation();
-      var existing = document.getElementById('anim-settings-box');
-      if (existing) { existing.remove(); return; }
-      var box = document.createElement('div');
-      box.id = 'anim-settings-box';
-      box.style.cssText = 'position:fixed;bottom:80px;right:20px;z-index:9999;padding:10px;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.3);min-width:260px;max-width:320px;';
-
-      // Header
-      var hdr = document.createElement('div');
-      hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;';
-      var title = document.createElement('span');
-      title.textContent = 'Animation Settings';
-      title.style.cssText = 'font-size:11px;font-weight:600;color:var(--vscode-editor-foreground);';
-      var closeBtn = document.createElement('button');
-      closeBtn.className = 'codicon codicon-close';
-      closeBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--vscode-descriptionForeground);font-size:14px;padding:0;';
-      closeBtn.addEventListener('click', function () { box.remove(); });
-      hdr.appendChild(title);
-      hdr.appendChild(closeBtn);
-      box.appendChild(hdr);
-
-      // Mode selector
-      var modeRow = document.createElement('div');
-      modeRow.style.cssText = 'display:flex;gap:3px;flex-wrap:wrap;margin-bottom:8px;';
-      ANIM_MODES.forEach(function (mode) {
-        var btn = document.createElement('button');
-        btn.textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
-        btn.style.cssText = 'background:' + (animationMode === mode ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (animationMode === mode ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';border:1px solid var(--vscode-input-border);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;';
-        btn.addEventListener('click', function () {
-          animationMode = mode;
-          window._junctionAnimationMode = mode;
-          modeRow.querySelectorAll('button').forEach(function (b) {
-            b.style.background = 'var(--vscode-input-background)';
-            b.style.color = 'var(--vscode-editor-foreground)';
-          });
-          btn.style.background = 'var(--vscode-button-background)';
-          btn.style.color = 'var(--vscode-button-foreground)';
-          if (typeof window.refreshWorking === 'function') window.refreshWorking();
-        });
-        modeRow.appendChild(btn);
-      });
-      box.appendChild(modeRow);
-
-      // Sliders
-      function makeSlider(label, key, min, max, step, onChange) {
-        var wrap = document.createElement('div');
-        wrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-bottom:4px;';
-        var lbl = document.createElement('span');
-        lbl.textContent = label;
-        lbl.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);min-width:50px;';
-        var slider = document.createElement('input');
-        slider.type = 'range';
-        slider.min = min; slider.max = max; slider.step = step;
-        slider.value = window.animConfig[key];
-        slider.style.cssText = 'flex:1;height:12px;';
-        var val = document.createElement('span');
-        val.textContent = window.animConfig[key];
-        val.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);min-width:24px;text-align:right;';
-        slider.addEventListener('input', function () {
-          window.animConfig[key] = parseFloat(this.value);
-          val.textContent = this.value;
-          if (onChange) onChange(this.value);
-          if (typeof window.refreshWorking === 'function') window.refreshWorking();
-        });
-        wrap.appendChild(lbl);
-        wrap.appendChild(slider);
-        wrap.appendChild(val);
-        return wrap;
-      }
-      box.appendChild(makeSlider('Speed', 'speed', 0.25, 4, 0.25));
-      box.appendChild(makeSlider('Size', 'fontSize', 0.5, 2, 0.1));
-      box.appendChild(makeSlider('Dens', 'density', 0.25, 2, 0.25));
-      box.appendChild(makeSlider('Int', 'intensity', 0.25, 2, 0.25));
-
-      // Color mode toggle
-      var colorRow = document.createElement('div');
-      colorRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:6px;margin-bottom:4px;';
-      var colorLabel = document.createElement('span');
-      colorLabel.textContent = 'Color:';
-      colorLabel.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);';
-      var greenBtn = document.createElement('button');
-      greenBtn.textContent = 'Green';
-      greenBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window._junctionAnimColor === '#10a37f' ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window._junctionAnimColor === '#10a37f' ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
-      var themeBtn = document.createElement('button');
-      themeBtn.textContent = 'Theme';
-      themeBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (window._junctionAnimColor !== '#10a37f' ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (window._junctionAnimColor !== '#10a37f' ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
-      greenBtn.addEventListener('click', function () {
-        window._junctionAnimColor = '#10a37f';
-        greenBtn.style.background = 'var(--vscode-button-background)';
-        greenBtn.style.color = 'var(--vscode-button-foreground)';
-        themeBtn.style.background = 'var(--vscode-input-background)';
-        themeBtn.style.color = 'var(--vscode-editor-foreground)';
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-      });
-      themeBtn.addEventListener('click', function () {
-        window._junctionAnimColor = getComputedStyle(document.body).color || '#ccc';
-        themeBtn.style.background = 'var(--vscode-button-background)';
-        themeBtn.style.color = 'var(--vscode-button-foreground)';
-        greenBtn.style.background = 'var(--vscode-input-background)';
-        greenBtn.style.color = 'var(--vscode-editor-foreground)';
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-      });
-      colorRow.appendChild(colorLabel);
-      colorRow.appendChild(greenBtn);
-      colorRow.appendChild(themeBtn);
-      box.appendChild(colorRow);
-
-      // Background color selector - single cycle button
-      var bgRow = document.createElement('div');
-      bgRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:6px;margin-bottom:4px;';
+      // BG Color Selector
       var bgLabel = document.createElement('span');
-      bgLabel.textContent = 'BG Color:';
-      bgLabel.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);min-width:50px;';
+      bgLabel.textContent = 'BG:';
+      bgLabel.style.cssText = 'font-size:9px;color:var(--vscode-descriptionForeground);margin-left:8px;';
+      togglesRow.appendChild(bgLabel);
 
       var bgBtn = document.createElement('button');
-      bgBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:var(--vscode-input-background);color:var(--vscode-editor-foreground);flex:1;';
-
+      bgBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:var(--vscode-input-background);color:var(--vscode-editor-foreground);';
       var bgOptions = [
         { val: 'theme', text: 'Theme BG' },
         { val: '#000000', text: 'Black' },
@@ -466,80 +625,156 @@
         { val: '#1e1e1e', text: 'Dark Grey' },
         { val: '#101014', text: 'Midnight' }
       ];
-
+      var bgKey = isLoader ? 'loaderBgColor' : 'bgColor';
       function updateBgButton() {
-        var currentVal = window.animConfig.bgColor || 'theme';
+        var currentVal = window.animConfig[bgKey] || 'theme';
         var currentOpt = bgOptions.find(function (o) { return o.val === currentVal; }) || bgOptions[0];
         bgBtn.textContent = currentOpt.text;
       }
-
       bgBtn.addEventListener('click', function () {
-        var currentVal = window.animConfig.bgColor || 'theme';
+        var currentVal = window.animConfig[bgKey] || 'theme';
         var idx = bgOptions.findIndex(function (o) { return o.val === currentVal; });
         var nextIdx = (idx + 1) % bgOptions.length;
-        window.animConfig.bgColor = bgOptions[nextIdx].val;
+        window.animConfig[bgKey] = bgOptions[nextIdx].val;
         updateBgButton();
+        refreshPreview();
         if (typeof window.updateAllCanvasBackgrounds === 'function') {
           window.updateAllCanvasBackgrounds();
         }
         if (typeof window.refreshWorking === 'function') window.refreshWorking();
+        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
       });
-
       updateBgButton();
-      bgRow.appendChild(bgLabel);
-      bgRow.appendChild(bgBtn);
-      box.appendChild(bgRow);
+      togglesRow.appendChild(bgBtn);
 
-      // Width mode selector - single cycle button
-      var widthRow = document.createElement('div');
-      widthRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:6px;margin-bottom:4px;';
-      var widthLabel = document.createElement('span');
-      widthLabel.textContent = 'Width:';
-      widthLabel.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);min-width:50px;';
-
+      // Width button
       var widthBtn = document.createElement('button');
-      widthBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:var(--vscode-input-background);color:var(--vscode-editor-foreground);flex:1;';
-
+      widthBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:var(--vscode-input-background);color:var(--vscode-editor-foreground);margin-left:4px;';
+      var widthKey = isLoader ? 'loaderWidthMode' : 'widthMode';
       function updateWidthButton() {
-        var isFull = window.animConfig.widthMode === 'full';
-        widthBtn.textContent = isFull ? 'Full Width' : 'Text Size';
+        var mode = window.animConfig[widthKey] || 'text';
+        if (mode === 'full') {
+          widthBtn.textContent = 'Width: Full';
+        } else {
+          widthBtn.textContent = 'Width: Element';
+        }
       }
-
       widthBtn.addEventListener('click', function () {
-        var current = window.animConfig.widthMode || 'text';
-        window.animConfig.widthMode = (current === 'text') ? 'full' : 'text';
+        var current = window.animConfig[widthKey] || 'text';
+        window.animConfig[widthKey] = (current === 'full') ? 'text' : 'full';
         updateWidthButton();
+        refreshPreview();
         if (typeof window.reanimateAllMessages === 'function') {
           window.reanimateAllMessages();
         }
         if (typeof window.refreshWorking === 'function') window.refreshWorking();
+        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
       });
-
       updateWidthButton();
-      widthRow.appendChild(widthLabel);
-      widthRow.appendChild(widthBtn);
-      box.appendChild(widthRow);
+      togglesRow.appendChild(widthBtn);
 
-      // BG Opacity slider (controls CSS element background color opacity)
-      box.appendChild(makeSlider('BG Opacity', 'bgAlpha', 0, 1, 0.05, function (v) {
-        if (typeof window.updateAllCanvasBackgrounds === 'function') {
-          window.updateAllCanvasBackgrounds();
+      // Burst button
+      var sizeOffBtn = document.createElement('button');
+      sizeOffBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);margin-left:4px;';
+      var sizeOffKey = isLoader ? 'loaderSizeOff' : 'sizeOff';
+      function updateSizeOffButton() {
+        var active = !!(window.animConfig && window.animConfig[sizeOffKey]);
+        sizeOffBtn.textContent = 'Burst: ' + (active ? 'ON' : 'OFF');
+        if (active) {
+          sizeOffBtn.style.background = 'var(--vscode-button-background)';
+          sizeOffBtn.style.color = 'var(--vscode-button-foreground)';
+        } else {
+          sizeOffBtn.style.background = 'var(--vscode-input-background)';
+          sizeOffBtn.style.color = 'var(--vscode-editor-foreground)';
         }
-      }));
+      }
+      sizeOffBtn.addEventListener('click', function () {
+        window.animConfig[sizeOffKey] = !window.animConfig[sizeOffKey];
+        updateSizeOffButton();
+        refreshPreview();
+        if (typeof window.reanimateAllMessages === 'function') {
+          window.reanimateAllMessages();
+        }
+        if (typeof window.refreshWorking === 'function') window.refreshWorking();
+        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
+      });
+      updateSizeOffButton();
+      togglesRow.appendChild(sizeOffBtn);
 
-      document.body.appendChild(box);
+      // TV Magic button
+      var magicBtn = document.createElement('button');
+      magicBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);margin-left:4px;';
+      var magicKey = isLoader ? 'loaderMagic' : 'magic';
+      function updateMagicButton() {
+        var active = !!(window.animConfig && window.animConfig[magicKey]);
+        magicBtn.textContent = 'TV Magic: ' + (active ? 'ON' : 'OFF');
+        if (active) {
+          magicBtn.style.background = 'var(--vscode-button-background)';
+          magicBtn.style.color = 'var(--vscode-button-foreground)';
+        } else {
+          magicBtn.style.background = 'var(--vscode-input-background)';
+          magicBtn.style.color = 'var(--vscode-editor-foreground)';
+        }
+      }
+      magicBtn.addEventListener('click', function () {
+        window.animConfig[magicKey] = !window.animConfig[magicKey];
+        updateMagicButton();
+        refreshPreview();
+        if (typeof window.reanimateAllMessages === 'function') {
+          window.reanimateAllMessages();
+        }
+        if (typeof window.refreshWorking === 'function') window.refreshWorking();
+        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
+      });
+      updateMagicButton();
+      togglesRow.appendChild(magicBtn);
 
-      // Close on click outside
-      setTimeout(function () {
-        document.addEventListener('click', function handler(ev) {
-          if (!box.contains(ev.target) && ev.target !== btnAnimSettings) {
-            box.remove();
-            document.removeEventListener('click', handler);
-          }
-        });
-      }, 0);
+      section.appendChild(togglesRow);
+      return { dom: section };
+    }
+
+    var chatCtrl = buildConfigSection(false);
+    var bobberCtrl = buildConfigSection(true);
+
+    chatCtrl.dom.style.display = 'block';
+    bobberCtrl.dom.style.display = 'none';
+
+    box.appendChild(chatCtrl.dom);
+    box.appendChild(bobberCtrl.dom);
+
+    // Click handlers for switching tabs
+    tabChat.addEventListener('click', function () {
+      activeTab = 'chat';
+      tabChat.style.cssText = 'cursor:pointer;font-size:11px;font-weight:bold;color:var(--vscode-button-foreground);border-bottom:2px solid var(--vscode-button-background);padding:2px 4px;';
+      tabBobber.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
+      chatCtrl.dom.style.display = 'block';
+      bobberCtrl.dom.style.display = 'none';
+      refreshPreview();
+    });
+
+    tabBobber.addEventListener('click', function () {
+      activeTab = 'bobber';
+      tabBobber.style.cssText = 'cursor:pointer;font-size:11px;font-weight:bold;color:var(--vscode-button-foreground);border-bottom:2px solid var(--vscode-button-background);padding:2px 4px;';
+      tabChat.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
+      chatCtrl.dom.style.display = 'none';
+      bobberCtrl.dom.style.display = 'block';
+      refreshPreview();
+    });
+
+    box.appendChild(previewArea);
+    refreshPreview();
+
+    var inputArea = document.querySelector('#composer-shell');
+    if (inputArea) inputArea.parentNode.insertBefore(box, inputArea);
+  }
+
+  if (btnPreviewAnim) {
+    btnPreviewAnim.addEventListener('click', function () {
+      toggleChatPreviewPanel();
     });
   }
+
+
 
 
   if (btnStop) btnStop.addEventListener('click', function () { post('stopRun'); });
@@ -634,6 +869,19 @@
     switch (msg.type) {
       case 'config':
         if (msg.sendBehavior) sendBehavior = msg.sendBehavior;
+        if (msg.animConfig) {
+          Object.assign(window.animConfig, msg.animConfig);
+        }
+        if (msg.animationMode) {
+          animationMode = msg.animationMode;
+          window._junctionAnimationMode = msg.animationMode;
+        }
+        if (msg.animColor) {
+          window._junctionAnimColor = msg.animColor;
+        }
+        if (msg.loaderColor) {
+          window._junctionLoaderAnimColor = msg.loaderColor;
+        }
         break;
       case 'runActive':
         setSending(!!msg.active);

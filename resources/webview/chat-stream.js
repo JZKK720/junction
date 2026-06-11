@@ -19,6 +19,7 @@
 
   var messagesDiv = document.getElementById('chat-messages');
   if (!messagesDiv) return;
+  var pinnedThrobber = document.getElementById('pinned-anim-throbber');
 
   // ── Markdown ──────────────────────────────────────────────────────────────
   var md = { render: function (t) { return escapeHtml(t).replace(/\n/g, '<br>'); } };
@@ -97,36 +98,113 @@
     length: 2.0,   // duration in seconds
     bgColor: 'theme',
     bgAlpha: 0.0,
-    widthMode: 'text' // 'text' (Text Size) or 'full' (Full Width)
+    widthMode: 'text', // 'text' (Text Size) or 'full' (Full Width)
+    sizeOff: false,
+    magic: false,
+    loaderMode: 'default',
+    diffusionHeight: 1.0,
+    noiseRes: 4,
+    textFade: 0.5,
+    cooling: 0.65,
+    spread: 0.3,
+
+    loaderSpeed: 1.0,
+    loaderFontSize: 1.0,
+    loaderDensity: 1.0,
+    loaderIntensity: 1.0,
+    loaderLength: 2.0,
+    loaderBgColor: 'theme',
+    loaderBgAlpha: 0.0,
+    loaderLoop: true,
+    loaderWidthMode: 'text',
+    loaderSizeOff: false,
+    loaderMagic: false,
+    loaderNoiseRes: 4,
+    loaderTextFade: 0.5,
+    loaderCooling: 0.65,
+    loaderSpread: 0.3
   };
   window.animConfig = animConfig; // expose for composer.js cross-script access
-  var ANIM_MODES = ['matrix','zalgo','fire','bounce','spiral','leak'];
+  var ANIM_MODES = ['matrix','zalgo','fire','bounce','spiral','galaxy','leak'];
   window.ANIM_MODES = ANIM_MODES; // expose for composer.js cross-script access
+
+  try {
+    var savedState = vscode.getState();
+    if (savedState) {
+      if (savedState.animConfig) {
+        Object.assign(animConfig, savedState.animConfig);
+      }
+      if (savedState._junctionAnimationMode) {
+        window._junctionAnimationMode = savedState._junctionAnimationMode;
+      }
+      if (savedState._junctionAnimColor) {
+        window._junctionAnimColor = savedState._junctionAnimColor;
+      }
+      if (savedState._junctionLoaderAnimColor) {
+        window._junctionLoaderAnimColor = savedState._junctionLoaderAnimColor;
+      }
+    }
+  } catch (e) {}
+
+  function saveAnimSettings() {
+    try {
+      var state = vscode.getState() || {};
+      state.animConfig = window.animConfig;
+      state._junctionAnimationMode = window._junctionAnimationMode;
+      state._junctionAnimColor = window._junctionAnimColor;
+      state._junctionLoaderAnimColor = window._junctionLoaderAnimColor;
+      vscode.setState(state);
+      vscode.postMessage({
+        type: 'saveAnimConfig',
+        config: window.animConfig,
+        mode: window._junctionAnimationMode,
+        color: window._junctionAnimColor,
+        loaderColor: window._junctionLoaderAnimColor
+      });
+    } catch (e) {}
+  }
+  window.saveAnimSettings = saveAnimSettings;
+
   if (!window._junctionAnimColor) {
     window._junctionAnimColor = getComputedStyle(document.body).color || '#ccc';
   }
-  function updateAllCanvasBackgrounds() {
-    var canvases = document.querySelectorAll('canvas.pretext-canvas');
-    canvases.forEach(function (canvas) {
-      if (canvas.classList.contains('textarea-canvas')) return;
-      canvas.style.backgroundColor = getAnimationBgColor(animConfig.bgAlpha);
-    });
+  function getAnimVal(key, fallback, localOpts) {
+    var isLoader = window._activeLoaderContext || 
+                   (localOpts === true) || 
+                   (localOpts && localOpts.loader) ||
+                   (localOpts && localOpts.isSplash);
+    if (isLoader) {
+      var loaderKey = key;
+      if (key.indexOf('loader') !== 0) {
+        loaderKey = 'loader' + key.charAt(0).toUpperCase() + key.slice(1);
+      }
+      if (animConfig[loaderKey] !== undefined) {
+        return animConfig[loaderKey];
+      }
+    }
+    return animConfig[key] !== undefined ? animConfig[key] : fallback;
   }
-  window.updateAllCanvasBackgrounds = updateAllCanvasBackgrounds;
 
-  function getAnimSpeed() { return animConfig.speed; }
-  function getAnimFontSize() { return animConfig.fontSize; }
-  function getAnimDensity() { return animConfig.density; }
-  function getAnimIntensity() { return animConfig.intensity; }
+  function getAnimSpeed(localOpts) { return getAnimVal('speed', 1.0, localOpts); }
+  function getAnimFontSize(localOpts) { return getAnimVal('fontSize', 1.0, localOpts); }
+  function getAnimDensity(localOpts) { return getAnimVal('density', 1.0, localOpts); }
+  function getAnimIntensity(localOpts) { return getAnimVal('intensity', 1.0, localOpts); }
 
-  function getAnimationBgColor(alpha) {
+  function getAnimColor(localOpts) {
+    if (window._activeLoaderContext || (localOpts && localOpts.loader)) {
+      return window._junctionLoaderAnimColor || window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+    }
+    return window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+  }
+
+  function getAnimationBgColor(alpha, localOpts) {
     var bg = getComputedStyle(document.body).backgroundColor || 'rgba(30,30,30,1)';
     if (bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') bg = 'rgb(30, 30, 30)';
-    var configBg = animConfig.bgColor || 'theme';
+    var configBg = getAnimVal('bgColor', 'theme', localOpts);
     if (configBg !== 'theme') {
       bg = configBg;
     }
-    var a = (alpha !== undefined) ? alpha : (animConfig.bgAlpha || 0.05);
+    var a = (alpha !== undefined) ? alpha : getAnimVal('bgAlpha', 0.05, localOpts);
 
     // Parse rgb(r, g, b) or rgba(r, g, b, a)
     var m = bg.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)$/);
@@ -145,6 +223,16 @@
     return 'rgba(0,0,0,' + a + ')';
   }
 
+  function updateAllCanvasBackgrounds() {
+    var canvases = document.querySelectorAll('canvas.pretext-canvas');
+    canvases.forEach(function (canvas) {
+      if (canvas.classList.contains('textarea-canvas')) return;
+      var isLoader = canvas.classList.contains('matrix-loader');
+      canvas.style.backgroundColor = getAnimationBgColor(undefined, { loader: isLoader });
+    });
+  }
+  window.updateAllCanvasBackgrounds = updateAllCanvasBackgrounds;
+
   // ── Fire mode ─────────────────────────────────────────────────────────────
   function createFireCanvas(text, opts) {
     opts = opts || {};
@@ -154,29 +242,30 @@
     if (!ctx) return null;
 
     var fontStr = getCurrentFont();
-    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize());
+    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize(opts));
     var lineHeight = Math.round(fontSize * 1.5);
     ctx.font = fontStr;
 
     var lines = text ? text.split('\n') : [''];
     var maxWidth = 0;
     lines.forEach(function (l) { maxWidth = Math.max(maxWidth, ctx.measureText(l).width); });
-    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
-    var tw = isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20);
-    var th = lines.length * lineHeight + 20;
+    var isFull = (getAnimVal('widthMode', 'text', opts) === 'full');
+    var tw = opts.unbounded ? window.innerWidth : ((opts.isSplash || opts.loader) ? (opts.width || window.innerWidth) : (isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20)));
+    var th = opts.unbounded ? window.innerHeight : (opts.isSplash ? (opts.height || window.innerHeight) : Math.round((lines.length * lineHeight + 20) * (hMult || 1.0)));
 
     // Fire simulation grid (low-res)
-    var fireW = Math.min(128, Math.ceil(tw / 4));
-    var fireH = Math.min(80, Math.ceil(th / 4));
+    var noiseRes = getAnimVal('noiseRes', 4, opts);
+    var fireW = Math.max(16, Math.ceil(tw / noiseRes));
+    var fireH = Math.max(16, Math.ceil(th / noiseRes));
     var heat = new Float32Array(fireW * fireH); // heat buffer
     var color = new Float32Array(fireW * fireH); // color buffer
-    var speed = getAnimSpeed();
-    var density = getAnimDensity();
-    var intensity = getAnimIntensity();
+    var speed = getAnimSpeed(opts);
+    var density = getAnimDensity(opts);
+    var intensity = getAnimIntensity(opts);
 
     function getFirePixel(h, c) {
       var r, g, b;
-      var isGreen = (window._junctionAnimColor === '#10a37f');
+      var isGreen = (getAnimColor(opts) === '#10a37f');
       if (isGreen) {
         if (h < 0.25) {
           r = 0; g = Math.floor(h * 4 * 180); b = 0;
@@ -206,45 +295,72 @@
       };
     }
 
-    // Seed bottom row with text heat
+    // Seed bottom/middle row with text heat
     function seedText() {
+      if (opts.isSplash || opts.loader) {
+        var seedY = opts.isSplash ? Math.floor(fireH / 2) : (fireH - 1);
+        for (var x = 0; x < fireW; x++) {
+          heat[(seedY * fireW) + x] = 0.85 + Math.random() * 0.15;
+          color[(seedY * fireW) + x] = Math.random();
+        }
+        return;
+      }
       ctx.font = fontStr;
       lines.forEach(function (line, i) {
-        var y = Math.floor(((i + 1) * lineHeight) / 4);
+        var y = Math.floor(((opts.unbounded && opts.rect ? opts.rect.top : 0) + (i + 1) * lineHeight) / noiseRes);
         if (y >= fireH) return;
-        for (var x = 0; x < fireW; x++) {
+        var startX = (opts.unbounded && opts.rect) ? Math.floor(opts.rect.left / noiseRes) : 0;
+        var endX = (opts.unbounded && opts.rect) ? Math.floor(opts.rect.right / noiseRes) : fireW;
+        for (var x = startX; x < endX; x++) {
           // Approximate text coverage
-          var px = x * 4;
+          var px = (x - startX) * noiseRes;
           var charAtX = Math.floor(px / fontSize);
           if (charAtX < line.length && line.charAt(charAtX) !== ' ') {
-            heat[(y * fireW) + x] = 0.8 + Math.random() * 0.2;
-            color[(y * fireW) + x] = Math.random();
+            if (x >= 0 && x < fireW) {
+              heat[(y * fireW) + x] = 0.8 + Math.random() * 0.2;
+              color[(y * fireW) + x] = Math.random();
+            }
           }
         }
       });
     }
 
     // Two-noise flicker: heat dissipates upward, color shifts with second noise
+    var cooling = getAnimVal('cooling', 0.65, opts);
+    var spreadRate = getAnimVal('spread', 0.3, opts);
+
     function propagateFire() {
       for (var y = 1; y < fireH; y++) {
         for (var x = 0; x < fireW; x++) {
           var idx = y * fireW + x;
           var below = ((y - 1) * fireW) + x;
           var spread = 0;
-          if (x > 0) spread += heat[below - 1] * 0.3;
-          spread += heat[below] * 0.5;
-          if (x < fireW - 1) spread += heat[below + 1] * 0.3;
+          if (x > 0) spread += heat[below - 1] * spreadRate;
+          spread += heat[below] * (1 - spreadRate * 2);
+          if (x < fireW - 1) spread += heat[below + 1] * spreadRate;
           // Second noise layer: random flicker
           var noise2 = (Math.random() - 0.5) * 0.15 * intensity;
-          heat[idx] = Math.max(0, Math.min(1, spread * 0.65 + noise2));
+          heat[idx] = Math.max(0, Math.min(1, spread * cooling + noise2));
           // Color drift: second noise filter
           color[idx] = (color[idx] * 0.9 + Math.random() * 0.1 * intensity);
         }
       }
-      // Re-seed bottom with noise
-      for (var x = 0; x < fireW; x++) {
-        if (Math.random() < density * 0.3) {
-          heat[(fireH - 1) * fireW + x] = 0.6 + Math.random() * 0.4;
+      // Re-seed with noise
+      var seedY = opts.isSplash ? Math.floor(fireH / 2) : (fireH - 1);
+      var startX = 0;
+      var endX = fireW;
+      if (opts.unbounded && opts.rect && !opts.magic && !opts.loaderMagic) {
+        seedY = Math.floor((opts.rect.top + opts.rect.height) / noiseRes);
+        startX = Math.floor(opts.rect.left / noiseRes);
+        endX = Math.floor(opts.rect.right / noiseRes);
+      }
+      if (seedY >= 0 && seedY < fireH) {
+        for (var x = startX; x < endX; x++) {
+          if (x >= 0 && x < fireW) {
+            if (Math.random() < density * 0.3) {
+              heat[seedY * fireW + x] = 0.6 + Math.random() * 0.4;
+            }
+          }
         }
       }
     }
@@ -255,7 +371,7 @@
     canvas.style.height = th + 'px';
 
     var startTime = performance.now();
-    var duration = opts.duration || (window.animConfig.length * 1000) || 2000;
+    var duration = opts.duration || (getAnimVal('length', 2.0, opts) * 1000) || 2000;
     var done = false;
     var animId = null;
 
@@ -274,9 +390,9 @@
             var c = color[fy * fireW + fx];
             if (h < 0.02) continue;
             var rgb = getFirePixel(h, c);
-            for (var dy = 0; dy < 4 && (fy * 4 + dy) < th; dy++) {
-              for (var dx = 0; dx < 4 && (fx * 4 + dx) < tw; dx++) {
-                var pi = ((fy * 4 + dy) * tw + (fx * 4 + dx)) * 4;
+            for (var dy = 0; dy < noiseRes && (fy * noiseRes + dy) < th; dy++) {
+              for (var dx = 0; dx < noiseRes && (fx * noiseRes + dx) < tw; dx++) {
+                var pi = ((fy * noiseRes + dy) * tw + (fx * noiseRes + dx)) * 4;
                 pixels[pi] = rgb.r; pixels[pi + 1] = rgb.g; pixels[pi + 2] = rgb.b; pixels[pi + 3] = 255;
               }
             }
@@ -284,13 +400,15 @@
         }
         ctx.putImageData(imgData, 0, 0);
 
-        ctx.font = fontStr;
-        ctx.globalAlpha = 0.8;
-        ctx.fillStyle = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
-        lines.forEach(function (line, i) {
-          ctx.fillText(line, 10, (i + 1) * lineHeight);
-        });
-        ctx.globalAlpha = 1;
+        if (!opts.isSplash && !opts.unbounded) {
+          ctx.font = fontStr;
+          ctx.globalAlpha = 0.8;
+          ctx.fillStyle = getAnimColor(opts);
+          lines.forEach(function (line, i) {
+            ctx.fillText(line, 10, (i + 1) * lineHeight);
+          });
+          ctx.globalAlpha = 1;
+        }
 
         animId = requestAnimationFrame(frame);
         return;
@@ -310,10 +428,10 @@
           var c = color[fy * fireW + fx];
           if (h < 0.02) continue;
           var rgb = getFirePixel(h, c);
-          // Paint 4x4 block
-          for (var dy = 0; dy < 4 && (fy * 4 + dy) < th; dy++) {
-            for (var dx = 0; dx < 4 && (fx * 4 + dx) < tw; dx++) {
-              var pi = ((fy * 4 + dy) * tw + (fx * 4 + dx)) * 4;
+          // Paint block
+          for (var dy = 0; dy < noiseRes && (fy * noiseRes + dy) < th; dy++) {
+            for (var dx = 0; dx < noiseRes && (fx * noiseRes + dx) < tw; dx++) {
+              var pi = ((fy * noiseRes + dy) * tw + (fx * noiseRes + dx)) * 4;
               pixels[pi] = rgb.r; pixels[pi + 1] = rgb.g; pixels[pi + 2] = rgb.b; pixels[pi + 3] = 255;
             }
           }
@@ -321,12 +439,19 @@
       }
       ctx.putImageData(imgData, 0, 0);
 
-      // Draw text on top (fading in)
-      if (progress > 0.3) {
-        var textAlpha = Math.min(1, (progress - 0.3) / 0.5);
+      // Draw text on top (fade in or fade out)
+      var textFade = getAnimVal('textFade', 0.0, opts);
+      var textAlpha;
+      if (textFade > 0) {
+        textAlpha = Math.max(0, 1 - (progress * textFade));
+      } else {
+        textAlpha = (progress > 0.3) ? Math.min(1, (progress - 0.3) / 0.5) : 0;
+      }
+
+      if (!opts.isSplash && !opts.unbounded && textAlpha > 0) {
         ctx.font = fontStr;
         ctx.globalAlpha = textAlpha;
-        ctx.fillStyle = '#fff';
+        ctx.fillStyle = getAnimColor(opts);
         lines.forEach(function (line, i) {
           ctx.fillText(line, 10, (i + 1) * lineHeight);
         });
@@ -336,7 +461,7 @@
       if (progress < 1) {
         animId = requestAnimationFrame(frame);
       } else {
-        if (opts.loop || (window.animConfig && window.animConfig.loop)) {
+        if (opts.loop || getAnimVal('loop', false, opts)) {
           startTime = performance.now();
           heat.fill(0);
           color.fill(0);
@@ -345,11 +470,13 @@
         } else {
           done = true;
           ctx.clearRect(0, 0, tw, th);
-          ctx.font = fontStr;
-          ctx.fillStyle = getComputedStyle(document.body).color || '#ccc';
-          lines.forEach(function (line, i) {
-            ctx.fillText(line, 10, (i + 1) * lineHeight);
-          });
+          if (!opts.isSplash && !opts.unbounded) {
+            ctx.font = fontStr;
+            ctx.fillStyle = getComputedStyle(document.body).color || '#ccc';
+            lines.forEach(function (line, i) {
+              ctx.fillText(line, 10, (i + 1) * lineHeight);
+            });
+          }
         }
       }
     }
@@ -368,55 +495,78 @@
     if (!ctx) return null;
 
     var fontStr = getCurrentFont();
-    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize());
+    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize(opts));
     var lineHeight = Math.round(fontSize * 1.5);
     ctx.font = fontStr;
 
     var lines = text ? text.split('\n') : [''];
     var maxWidth = 0;
     lines.forEach(function (l) { maxWidth = Math.max(maxWidth, ctx.measureText(l).width); });
-    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
-    var tw = isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20);
-    var th = lines.length * lineHeight + 20;
+    var isFull = (getAnimVal('widthMode', 'text', opts) === 'full');
+    var tw = opts.unbounded ? window.innerWidth : ((opts.isSplash || opts.loader) ? (opts.width || window.innerWidth) : (isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20)));
+    var th = opts.unbounded ? window.innerHeight : (opts.isSplash ? (opts.height || window.innerHeight) : (lines.length * lineHeight + 20));
     canvas.width = tw; canvas.height = th;
     canvas.style.width = tw + 'px'; canvas.style.height = th + 'px';
 
     // Split text into individual characters with random start positions
     var chars = [];
-    var fullText = lines.join('');
-    for (var i = 0; i < fullText.length; i++) {
-      var ch = fullText.charAt(i);
-      if (ch === ' ') continue;
-      // Find target position
-      var row = 0, col = 0, count = 0;
-      for (var r = 0; r < lines.length; r++) {
-        for (var c = 0; c < lines[r].length; c++) {
-          if (count === i) { row = r; col = c; break; }
-          count++;
-        }
-        if (count === i) break;
+    if (opts.isSplash) {
+      var charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*+=-';
+      for (var i = 0; i < 60; i++) {
+        var ch = charset.charAt(Math.floor(Math.random() * charset.length));
+        var targetX = Math.random() * tw;
+        var targetY = Math.random() * th;
+        var angle = Math.random() * Math.PI * 2;
+        var dist = 200 + Math.random() * 300;
+        chars.push({
+          ch: ch,
+          targetX: targetX,
+          targetY: targetY,
+          x: targetX + Math.cos(angle) * dist,
+          y: targetY + Math.sin(angle) * dist,
+          rotation: (Math.random() - 0.5) * 12,
+          targetRotation: 0,
+          bouncePhase: Math.random() * Math.PI * 2,
+          delay: Math.random() * (600 / getAnimSpeed(opts)),
+          settled: false
+        });
       }
-      var targetX = col * fontSize * 0.6 + 10;
-      var targetY = (row + 1) * lineHeight;
-      // Random start: bounce in from edge
-      var angle = Math.random() * Math.PI * 2;
-      var dist = 200 + Math.random() * 300;
-      chars.push({
-        ch: ch,
-        targetX: targetX,
-        targetY: targetY,
-        x: targetX + Math.cos(angle) * dist,
-        y: targetY + Math.sin(angle) * dist,
-        rotation: (Math.random() - 0.5) * 12,
-        targetRotation: 0,
-        bouncePhase: opts.loader ? (i * 0.4) : (Math.random() * Math.PI * 2),
-        delay: i * (30 / getAnimSpeed()),
-        settled: false
-      });
+    } else {
+      var charIndex = 0;
+      for (var r = 0; r < lines.length; r++) {
+        var line = lines[r];
+        var currentXOffset = (opts.unbounded && opts.rect) ? opts.rect.left : 10;
+        for (var c = 0; c < line.length; c++) {
+          var ch = line.charAt(c);
+          var chWidth = ctx.measureText(ch).width || (fontSize * 0.6);
+          var targetX = currentXOffset;
+          currentXOffset += chWidth;
+
+          if (ch === ' ') continue;
+
+          var targetY = ((opts.unbounded && opts.rect) ? opts.rect.top : 0) + (r + 1) * lineHeight;
+          // Random start: bounce in from edge
+          var angle = Math.random() * Math.PI * 2;
+          var dist = 200 + Math.random() * 300;
+          chars.push({
+            ch: ch,
+            targetX: targetX,
+            targetY: targetY,
+            x: targetX + Math.cos(angle) * dist,
+            y: targetY + Math.sin(angle) * dist,
+            rotation: (Math.random() - 0.5) * 12,
+            targetRotation: 0,
+            bouncePhase: opts.loader ? (charIndex * 0.4) : (Math.random() * Math.PI * 2),
+            delay: charIndex * (30 / getAnimSpeed(opts)),
+            settled: false
+          });
+          charIndex++;
+        }
+      }
     }
 
     var startTime = performance.now();
-    var duration = opts.duration || (window.animConfig.length * 1000) || 2500;
+    var duration = opts.duration || (getAnimVal('length', 2.0, opts) * 1000) || 2500;
     var done = false;
     var animId = null;
 
@@ -426,9 +576,9 @@
       if (opts.loader) {
         ctx.clearRect(0, 0, tw, th);
         ctx.font = fontStr;
-        var fgColor = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+        var fgColor = getAnimColor(opts);
         chars.forEach(function (c) {
-          var yOffset = Math.sin(performance.now() * 0.005 * getAnimSpeed() + c.bouncePhase) * (lineHeight * 0.3 * getAnimIntensity());
+          var yOffset = Math.sin(performance.now() * 0.005 * getAnimSpeed(opts) + c.bouncePhase) * (lineHeight * 0.3 * getAnimIntensity(opts));
           ctx.save();
           ctx.translate(c.targetX, c.targetY + yOffset);
           ctx.globalAlpha = 1;
@@ -474,17 +624,19 @@
       if (progress < 1) {
         animId = requestAnimationFrame(frame);
       } else {
-        if (opts.loop || (window.animConfig && window.animConfig.loop)) {
+        if (opts.loop || getAnimVal('loop', false, opts)) {
           startTime = performance.now();
           animId = requestAnimationFrame(frame);
         } else {
           done = true;
           ctx.clearRect(0, 0, tw, th);
-          ctx.font = fontStr;
-          ctx.fillStyle = fgColor;
-          lines.forEach(function (line, i) {
-            ctx.fillText(line, 10, (i + 1) * lineHeight);
-          });
+          if (!opts.isSplash && !opts.unbounded) {
+            ctx.font = fontStr;
+            ctx.fillStyle = fgColor;
+            lines.forEach(function (line, i) {
+              ctx.fillText(line, 10, (i + 1) * lineHeight);
+            });
+          }
         }
       }
     }
@@ -503,55 +655,86 @@
     if (!ctx) return null;
 
     var fontStr = getCurrentFont();
-    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize());
+    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize(opts));
     var lineHeight = Math.round(fontSize * 1.5);
     ctx.font = fontStr;
 
     var lines = text ? text.split('\n') : [''];
     var maxWidth = 0;
     lines.forEach(function (l) { maxWidth = Math.max(maxWidth, ctx.measureText(l).width); });
-    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
-    var tw = isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20);
-    var th = lines.length * lineHeight + 20;
+    var isFull = (getAnimVal('widthMode', 'text', opts) === 'full');
+    var tw = opts.unbounded ? window.innerWidth : ((opts.isSplash || opts.loader) ? (opts.width || window.innerWidth) : (isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20)));
+    var th = opts.unbounded ? window.innerHeight : (opts.isSplash ? (opts.height || window.innerHeight) : (lines.length * lineHeight + 20));
     canvas.width = tw; canvas.height = th;
     canvas.style.width = tw + 'px'; canvas.style.height = th + 'px';
 
-    var centerX = tw / 2;
-    var centerY = th / 2;
+    var centerX = opts.unbounded && opts.rect ? (opts.rect.left + opts.rect.width / 2) : (tw / 2);
+    var centerY = opts.unbounded && opts.rect ? (opts.rect.top + opts.rect.height / 2) : (th / 2);
     var fgColor = getComputedStyle(document.body).color || '#ccc';
+    var isGalaxy = (window._junctionAnimationMode === 'galaxy');
 
     // Split into characters with spiral trajectories
     var chars = [];
-    var fullText = lines.join('');
-    for (var i = 0; i < fullText.length; i++) {
-      var ch = fullText.charAt(i);
-      if (ch === ' ') continue;
-      var row = 0, col = 0, count = 0;
-      for (var r = 0; r < lines.length; r++) {
-        for (var c = 0; c < lines[r].length; c++) {
-          if (count === i) { row = r; col = c; break; }
-          count++;
-        }
-        if (count === i) break;
+    if (opts.isSplash) {
+      var charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*+=-';
+      for (var i = 0; i < 100; i++) {
+        var ch = charset.charAt(Math.floor(Math.random() * charset.length));
+        var angle = Math.random() * Math.PI * 2;
+        var maxRadius = Math.sqrt(tw*tw + th*th) / 2;
+        var dist = Math.random() * maxRadius;
+        var targetX = centerX + Math.cos(angle) * dist;
+        var targetY = centerY + Math.sin(angle) * dist;
+        
+        var spiralAngle = angle + (Math.random() - 0.5) * 0.5;
+        var spiralDist = dist + 200 + Math.random() * 300;
+        
+        chars.push({
+          ch: ch,
+          targetX: targetX,
+          targetY: targetY,
+          startAngle: spiralAngle,
+          startDist: spiralDist,
+          rowDelay: Math.random() * (400 / getAnimSpeed(opts)),
+          hue: Math.floor(Math.random() * 360)
+        });
       }
-      var targetX = col * fontSize * 0.6 + 10;
-      var targetY = (row + 1) * lineHeight;
-      // Spiral start: angle based on index, distance from center
-      var spiralAngle = i * 2.4 + Math.random() * 0.5; // golden-ish angle
-      var spiralDist = 150 + Math.random() * 200;
-      chars.push({
-        ch: ch,
-        targetX: targetX,
-        targetY: targetY,
-        startAngle: spiralAngle,
-        startDist: spiralDist,
-        delay: i * (20 / getAnimSpeed()),
-        hue: (i * 37) % 360
-      });
+    } else {
+      for (var r = 0; r < lines.length; r++) {
+        var line = lines[r];
+        var lineLen = line.length;
+        var midCol = (lineLen - 1) / 2;
+        var currentXOffset = (opts.unbounded && opts.rect) ? opts.rect.left : 10;
+        
+        for (var c = 0; c < lineLen; c++) {
+          var ch = line.charAt(c);
+          var chWidth = ctx.measureText(ch).width || (fontSize * 0.6);
+          var targetX = currentXOffset;
+          currentXOffset += chWidth;
+          
+          if (ch === ' ') continue;
+          
+          var targetY = ((opts.unbounded && opts.rect) ? opts.rect.top : 0) + (r + 1) * lineHeight;
+          var distFromMid = Math.abs(c - midCol);
+          var rowDelay = distFromMid * (120 / getAnimSpeed(opts));
+          
+          var spiralAngle = c * 0.5 + r * 1.5 + Math.random() * 0.2;
+          var spiralDist = 120 + Math.random() * 100;
+          
+          chars.push({
+            ch: ch,
+            targetX: targetX,
+            targetY: targetY,
+            startAngle: spiralAngle,
+            startDist: spiralDist,
+            rowDelay: rowDelay,
+            hue: (c * 20 + r * 40) % 360
+          });
+        }
+      }
     }
 
     var startTime = performance.now();
-    var duration = opts.duration || (window.animConfig.length * 1000) || 2200;
+    var duration = opts.duration || (getAnimVal('length', 2.0, opts) * 1000) || 2200;
     var done = false;
     var animId = null;
 
@@ -561,18 +744,15 @@
       if (opts.loader) {
         ctx.clearRect(0, 0, tw, th);
         ctx.font = fontStr;
+        var orbitAngle = performance.now() * 0.003;
         chars.forEach(function (c) {
-          var orbitRadius = 8 * getAnimIntensity();
+          var orbitRadius = 8 * getAnimIntensity(opts);
           var curX = c.targetX + Math.cos(orbitAngle) * orbitRadius;
           var curY = c.targetY + Math.sin(orbitAngle) * orbitRadius;
           ctx.save();
           ctx.translate(curX, curY);
           ctx.globalAlpha = 1;
-          var fillStyle = 'hsl(' + c.hue + ', 70%, 70%)';
-          if (window._junctionAnimColor === '#10a37f') {
-            fillStyle = 'hsl(' + ((c.hue % 40) + 130) + ', 80%, 55%)';
-          }
-          ctx.fillStyle = fillStyle;
+          ctx.fillStyle = getAnimColor(opts);
           ctx.fillText(c.ch, 0, 0);
           ctx.restore();
         });
@@ -587,15 +767,29 @@
       ctx.font = fontStr;
 
       chars.forEach(function (c) {
-        var t = Math.max(0, Math.min(1, (elapsed - c.delay) / 1000));
+        var t;
+        if (isGalaxy) {
+          t = Math.max(0, Math.min(1, elapsed / (duration * 0.85)));
+        } else {
+          t = Math.max(0, Math.min(1, (elapsed - c.rowDelay) / (duration * 0.6)));
+        }
         if (t <= 0) return;
 
-        // Spiral inward: angle increases, distance decreases
-        var spiralProgress = t * t * t; // cubic ease
-        var curAngle = c.startAngle + spiralProgress * 8; // rotate while spiraling in
+        var spiralProgress = t * t * t;
+        var curAngle = c.startAngle + spiralProgress * 8;
         var curDist = c.startDist * (1 - spiralProgress);
-        var curX = centerX + Math.cos(curAngle) * curDist;
-        var curY = centerY + Math.sin(curAngle) * curDist;
+        
+        var curX, curY;
+        if (isGalaxy) {
+          var spiralX = centerX + Math.cos(curAngle) * curDist;
+          var spiralY = centerY + Math.sin(curAngle) * curDist;
+          curX = spiralX * (1 - spiralProgress) + c.targetX * spiralProgress;
+          curY = spiralY * (1 - spiralProgress) + c.targetY * spiralProgress;
+        } else {
+          curX = c.targetX + Math.cos(curAngle) * curDist;
+          curY = c.targetY + Math.sin(curAngle) * curDist;
+        }
+        
         var curAlpha = Math.min(1, t * 2);
         var curScale = 0.5 + spiralProgress * 0.5;
 
@@ -603,7 +797,8 @@
         ctx.translate(curX, curY);
         ctx.scale(curScale, curScale);
         ctx.globalAlpha = curAlpha;
-        ctx.fillStyle = 'hsl(' + c.hue + ', 70%, 70%)';
+        
+        ctx.fillStyle = getAnimColor(opts);
         ctx.fillText(c.ch, 0, 0);
         ctx.restore();
       });
@@ -613,17 +808,19 @@
       if (progress < 1) {
         animId = requestAnimationFrame(frame);
       } else {
-        if (opts.loop || (window.animConfig && window.animConfig.loop)) {
+        if (opts.loop || getAnimVal('loop', false, opts)) {
           startTime = performance.now();
           animId = requestAnimationFrame(frame);
         } else {
           done = true;
           ctx.clearRect(0, 0, tw, th);
-          ctx.font = fontStr;
-          ctx.fillStyle = fgColor;
-          lines.forEach(function (line, i) {
-            ctx.fillText(line, 10, (i + 1) * lineHeight);
-          });
+          if (!opts.isSplash && !opts.unbounded) {
+            ctx.font = fontStr;
+            ctx.fillStyle = fgColor;
+            lines.forEach(function (line, i) {
+              ctx.fillText(line, 10, (i + 1) * lineHeight);
+            });
+          }
         }
       }
     }
@@ -633,7 +830,6 @@
     return canvas;
   }
 
-  // ── Matrix-scroll canvas (default) ────────────────────────────────────────
   function createMatrixCanvas(text, opts) {
     opts = opts || {};
     var canvas = document.createElement('canvas');
@@ -642,15 +838,15 @@
     if (!ctx) return null;
 
     var fontStr = getCurrentFont();
-    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize());
+    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize(opts));
     var lineHeight = Math.round(fontSize * 1.5);
 
     var prepared = null;
     var lines = [];
     if (PretextAPI && PretextAPI.prepareWithSegments && PretextAPI.layoutWithLines) {
       try {
-        prepared = PretextAPI.prepareWithSegments(text, fontStr);
         var containerWidth = (opts.width || 600);
+        prepared = PretextAPI.prepareWithSegments(text, fontStr);
         var layoutResult = PretextAPI.layoutWithLines(prepared, containerWidth, lineHeight);
         lines = (layoutResult.lines || []).map(function (l) { return l.text || l; });
       } catch (e) { lines = text.split('\n'); }
@@ -662,27 +858,36 @@
     ctx.font = fontStr;
     var maxWidth = 0;
     lines.forEach(function (line) { maxWidth = Math.max(maxWidth, ctx.measureText(line).width); });
-    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
-    var tw = isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20);
-    var th = lines.length * lineHeight + 20;
+    var isFull = (getAnimVal('widthMode', 'text', opts) === 'full');
+    var tw = opts.unbounded ? window.innerWidth : ((opts.isSplash || opts.loader) ? (opts.width || window.innerWidth) : (isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20)));
+    var th = opts.unbounded ? window.innerHeight : (opts.isSplash ? (opts.height || window.innerHeight) : (lines.length * lineHeight + 20));
     canvas.width = tw; canvas.height = th;
     canvas.style.width = tw + 'px'; canvas.style.height = th + 'px';
 
     var charWidth = fontSize * 0.6;
+    var startX = 0;
     var cols = Math.ceil(tw / charWidth);
+    if (opts.unbounded && opts.rect && !opts.magic && !opts.loaderMagic) {
+      startX = opts.rect.left;
+      cols = Math.ceil(opts.rect.width / charWidth);
+    }
     var colStates = [];
     for (var c = 0; c < cols; c++) {
+      var startY = (opts.isSplash ? Math.floor(th / 2) : th);
+      if (opts.unbounded && opts.rect && !opts.magic && !opts.loaderMagic) {
+        startY = opts.rect.bottom;
+      }
       colStates.push({
         phase: 'rain',
-        y: th + Math.random() * 60,
-        speed: (1.2 + Math.random() * 2.5) * getAnimSpeed(),
+        y: startY + Math.random() * 60,
+        speed: (1.2 + Math.random() * 2.5) * getAnimSpeed(opts),
         char: matrixChars[Math.floor(Math.random() * matrixChars.length)],
         opacity: 0.2 + Math.random() * 0.6
       });
     }
 
     var startTime = performance.now();
-    var duration = opts.duration || (window.animConfig.length * 1000) || 1200;
+    var duration = opts.duration || (getAnimVal('length', 2.0, opts) * 1000) || 1200;
     var done = false;
     var animId = null;
     var fgColor = getComputedStyle(document.body).color || '#ccc';
@@ -693,14 +898,16 @@
       var progress = Math.min(elapsed / duration, 1);
       ctx.clearRect(0, 0, tw, th);
       ctx.font = fontStr;
-      lines.forEach(function (line, i) {
-        var settleProgress = Math.max(0, Math.min(1, (progress - 0.2 - i * 0.04) / 0.35));
-        if (settleProgress > 0) {
-          ctx.globalAlpha = settleProgress;
-          ctx.fillStyle = fgColor;
-          ctx.fillText(line, 10, (i + 1) * lineHeight);
-        }
-      });
+      if (!opts.isSplash && !opts.unbounded) {
+        lines.forEach(function (line, i) {
+          var settleProgress = Math.max(0, Math.min(1, (progress - 0.2 - i * 0.04) / 0.35));
+          if (settleProgress > 0) {
+            ctx.globalAlpha = settleProgress;
+            ctx.fillStyle = fgColor;
+            ctx.fillText(line, 10, (i + 1) * lineHeight);
+          }
+        });
+      }
       ctx.globalAlpha = 1;
       colStates.forEach(function (col, ci) {
         if (col.phase === 'done') return;
@@ -708,29 +915,35 @@
           col.y -= col.speed * 2;
           if (col.y < -20) { col.phase = 'done'; return; }
           ctx.globalAlpha = col.opacity * Math.max(0, 1 - progress);
-          ctx.fillStyle = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
-          ctx.fillText(col.char, ci * charWidth, col.y);
+          ctx.fillStyle = getAnimColor(opts);
+          ctx.fillText(col.char, startX + ci * charWidth, col.y);
         }
       });
       ctx.globalAlpha = 1;
       if (progress < 1) {
         animId = requestAnimationFrame(frame);
       } else {
-        if (opts.loop || (window.animConfig && window.animConfig.loop)) {
+        if (opts.loop || getAnimVal('loop', false, opts)) {
           startTime = performance.now();
           colStates.forEach(function (col) {
             col.phase = 'rain';
-            col.y = th + Math.random() * 60;
+            var startY = (opts.isSplash ? Math.floor(th / 2) : th);
+            if (opts.unbounded && opts.rect) {
+              startY = opts.rect.bottom;
+            }
+            col.y = startY + Math.random() * 60;
           });
           animId = requestAnimationFrame(frame);
         } else {
           done = true;
           ctx.clearRect(0, 0, tw, th);
-          ctx.font = fontStr;
-          ctx.fillStyle = fgColor;
-          lines.forEach(function (line, i) {
-            ctx.fillText(line, 10, (i + 1) * lineHeight);
-          });
+          if (!opts.isSplash && !opts.unbounded) {
+            ctx.font = fontStr;
+            ctx.fillStyle = fgColor;
+            lines.forEach(function (line, i) {
+              ctx.fillText(line, 10, (i + 1) * lineHeight);
+            });
+          }
         }
       }
     }
@@ -743,7 +956,6 @@
   var ZALGO_UP = ['\u0300','\u0301','\u0302','\u0303','\u0304','\u0305','\u0306','\u0307','\u0308','\u0309','\u030A','\u030B','\u030C','\u030D','\u030E','\u030F','\u0310','\u0311','\u0312','\u0313','\u0314','\u0315','\u031A','\u031B','\u033D','\u033E','\u033F','\u0340','\u0341','\u0342','\u0343','\u0344','\u0346','\u034A','\u034B','\u034C','\u034F','\u0350','\u0351','\u0352','\u0357','\u0358','\u035C','\u035D','\u035E','\u0360','\u0361'];
   var ZALGO_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*!';
 
-  /** Create a zalgo-rising animation above a baseline. */
   function createZalgoCanvas(text, opts) {
     opts = opts || {};
     var canvas = document.createElement('canvas');
@@ -752,7 +964,7 @@
     if (!ctx) return null;
 
     var fontStr = getCurrentFont();
-    var fontSize = parseInt(getComputedStyle(document.body).fontSize) || 13;
+    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize(opts));
     var lineHeight = Math.round(fontSize * 1.5);
 
     // Use Pretext to measure the baseline line
@@ -768,21 +980,26 @@
       baselineWidth = ctx.measureText(baselineText).width;
     }
 
-    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
-    var canvasWidth = isFull ? (opts.width || 600) : (baselineWidth + 20);
+    var isFull = (getAnimVal('widthMode', 'text', opts) === 'full');
+    var canvasWidth = opts.unbounded ? window.innerWidth : ((opts.isSplash || opts.loader) ? (opts.width || window.innerWidth) : (isFull ? (opts.width || 600) : (baselineWidth + 20)));
 
     // Calculate columns from baseline width
     var charWidth = fontSize * 0.55;
-    var numCols = Math.max(4, Math.floor((canvasWidth / charWidth) * getAnimDensity()));
-    var riseHeight = fontSize * 4 * getAnimIntensity(); // how high zalgo rises above baseline
-    var canvasHeight = riseHeight + lineHeight + 10;
+    var startX = 10;
+    var numCols = Math.max(4, Math.floor((canvasWidth / charWidth) * getAnimDensity(opts)));
+    if (opts.unbounded && opts.rect && !opts.magic && !opts.loaderMagic) {
+      startX = opts.rect.left;
+      numCols = Math.max(4, Math.floor((opts.rect.width / charWidth) * getAnimDensity(opts)));
+    }
+    var riseHeight = fontSize * 4 * getAnimIntensity(opts); // how high zalgo rises above baseline
+    var canvasHeight = opts.unbounded ? window.innerHeight : (opts.height || (opts.isSplash ? window.innerHeight : (riseHeight + lineHeight + 10)));
 
     canvas.width = Math.ceil(canvasWidth);
     canvas.height = Math.ceil(canvasHeight);
     canvas.style.width = canvas.width + 'px';
     canvas.style.height = canvas.height + 'px';
 
-    var baselineY = canvasHeight - lineHeight;
+    var baselineY = (opts.unbounded && opts.rect && !opts.magic && !opts.loaderMagic) ? opts.rect.bottom : (opts.isSplash ? Math.floor(canvasHeight / 2) : (canvasHeight - lineHeight));
 
     // Each column has a base character and accent information
     var columns = [];
@@ -795,7 +1012,7 @@
           startY = 10 + Math.random() * (baselineY - 10);
         }
         columns.push({
-          x: c * charWidth + 10,
+          x: c * charWidth + startX,
           baseChar: ZALGO_CHARS[Math.floor(Math.random() * ZALGO_CHARS.length)],
           accentSeed: Math.floor(Math.random() * 100),
           opacity: 0.3 + Math.random() * 0.7,
@@ -808,7 +1025,7 @@
     initColumns();
 
     var startTime = performance.now();
-    var duration = opts.duration || (window.animConfig.length * 1000) || 1500;
+    var duration = opts.duration || (getAnimVal('length', 2.0, opts) * 1000) || 1500;
     var done = false;
     var animId = null;
 
@@ -820,20 +1037,22 @@
         ctx.font = fontStr;
 
         // Draw baseline line (static)
-        ctx.globalAlpha = 0.6;
-        ctx.fillStyle = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
-        ctx.fillText(baselineText, 10, baselineY);
+        if (!opts.isSplash && !opts.unbounded) {
+          ctx.globalAlpha = 0.6;
+          ctx.fillStyle = getAnimColor(opts);
+          ctx.fillText(baselineText, 10, baselineY);
+        }
 
         columns.forEach(function (col) {
           // Continuous rise
-          col.y -= col.speed * 0.5 * getAnimSpeed();
+          col.y -= col.speed * 0.5 * getAnimSpeed(opts);
           if (col.y < 10) {
             col.y = baselineY;
             col.baseChar = ZALGO_CHARS[Math.floor(Math.random() * ZALGO_CHARS.length)],
             col.accentSeed = Math.floor(Math.random() * 100);
           }
 
-          var timeFactor = performance.now() * 0.008 * getAnimSpeed() * col.speed;
+          var timeFactor = performance.now() * 0.008 * getAnimSpeed(opts) * col.speed;
           var rawCount = 3 + Math.sin(timeFactor + col.x * 0.05) * 4;
           var numAccents = Math.max(1, Math.min(8, Math.round(rawCount)));
 
@@ -844,7 +1063,7 @@
 
           var glitchX = Math.sin(performance.now() * 0.01 + col.x) * 2;
           ctx.globalAlpha = col.opacity;
-          ctx.fillStyle = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+          ctx.fillStyle = getAnimColor(opts);
           ctx.fillText(col.baseChar + marks, col.x + glitchX, col.y);
         });
 
@@ -860,21 +1079,23 @@
       ctx.font = fontStr;
 
       // Draw baseline line (static)
-      ctx.globalAlpha = 0.6;
-      ctx.fillStyle = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
-      ctx.fillText(baselineText, 10, baselineY);
+      if (!opts.isSplash && !opts.unbounded) {
+        ctx.globalAlpha = 0.6;
+        ctx.fillStyle = getAnimColor(opts);
+        ctx.fillText(baselineText, 10, baselineY);
+      }
 
       // Draw rising zalgo columns
       columns.forEach(function (col) {
         if (col.settled) return;
 
-        // Rise progress per column (staggered)
-        var colProgress = Math.max(0, Math.min(1, (progress - Math.random() * 0.2) / 0.6));
+        // Rise progress per column
+        var colProgress = progress;
         var rise = colProgress * riseHeight;
         var y = baselineY - rise;
 
         // Dynamic accents: make the stack taller and shorter over time
-        var timeFactor = elapsed * 0.008 * getAnimSpeed() * col.speed;
+        var timeFactor = elapsed * 0.008 * getAnimSpeed(opts) * col.speed;
         var rawCount = 3 + Math.sin(timeFactor + col.x * 0.05) * 4; // oscillates between -1 and 7
         var numAccents = Math.max(1, Math.min(8, Math.round(rawCount)));
 
@@ -886,7 +1107,7 @@
         // Glitch: combining chars shift the glyph
         var glitchX = Math.sin(elapsed * 0.01 + col.x) * 2;
         ctx.globalAlpha = col.opacity * (1 - progress * 0.3);
-        ctx.fillStyle = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+        ctx.fillStyle = getAnimColor(opts);
         ctx.fillText(col.baseChar + marks, col.x + glitchX, y);
 
         if (progress >= 0.95) col.settled = true;
@@ -897,7 +1118,7 @@
       if (progress < 1) {
         animId = requestAnimationFrame(frame);
       } else {
-        if (opts.loop || (window.animConfig && window.animConfig.loop)) {
+        if (opts.loop || getAnimVal('loop', false, opts)) {
           startTime = performance.now();
           initColumns();
           animId = requestAnimationFrame(frame);
@@ -905,11 +1126,13 @@
           done = true;
           // Final: just the line + faint settled text
           ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.font = fontStr;
-          ctx.fillStyle = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
-          ctx.globalAlpha = 0.5;
-          ctx.fillText(baselineText, 10, baselineY);
-          ctx.globalAlpha = 1;
+          if (!opts.isSplash && !opts.unbounded) {
+            ctx.font = fontStr;
+            ctx.fillStyle = getAnimColor(opts);
+            ctx.globalAlpha = 0.5;
+            ctx.fillText(baselineText, 10, baselineY);
+            ctx.globalAlpha = 1;
+          }
         }
       }
     }
@@ -927,7 +1150,7 @@
     if (!ctx) return null;
 
     var fontStr = getCurrentFont();
-    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize());
+    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize(opts));
     var lineHeight = Math.round(fontSize * 1.5);
 
     var prepared = null;
@@ -948,19 +1171,19 @@
     var maxWidth = 0;
     lines.forEach(function (line) { maxWidth = Math.max(maxWidth, ctx.measureText(line).width); });
     
-    var isFull = (window.animConfig && window.animConfig.widthMode === 'full');
-    var tw = isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20);
-    var th = lines.length * lineHeight + 25;
+    var isFull = (getAnimVal('widthMode', 'text', opts) === 'full');
+    var tw = opts.unbounded ? window.innerWidth : ((opts.isSplash || opts.loader) ? (opts.width || window.innerWidth) : (isFull ? (opts.width || 600) : (Math.ceil(maxWidth) + 20)));
+    var th = opts.unbounded ? window.innerHeight : (opts.isSplash ? (opts.height || window.innerHeight) : (lines.length * lineHeight + 25));
     canvas.width = tw; canvas.height = th;
     canvas.style.width = tw + 'px'; canvas.style.height = th + 'px';
 
     var startTime = performance.now();
-    var duration = opts.duration || (window.animConfig.length * 1000) || 1200;
+    var duration = opts.duration || (getAnimVal('length', 2.0, opts) * 1000) || 1200;
     var done = false;
     var animId = null;
     var fgColor = getComputedStyle(document.body).color || '#ccc';
-    var animColor = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
-    var thresholdY = th - 12;
+    var animColor = getAnimColor(opts);
+    var thresholdY = opts.unbounded && opts.rect ? opts.rect.bottom : (opts.isSplash ? Math.floor(th / 2) : (th - 12));
 
     function frame(now) {
       if (done) return;
@@ -969,29 +1192,37 @@
       ctx.clearRect(0, 0, tw, th);
       ctx.font = fontStr;
 
-      lines.forEach(function (line, i) {
-        var lineProgress = Math.max(0, Math.min(1, (progress - i * 0.1) / 0.5));
-        if (lineProgress > 0) {
-          ctx.globalAlpha = lineProgress;
-          ctx.fillStyle = fgColor;
-          
-          var finalY = (i + 1) * lineHeight;
-          var startY = thresholdY;
-          var currentY = startY - (startY - finalY) * lineProgress;
-          
-          var jitter = 0;
-          if (lineProgress < 0.4) {
-            jitter = (Math.random() - 0.5) * 4 * (1 - lineProgress / 0.4);
+      if (!opts.isSplash && !opts.unbounded) {
+        lines.forEach(function (line, i) {
+          var lineProgress = Math.max(0, Math.min(1, (progress - i * 0.1) / 0.5));
+          if (lineProgress > 0) {
+            ctx.globalAlpha = lineProgress;
+            ctx.fillStyle = fgColor;
+            
+            var finalY = (i + 1) * lineHeight;
+            var startY = thresholdY;
+            var currentY = startY - (startY - finalY) * lineProgress;
+            
+            var jitter = 0;
+            if (lineProgress < 0.4) {
+              jitter = (Math.random() - 0.5) * 4 * (1 - lineProgress / 0.4);
+            }
+            
+            ctx.fillText(line, 10 + jitter, currentY);
           }
-          
-          ctx.fillText(line, 10 + jitter, currentY);
-        }
-      });
+        });
+      }
 
       ctx.globalAlpha = Math.max(0, 1 - progress);
       if (ctx.globalAlpha > 0) {
         ctx.fillStyle = animColor;
-        for (var x = 10; x < tw - 10; x += 8) {
+        var startX = 10;
+        var endX = tw - 10;
+        if (opts.unbounded && opts.rect) {
+          startX = opts.rect.left;
+          endX = opts.rect.right;
+        }
+        for (var x = startX; x < endX; x += 8) {
           if (Math.random() > 0.4) {
             var blockH = 2 + Math.random() * 6;
             ctx.fillRect(x, thresholdY - blockH / 2, 4, blockH);
@@ -1003,17 +1234,19 @@
       if (progress < 1) {
         animId = requestAnimationFrame(frame);
       } else {
-        if (opts.loop || (window.animConfig && window.animConfig.loop)) {
+        if (opts.loop || getAnimVal('loop', false, opts)) {
           startTime = performance.now();
           animId = requestAnimationFrame(frame);
         } else {
           done = true;
           ctx.clearRect(0, 0, tw, th);
-          ctx.font = fontStr;
-          ctx.fillStyle = fgColor;
-          lines.forEach(function (line, i) {
-            ctx.fillText(line, 10, (i + 1) * lineHeight);
-          });
+          if (!opts.isSplash && !opts.unbounded) {
+            ctx.font = fontStr;
+            ctx.fillStyle = fgColor;
+            lines.forEach(function (line, i) {
+              ctx.fillText(line, 10, (i + 1) * lineHeight);
+            });
+          }
         }
       }
     }
@@ -1023,47 +1256,198 @@
     return canvas;
   }
 
+  function createFullScreenFlyAnim(text, rect) {
+    var existing = document.querySelectorAll('canvas.full-screen-anim');
+    existing.forEach(function (c) {
+      if (c._stopAnimation) {
+        try { c._stopAnimation(); } catch (e) {}
+      } else {
+        c.remove();
+      }
+    });
+
+    var canvas = document.createElement('canvas');
+    canvas.className = 'pretext-canvas full-screen-anim';
+    canvas.style.position = 'fixed';
+    canvas.style.inset = '0';
+    canvas.style.width = '100vw';
+    canvas.style.height = '100vh';
+    canvas.style.zIndex = '10000';
+    canvas.style.pointerEvents = 'none';
+    canvas.style.background = 'transparent';
+    
+    var tw = window.innerWidth;
+    var th = window.innerHeight;
+    canvas.width = tw;
+    canvas.height = th;
+    
+    var ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    document.body.appendChild(canvas);
+    
+    var fontStr = getCurrentFont();
+    var fontSize = Math.round((parseInt(getComputedStyle(document.body).fontSize) || 13) * getAnimFontSize());
+    var lineHeight = Math.round(fontSize * 1.5);
+    ctx.font = fontStr;
+    
+    var lines = text ? text.split('\n') : [''];
+    var chars = [];
+    
+    for (var r = 0; r < lines.length; r++) {
+      var line = lines[r];
+      var lineLen = line.length;
+      var currentXOffset = rect.left;
+      
+      for (var c = 0; c < lineLen; c++) {
+        var ch = line.charAt(c);
+        var chWidth = ctx.measureText(ch).width || (fontSize * 0.6);
+        var targetX = currentXOffset;
+        currentXOffset += chWidth;
+        
+        if (ch === ' ') continue;
+        
+        var targetY = rect.top + (r + 1) * lineHeight;
+        
+        var angle = Math.random() * Math.PI * 2;
+        var speed = (2 + Math.random() * 4) * getAnimSpeed();
+        var rotSpeed = (Math.random() - 0.5) * 0.2;
+        
+        chars.push({
+          ch: ch,
+          x: targetX,
+          y: targetY,
+          angle: angle,
+          speed: speed,
+          rot: 0,
+          rotSpeed: rotSpeed,
+          alpha: 1.0
+        });
+      }
+    }
+    
+    var animId = null;
+    var done = false;
+    
+    function frame() {
+      if (done) return;
+      ctx.clearRect(0, 0, tw, th);
+      ctx.font = fontStr;
+      
+      var allOffscreen = true;
+      
+      chars.forEach(function (c) {
+        c.x += Math.cos(c.angle) * c.speed;
+        c.y += Math.sin(c.angle) * c.speed;
+        c.rot += c.rotSpeed;
+        c.alpha = Math.max(0, c.alpha - 0.015);
+        
+        var onScreen = (c.x >= -50 && c.x <= tw + 50 && c.y >= -50 && c.y <= th + 50);
+        if (onScreen && c.alpha > 0) {
+          allOffscreen = false;
+        }
+        
+        ctx.save();
+        ctx.translate(c.x, c.y);
+        ctx.rotate(c.rot);
+        ctx.globalAlpha = c.alpha;
+        
+        ctx.fillStyle = getAnimColor(opts);
+        ctx.fillText(c.ch, 0, 0);
+        ctx.restore();
+      });
+      
+      if (!allOffscreen) {
+        animId = requestAnimationFrame(frame);
+      } else {
+        done = true;
+        canvas.remove();
+      }
+    }
+    
+    animId = requestAnimationFrame(frame);
+    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); canvas.remove(); };
+  }
+
   // ── Dispatcher ────────────────────────────────────────────────────────────
   function createAnimatedCanvas(text, opts) {
     opts = opts || {};
-    var mode = window._junctionAnimationMode || 'matrix';
-    var canvas = null;
-    if (opts.loader && mode === 'matrix') {
-      canvas = createMatrixLoader(opts.width, opts.height || 40);
-    } else {
-      switch (mode) {
-        case 'zalgo': canvas = createZalgoCanvas(text, opts); break;
-        case 'fire': canvas = createFireCanvas(text, opts); break;
-        case 'bounce': canvas = createBounceCanvas(text, opts); break;
-        case 'spiral': canvas = createSpiralCanvas(text, opts); break;
-        case 'leak': canvas = createLeakCanvas(text, opts); break;
-        default: canvas = createMatrixCanvas(text, opts); break;
+    var mode = opts.mode || window._junctionAnimationMode || 'matrix';
+    if (opts.loader) {
+      var loaderMode = getAnimVal('loaderMode', 'default', opts);
+      if (loaderMode !== 'default') {
+        mode = loaderMode;
       }
     }
+    if (opts.loader) {
+      window._activeLoaderContext = true;
+    }
+    var canvas = null;
+    try {
+      if (opts.loader && mode === 'matrix') {
+        canvas = createMatrixLoader(opts.width, opts.height || 40, opts);
+      } else {
+        switch (mode) {
+          case 'zalgo': canvas = createZalgoCanvas(text, opts); break;
+          case 'fire': canvas = createFireCanvas(text, opts); break;
+          case 'bounce': canvas = createBounceCanvas(text, opts); break;
+          case 'spiral':
+          case 'galaxy':
+            canvas = createSpiralCanvas(text, opts);
+            break;
+          case 'leak': canvas = createLeakCanvas(text, opts); break;
+          default: canvas = createMatrixCanvas(text, opts); break;
+        }
+      }
+    } finally {
+      window._activeLoaderContext = false;
+    }
     if (canvas) {
-      canvas.style.backgroundColor = getAnimationBgColor(animConfig.bgAlpha);
+      if (opts.unbounded) {
+        var existing = document.querySelectorAll('canvas.full-screen-anim');
+        existing.forEach(function (c) {
+          if (c._stopAnimation) {
+            try { c._stopAnimation(); } catch (e) {}
+          } else {
+            c.remove();
+          }
+        });
+        canvas.className = 'pretext-canvas full-screen-anim';
+        canvas.style.position = 'fixed';
+        canvas.style.inset = '0';
+        canvas.style.width = '100vw';
+        canvas.style.height = '100vh';
+        canvas.style.zIndex = '10000';
+        canvas.style.pointerEvents = 'none';
+        canvas.style.background = 'transparent';
+      } else {
+        canvas.style.backgroundColor = getAnimationBgColor(undefined, opts);
+      }
     }
     return canvas;
   }
   window.createAnimatedCanvas = createAnimatedCanvas; // expose for composer.js
 
   /** Matrix-style loading animation for boot/working states. */
-  function createMatrixLoader(width, height) {
+  function createMatrixLoader(width, height, opts) {
+    opts = opts || {};
     var canvas = document.createElement('canvas');
     canvas.className = 'pretext-canvas matrix-loader';
-    canvas.width = width || 200;
-    canvas.height = height || 40;
-    canvas.style.width = canvas.width + 'px';
-    canvas.style.height = canvas.height + 'px';
+    var tw = opts.unbounded ? window.innerWidth : (width || 200);
+    var th = opts.unbounded ? window.innerHeight : (height || 40);
+    canvas.width = tw;
+    canvas.height = th;
+    canvas.style.width = tw + 'px';
+    canvas.style.height = th + 'px';
     var ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
-    var fontSize = Math.round(11 * getAnimFontSize());
+    var fontSize = Math.round(11 * getAnimFontSize(opts));
     ctx.font = fontSize + 'px monospace';
-    var cols = Math.max(2, Math.floor((canvas.width / fontSize) * getAnimDensity()));
+    var cols = Math.max(2, Math.floor((canvas.width / fontSize) * getAnimDensity(opts)));
     var drops = [];
     for (var i = 0; i < cols; i++) {
-      drops.push({ y: Math.random() * canvas.height, speed: (0.5 + Math.random() * 1.5) * getAnimIntensity() });
+      drops.push({ y: Math.random() * canvas.height, speed: (0.5 + Math.random() * 1.5) * getAnimIntensity(opts) });
     }
 
     var animId = null;
@@ -1076,13 +1460,13 @@
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.globalCompositeOperation = 'source-over';
 
-      ctx.fillStyle = window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+      ctx.fillStyle = getAnimColor(opts);
       ctx.font = fontSize + 'px monospace';
       drops.forEach(function (drop, i) {
         var ch = matrixChars[Math.floor(Math.random() * matrixChars.length)];
         ctx.globalAlpha = 0.5 + Math.random() * 0.5;
         ctx.fillText(ch, i * fontSize, drop.y);
-        drop.y += drop.speed * fontSize * 0.5 * getAnimSpeed();
+        drop.y += drop.speed * fontSize * 0.5 * getAnimSpeed(opts);
         if (drop.y > canvas.height && Math.random() > 0.975) {
           drop.y = 0;
         }
@@ -1142,12 +1526,23 @@
   }
   function scrollToBottom() {
     if (userScrollSticky) {
-      messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+      isProgrammaticScroll = true;
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
   }
   function forceScrollToBottom() {
     userScrollSticky = true;
-    messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+    isProgrammaticScroll = true;
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    // Deferred scroll to handle layout computation timing on view transition
+    setTimeout(function () {
+      isProgrammaticScroll = true;
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }, 50);
+    setTimeout(function () {
+      isProgrammaticScroll = true;
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }, 200);
   }
 
   // ── Share / export chat ──────────────────────────────────────────────────
@@ -1265,103 +1660,16 @@
     if (btnShare) btnShare.click();
   });
 
-  // ── Maximize/pop-out button ─────────────────────────────────────────────
+  // ── Scroll sync / Sticky scroll ───────────────────────────────────────────
   (function () {
-    var chatContainer = messagesDiv && messagesDiv.parentElement;
-    if (!chatContainer) return;
-    chatContainer.style.position = 'relative';
-
-    var maxBtn = document.createElement('button');
-    maxBtn.className = 'codicon codicon-maximize';
-    maxBtn.id = 'btn-maximize-chat';
-    maxBtn.title = 'Expand editor';
-    maxBtn.style.cssText = 'position:absolute;top:6px;right:6px;z-index:100;display:none;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:3px;cursor:pointer;padding:4px;color:var(--vscode-descriptionForeground);';
-    chatContainer.appendChild(maxBtn);
-
-    // Show button when scroll appears
-    var scrollObserver = new MutationObserver(function () {
-      if (!messagesDiv) return;
-      var hasScroll = messagesDiv.scrollHeight > messagesDiv.clientHeight + 4;
-      maxBtn.style.display = hasScroll ? '' : 'none';
-    });
-    scrollObserver.observe(messagesDiv, { childList: true, subtree: true, attributes: true });
-    // Also check on scroll
+    if (!messagesDiv) return;
     messagesDiv.addEventListener('scroll', function () {
-      var hasScroll = messagesDiv.scrollHeight > messagesDiv.clientHeight + 4;
-      maxBtn.style.display = hasScroll ? '' : 'none';
-      
-      // Update sticky scroll state based on user scroll position
+      if (isProgrammaticScroll) {
+        isProgrammaticScroll = false;
+        return;
+      }
       var atBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < 50;
       userScrollSticky = atBottom;
-    });
-
-    // Modal
-    maxBtn.addEventListener('click', function () {
-      var modal = document.createElement('div');
-      modal.id = 'chat-expand-modal';
-      modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);';
-
-      var panel = document.createElement('div');
-      panel.style.cssText = 'width:90vw;max-width:900px;height:80vh;display:flex;flex-direction:column;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4);';
-
-      // Header
-      var hdr = document.createElement('div');
-      hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--vscode-input-border);';
-      var hdrTitle = document.createElement('span');
-      hdrTitle.textContent = 'Composer';
-      hdrTitle.style.cssText = 'font-size:12px;font-weight:600;color:var(--vscode-editor-foreground);';
-      var closeBtn = document.createElement('button');
-      closeBtn.className = 'codicon codicon-close';
-      closeBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--vscode-descriptionForeground);font-size:16px;padding:0;';
-      closeBtn.addEventListener('click', function () { modal.remove(); });
-      hdr.appendChild(hdrTitle);
-      hdr.appendChild(closeBtn);
-      panel.appendChild(hdr);
-
-      // Textarea
-      var ta = document.createElement('textarea');
-      ta.style.cssText = 'flex:1;padding:12px;border:none;background:transparent;color:var(--vscode-editor-foreground);font-family:var(--vscode-editor-font-family,monospace);font-size:var(--vscode-editor-font-size,14px);line-height:1.6;resize:none;outline:none;';
-      ta.placeholder = 'Ask agent...';
-      ta.value = document.getElementById('composer-input').value;
-      panel.appendChild(ta);
-
-      // Footer
-      var ftr = document.createElement('div');
-      ftr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-top:1px solid var(--vscode-input-border);';
-      var ftrHint = document.createElement('span');
-      ftrHint.textContent = 'ESC to close · Ctrl+Enter to send';
-      ftrHint.style.cssText = 'font-size:10px;color:var(--vscode-descriptionForeground);';
-      var sendBtn = document.createElement('button');
-      sendBtn.textContent = 'Send';
-      sendBtn.style.cssText = 'padding:4px 16px;border-radius:3px;border:1px solid var(--vscode-button-background);background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer;font-size:12px;';
-      sendBtn.addEventListener('click', function () {
-        document.getElementById('composer-input').value = ta.value;
-        document.getElementById('composer-input').dispatchEvent(new Event('input'));
-        modal.remove();
-        window.composerSend && window.composerSend();
-      });
-      ftr.appendChild(ftrHint);
-      ftr.appendChild(sendBtn);
-      panel.appendChild(ftr);
-
-      modal.appendChild(panel);
-      document.body.appendChild(modal);
-      ta.focus();
-
-      // ESC to close, Ctrl+Enter to send
-      modal.addEventListener('keydown', function (ev) {
-        if (ev.key === 'Escape') { modal.remove(); }
-        if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
-          document.getElementById('composer-input').value = ta.value;
-          document.getElementById('composer-input').dispatchEvent(new Event('input'));
-          modal.remove();
-          window.composerSend && window.composerSend();
-        }
-      });
-      // Click backdrop to close
-      modal.addEventListener('click', function (ev) {
-        if (ev.target === modal) modal.remove();
-      });
     });
   })();
 
@@ -1373,6 +1681,7 @@
   var toolContainers = new Map();    // runId → .tool-calls container
   var isRestoringHistory = false;
   var userScrollSticky = true;
+  var isProgrammaticScroll = false;
 
   // ── User rows + per-message actions ────────────────────────────────────────
   function addUserRow(text, messageId, hasCheckpoint) {
@@ -1424,6 +1733,9 @@
     bubble.className = 'msg-text';
     row.appendChild(bubble);
 
+    // Share/copy actions for assistant messages
+    row.appendChild(buildMsgActions(null));
+
     if (workingRow && workingRow.parentNode === messagesDiv) {
       messagesDiv.insertBefore(row, workingRow);
     } else {
@@ -1435,8 +1747,9 @@
 
   function addAssistantHistoryRow(item, index) {
     var runId = item.runId || 'history:' + index;
+    var isActiveRun = item.runId && (messagesDiv.dataset.activeRun === item.runId || !item.thinkingComplete);
     try {
-      var row = buildAssistantRow(runId, false);
+      var row = buildAssistantRow(runId, isActiveRun);
       var bubble = row.querySelector('.msg-text');
       bubble.dataset.rawText = item.content || '';
       bubble.innerHTML = renderMarkdown(item.content || '');
@@ -1512,6 +1825,30 @@
   }
   window.getOrCreateAssistantMessage = getOrCreateAssistantMessage;
 
+  function getPillTextContent(bubble) {
+    var slot = bubble.querySelector('.pill-text-content');
+    if (!slot) {
+      var content = bubble.innerHTML;
+      bubble.innerHTML = '';
+      
+      slot = document.createElement('div');
+      slot.className = 'pill-text-content';
+      slot.innerHTML = content;
+      bubble.appendChild(slot);
+    }
+    return slot;
+  }
+
+  function getPillAnimSlot(container) {
+    var slot = container.querySelector('.pill-anim-slot');
+    if (!slot) {
+      slot = document.createElement('div');
+      slot.className = 'pill-anim-slot';
+      container.insertBefore(slot, container.firstChild);
+    }
+    return slot;
+  }
+
   function setAssistantText(runId, fullText) {
     if (isWorkspaceContext(fullText)) return;
     var row = getOrCreateAssistantMessage(runId);
@@ -1521,36 +1858,148 @@
     text.dataset.rawText = fullText;
 
     if (extraRichEnabled && fullText && fullText.length > 0) {
-      // Use animated canvas for first render, then swap to DOM for interaction
       var existingCanvas = text.querySelector('.pretext-canvas');
       if (!existingCanvas && !text.dataset.settled) {
         var mode = window._junctionAnimationMode || 'matrix';
-        if (mode === 'leak') {
-          // Leak mode: render DOM directly and let CSS slide-up handle the emerge transition
+        var isFull = (getAnimVal('widthMode', 'text') === 'full');
+        var isNoSize = getAnimVal('sizeOff', false);
+        var isMagic = getAnimVal('magic', false);
+        if (isMagic) {
+          text.innerHTML = renderMarkdown(fullText);
+          text.dataset.settled = '1';
+          text.style.opacity = '0';
+          var rect = text.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) {
+            rect = { left: 20, top: window.innerHeight - 200, width: window.innerWidth - 40, height: 100 };
+          }
+          var canvas = createAnimatedCanvas(fullText, { unbounded: true, rect: rect, duration: Math.round((getAnimVal('length', 2.0) || 2.0) * 1000), magic: true });
+          if (canvas) {
+            document.body.appendChild(canvas);
+          }
+          setTimeout(function () {
+            text.style.opacity = '1';
+            var existing = document.querySelectorAll('canvas.full-screen-anim');
+            existing.forEach(function (c) {
+              if (c._stopAnimation) {
+                try { c._stopAnimation(); } catch (e) {}
+              } else {
+                c.remove();
+              }
+            });
+          }, 850);
+          ensureToolContainer(runId, row);
+          scrollToBottom();
+          return;
+        } else if (isNoSize) {
+          text.innerHTML = renderMarkdown(fullText);
+          text.dataset.settled = '1';
+          var rect = text.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) {
+            rect = { left: 20, top: window.innerHeight - 200, width: window.innerWidth - 40, height: 100 };
+          }
+          createFullScreenFlyAnim(fullText, rect);
+          ensureToolContainer(runId, row);
+          scrollToBottom();
+          return;
+        } else if (isFull) {
+          var w = Math.max(200, (messagesDiv && messagesDiv.clientWidth) || 340) - 40;
+          var contentSlot = getPillTextContent(text);
+          contentSlot.innerHTML = renderMarkdown(fullText);
+          contentSlot.style.opacity = '0';
+          contentSlot.style.transition = 'opacity 0.3s ease-out';
+          
+          var animSlot = getPillAnimSlot(row);
+          animSlot.className = 'pill-anim-slot';
+          animSlot.innerHTML = '';
+          animSlot.style.height = '0px';
+          animSlot.style.transition = 'none';
+          
+          var canvas = createAnimatedCanvas(fullText, { duration: Math.round((getAnimVal('length', 2.0) || 2.0) * 1000), width: w, mode: 'zalgo' });
+          var canvasHeight = 82; // fallback
+          if (canvas) {
+            animSlot.appendChild(canvas);
+            canvasHeight = canvas.height || 82;
+          }
+          
+          void animSlot.offsetHeight; // trigger reflow
+          animSlot.style.transition = 'height 0.8s cubic-bezier(0.25, 1, 0.5, 1)';
+          animSlot.style.height = canvasHeight + 'px';
+          text.dataset.settled = '1';
+
+          scrollToBottom();
+
+          setTimeout(function () {
+            animSlot.style.transition = 'height 0.8s cubic-bezier(0.25, 1, 0.5, 1)';
+            animSlot.style.height = '0px';
+            contentSlot.style.opacity = '1';
+            
+            setTimeout(function () {
+              animSlot.innerHTML = '';
+              animSlot.style.height = '';
+              animSlot.style.transition = '';
+              if (canvas && typeof canvas._stopAnimation === 'function') {
+                canvas._stopAnimation();
+              }
+              scrollToBottom();
+            }, 800);
+          }, 850);
+          
+          ensureToolContainer(runId, row);
+          scrollToBottom();
+          return;
+        } else if (mode === 'leak') {
           text.innerHTML = renderMarkdown(fullText);
           text.dataset.settled = '1';
         } else {
           var width = Math.max(200, (text.clientWidth || (messagesDiv && messagesDiv.clientWidth) || 340) - 40);
-          var canvas = createAnimatedCanvas(fullText, { duration: 800, width: width });
+          var canvas = createAnimatedCanvas(fullText, {
+            duration: Math.round((getAnimVal('length', 2.0) || 2.0) * 1000),
+            mode: mode,
+            width: width
+          });
           if (canvas) {
-            text.innerHTML = '';
-            text.appendChild(canvas);
-            // After animation, swap to rendered markdown
+            var animSlot = getPillAnimSlot(text);
+            animSlot.innerHTML = '';
+            animSlot.appendChild(canvas);
+            
+            var contentSlot = getPillTextContent(text);
+            contentSlot.innerHTML = renderMarkdown(fullText);
+            contentSlot.style.opacity = '0';
+            contentSlot.style.transition = 'opacity 0.15s ease-out';
+            text.dataset.settled = '1';
+
+            scrollToBottom();
+
             setTimeout(function () {
-              text.innerHTML = renderMarkdown(fullText);
-              text.dataset.settled = '1';
+              animSlot.innerHTML = '';
+              contentSlot.style.opacity = '1';
+              if (canvas && typeof canvas._stopAnimation === 'function') {
+                canvas._stopAnimation();
+              }
+              scrollToBottom();
             }, 850);
+            
             ensureToolContainer(runId, row);
             scrollToBottom();
             return;
           }
         }
       }
-      // Subsequent updates — just update DOM directly
-      text.innerHTML = renderMarkdown(fullText);
+      var contentSlot = text.querySelector('.pill-text-content');
+      if (contentSlot) {
+        contentSlot.innerHTML = renderMarkdown(fullText);
+      } else {
+        var slot = getPillTextContent(text);
+        slot.innerHTML = renderMarkdown(fullText);
+      }
       text.dataset.settled = '1';
     } else {
-      text.innerHTML = renderMarkdown(fullText);
+      var contentSlot = text.querySelector('.pill-text-content');
+      if (contentSlot) {
+        contentSlot.innerHTML = renderMarkdown(fullText);
+      } else {
+        text.innerHTML = renderMarkdown(fullText);
+      }
     }
     ensureToolContainer(runId, row);
     scrollToBottom();
@@ -2321,11 +2770,15 @@
   var workingRow = null;
   function setWorking(active) {
     if (active) {
-      if (!workingRow) {
-        workingRow = document.createElement('div');
-        workingRow.className = 'working-row';
-      } else {
-        var oldCanvas = workingRow.querySelector('canvas.pretext-canvas');
+      if (pinnedThrobber) {
+        if (pinnedThrobber._loaderCanvas) {
+          if (typeof pinnedThrobber._loaderCanvas._stopAnimation === 'function') {
+            pinnedThrobber._loaderCanvas._stopAnimation();
+          }
+          pinnedThrobber._loaderCanvas.remove();
+          pinnedThrobber._loaderCanvas = null;
+        }
+        var oldCanvas = pinnedThrobber.querySelector('canvas.pretext-canvas');
         if (oldCanvas && typeof oldCanvas._stopAnimation === 'function') {
           oldCanvas._stopAnimation();
         }
@@ -2340,42 +2793,54 @@
       for (var i = 0; i < lineCharCount; i++) lineStr += '\u2500';
 
       // Create looping canvas animation at full width
-      var canvas = createAnimatedCanvas(lineStr, { loader: true, width: w });
-      if (canvas) {
-        canvas.style.display = 'block';
-        canvas.style.width = '100%';
-        canvas.style.margin = '0 auto';
-        workingRow.innerHTML = '';
-        workingRow.appendChild(canvas);
-      } else {
-        workingRow.innerHTML = '<span class="working-shimmer">Working…</span>';
+      var isLoaderMagic = getAnimVal('loaderMagic', false);
+      var canvas = createAnimatedCanvas(lineStr, { 
+        loader: true, 
+        width: w,
+        unbounded: isLoaderMagic,
+        loaderMagic: isLoaderMagic
+      });
+      if (canvas && pinnedThrobber) {
+        if (isLoaderMagic) {
+          document.body.appendChild(canvas);
+          pinnedThrobber._loaderCanvas = canvas;
+        } else {
+          canvas.style.display = 'block';
+          canvas.style.width = '100%';
+          canvas.style.margin = '0 auto';
+          pinnedThrobber.innerHTML = '';
+          pinnedThrobber.appendChild(canvas);
+        }
+        pinnedThrobber.style.display = 'block';
       }
-
-      workingRow.classList.remove('suppressed');
-      messagesDiv.appendChild(workingRow);
-      scrollToBottom();
-    } else if (workingRow) {
-      var oldCanvas = workingRow.querySelector('canvas.pretext-canvas');
+    } else if (pinnedThrobber) {
+      if (pinnedThrobber._loaderCanvas) {
+        if (typeof pinnedThrobber._loaderCanvas._stopAnimation === 'function') {
+          pinnedThrobber._loaderCanvas._stopAnimation();
+        }
+        pinnedThrobber._loaderCanvas.remove();
+        pinnedThrobber._loaderCanvas = null;
+      }
+      var oldCanvas = pinnedThrobber.querySelector('canvas.pretext-canvas');
       if (oldCanvas && typeof oldCanvas._stopAnimation === 'function') {
         oldCanvas._stopAnimation();
       }
-      workingRow.remove();
+      pinnedThrobber.innerHTML = '';
+      pinnedThrobber.style.display = 'none';
     }
   }
   window.refreshWorking = function () {
-    if (workingRow && workingRow.isConnected && !workingRow.classList.contains('suppressed')) {
+    if (pinnedThrobber && pinnedThrobber.style.display !== 'none') {
       setWorking(true);
     }
   };
   /** Keep the indicator pinned below the newest content. */
   function pinWorkingRow() {
-    if (workingRow && workingRow.isConnected && messagesDiv.lastElementChild !== workingRow) {
-      messagesDiv.appendChild(workingRow);
-    }
+    // No-op since pinnedThrobber is absolute-positioned at top: 0
   }
   /** Hide while the thinking bar animates (avoid double indicators). */
   function suppressWorking(suppress) {
-    if (workingRow) workingRow.classList.toggle('suppressed', !!suppress);
+    if (pinnedThrobber) pinnedThrobber.style.display = suppress ? 'none' : 'block';
   }
 
   // ── History / response ──────────────────────────────────────────────────────
@@ -2401,9 +2866,12 @@
     return false;
   }
 
-  function renderHistory(history) {
+  function renderHistory(history, activeRunId) {
     isRestoringHistory = true;
     clearMessages();
+    if (activeRunId) {
+      messagesDiv.dataset.activeRun = activeRunId;
+    }
     (history || []).forEach(function (item, index) {
       if (!item) return;
       // Filter out gateway-injected workspace context messages
@@ -2418,9 +2886,9 @@
     });
     isRestoringHistory = false;
     // Restart thinking bar for active run if persisted across reload
-    var activeRunId = messagesDiv.dataset.activeRun;
-    if (activeRunId) {
-      var block = reasoningBlocks.get(activeRunId);
+    var activeRunIdVal = messagesDiv.dataset.activeRun;
+    if (activeRunIdVal) {
+      var block = reasoningBlocks.get(activeRunIdVal);
       if (block) {
         var bar = block.querySelector('.thinking-bar');
         if (bar && bar.dataset.active !== 'running') {
@@ -2451,9 +2919,24 @@
         if (msg.activityRail !== undefined) streamCfg.rail = !!msg.activityRail;
         if (msg.activityDots) streamCfg.dots = msg.activityDots;
         applyStreamConfig();
+        if (msg.animConfig) {
+          Object.assign(window.animConfig, msg.animConfig);
+        }
+        if (msg.animationMode) {
+          window._junctionAnimationMode = msg.animationMode;
+        }
+        if (msg.animColor) {
+          window._junctionAnimColor = msg.animColor;
+        }
+        if (msg.loaderColor) {
+          window._junctionLoaderAnimColor = msg.loaderColor;
+        }
+        try {
+          overrideStartupAnimation();
+        } catch (e) {}
         break;
       case 'history':
-        renderHistory(msg.messages);
+        renderHistory(msg.messages, msg.activeRunId);
         break;
       case 'userEcho':
         if (!isWorkspaceContext(msg.text)) {
@@ -2653,7 +3136,6 @@
     var font = getComputedStyle(parent).font;
     var color = getComputedStyle(parent).color;
     var fontSize = parseFloat(getComputedStyle(parent).fontSize) || 13;
-    var lineHeight = parseFloat(getComputedStyle(parent).lineHeight) || (fontSize * 1.5);
 
     var parts = text.split(/(\s+)/);
     var fragment = document.createDocumentFragment();
@@ -2675,21 +3157,22 @@
         }
         ctx.font = font;
 
+        var th = Math.ceil(fontSize * 1.3);
+        var baselineY = Math.ceil(fontSize * 0.95);
         var tw = Math.ceil(ctx.measureText(part).width) + 2;
-        var th = Math.ceil(lineHeight) + 2;
 
         canvas.width = tw * dpr;
         canvas.height = th * dpr;
         canvas.style.width = tw + 'px';
         canvas.style.height = th + 'px';
         canvas.style.display = 'inline-block';
-        canvas.style.verticalAlign = 'baseline';
+        canvas.style.verticalAlign = '-' + (th - baselineY) + 'px';
 
         ctx.scale(dpr, dpr);
         ctx.font = font;
         ctx.fillStyle = color;
-        ctx.textBaseline = 'middle';
-        ctx.fillText(part, 1, th / 2);
+        ctx.textBaseline = 'alphabetic';
+        ctx.fillText(part, 1, baselineY);
 
         fragment.appendChild(canvas);
       }
@@ -2750,11 +3233,24 @@
 
   observer.observe(document.body, { childList: true, subtree: true });
 
+  var activeReanimateToken = 0;
   function reanimateAllMessages() {
+    activeReanimateToken++;
+    var currentToken = activeReanimateToken;
     var rows = Array.from(document.querySelectorAll('#chat-messages .chat-row'));
     if (rows.length === 0) return;
 
     var startPlaybackSticky = userScrollSticky;
+
+    // Stop active full-screen fly animations
+    var existingFly = document.querySelectorAll('canvas.full-screen-anim');
+    existingFly.forEach(function (c) {
+      if (c._stopAnimation) {
+        try { c._stopAnimation(); } catch (e) {}
+      } else {
+        c.remove();
+      }
+    });
 
     // Stop active canvas animations
     rows.forEach(function (row) {
@@ -2767,6 +3263,15 @@
       }
     });
 
+    if (pinnedThrobber) {
+      var oldCanvas = pinnedThrobber.querySelector('canvas.pretext-canvas');
+      if (oldCanvas && oldCanvas._stopAnimation) {
+        try { oldCanvas._stopAnimation(); } catch (e) {}
+      }
+      pinnedThrobber.innerHTML = '';
+      pinnedThrobber.style.display = 'none';
+    }
+
     // Hide all rows
     rows.forEach(function (row) {
       row.style.display = 'none';
@@ -2774,6 +3279,7 @@
 
     var index = 0;
     function next() {
+      if (currentToken !== activeReanimateToken) return;
       if (index >= rows.length) return;
       var row = rows[index];
       
@@ -2784,7 +3290,8 @@
       row.classList.add('rise-up-anim');
 
       if (startPlaybackSticky && userScrollSticky) {
-        messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+        isProgrammaticScroll = true;
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
       }
 
       var textEl = row.querySelector('.msg-text');
@@ -2805,14 +3312,125 @@
       // Measure client width of messages container as fallback since textEl might be hidden initially
       var containerWidth = (messagesDiv && messagesDiv.clientWidth) || 340;
       var width = Math.max(200, (textEl.clientWidth || containerWidth) - 40);
-      var duration = 800;
+      var duration = Math.round((getAnimVal('length', 2.0) || 2.0) * 1000);
 
       var mode = window._junctionAnimationMode || 'matrix';
-      if (mode === 'leak') {
+      var isFull = (getAnimVal('widthMode', 'text') === 'full');
+      var isNoSize = getAnimVal('sizeOff', false);
+      var isMagic = getAnimVal('magic', false);
+      if (isMagic) {
+        textEl.innerHTML = renderMarkdown(fullText);
+        textEl.dataset.settled = '1';
+        textEl.style.opacity = '0';
+        if (startPlaybackSticky && userScrollSticky) {
+          isProgrammaticScroll = true;
+          messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        var rect = textEl.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+          rect = { left: 20, top: window.innerHeight - 200, width: window.innerWidth - 40, height: 100 };
+        }
+        var canvas = createAnimatedCanvas(fullText, { unbounded: true, rect: rect, duration: duration, magic: true });
+        if (canvas) {
+          document.body.appendChild(canvas);
+        }
+        setTimeout(function () {
+          textEl.style.opacity = '1';
+          var existing = document.querySelectorAll('canvas.full-screen-anim');
+          existing.forEach(function (c) {
+            if (c._stopAnimation) {
+              try { c._stopAnimation(); } catch (e) {}
+            } else {
+              c.remove();
+            }
+          });
+        }, duration);
+        setTimeout(function () {
+          index++;
+          next();
+        }, duration + 50);
+      } else if (isNoSize) {
+        textEl.innerHTML = renderMarkdown(fullText);
+        textEl.dataset.settled = '1';
+        textEl.style.opacity = '0';
+        textEl.style.transition = 'opacity 0.8s ease-in-out';
+        if (startPlaybackSticky && userScrollSticky) {
+          isProgrammaticScroll = true;
+          messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        var rect = textEl.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+          rect = { left: 20, top: window.innerHeight - 200, width: window.innerWidth - 40, height: 100 };
+        }
+        createFullScreenFlyAnim(fullText, rect);
+        requestAnimationFrame(function () {
+          textEl.style.opacity = '1';
+        });
+        setTimeout(function () {
+          index++;
+          next();
+        }, duration + 50);
+      } else if (isFull) {
+        var w = Math.max(200, (messagesDiv && messagesDiv.clientWidth) || 340) - 40;
+        var contentSlot = getPillTextContent(textEl);
+        contentSlot.innerHTML = renderMarkdown(fullText);
+        contentSlot.style.opacity = '0';
+        contentSlot.style.transition = 'opacity 0.3s ease-out';
+        
+        var animSlot = getPillAnimSlot(row);
+        animSlot.className = 'pill-anim-slot';
+        animSlot.innerHTML = '';
+        animSlot.style.height = '0px';
+        animSlot.style.transition = 'none';
+        
+        var canvas = createAnimatedCanvas(fullText, { duration: duration, width: w, mode: 'zalgo' });
+        var canvasHeight = 82; // fallback
+        if (canvas) {
+          animSlot.appendChild(canvas);
+          canvasHeight = canvas.height || 82;
+          
+          void animSlot.offsetHeight; // trigger reflow
+          animSlot.style.transition = 'height 0.8s cubic-bezier(0.25, 1, 0.5, 1)';
+          animSlot.style.height = canvasHeight + 'px';
+          textEl.dataset.settled = '1';
+
+          if (startPlaybackSticky && userScrollSticky) {
+            isProgrammaticScroll = true;
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+          }
+
+          setTimeout(function () {
+            animSlot.style.transition = 'height 0.8s cubic-bezier(0.25, 1, 0.5, 1)';
+            animSlot.style.height = '0px';
+            contentSlot.style.opacity = '1';
+            
+            setTimeout(function () {
+              animSlot.innerHTML = '';
+              animSlot.style.height = '';
+              animSlot.style.transition = '';
+              if (canvas && typeof canvas._stopAnimation === 'function') {
+                canvas._stopAnimation();
+              }
+              if (startPlaybackSticky && userScrollSticky) {
+                isProgrammaticScroll = true;
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+              }
+              index++;
+              next();
+            }, 800);
+          }, duration + 50);
+        } else {
+          textEl.innerHTML = renderMarkdown(fullText);
+          textEl.dataset.settled = '1';
+          index++;
+          next();
+        }
+      } else if (mode === 'leak') {
         textEl.innerHTML = renderMarkdown(fullText);
         textEl.dataset.settled = '1';
         if (startPlaybackSticky && userScrollSticky) {
-          messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+          isProgrammaticScroll = true;
+          messagesDiv.scrollTop = messagesDiv.scrollHeight;
         }
         setTimeout(function () {
           index++;
@@ -2824,14 +3442,16 @@
           textEl.innerHTML = '';
           textEl.appendChild(canvas);
           if (startPlaybackSticky && userScrollSticky) {
-            messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+            isProgrammaticScroll = true;
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
           }
 
           setTimeout(function () {
             textEl.innerHTML = renderMarkdown(fullText);
             textEl.dataset.settled = '1';
             if (startPlaybackSticky && userScrollSticky) {
-              messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+              isProgrammaticScroll = true;
+              messagesDiv.scrollTop = messagesDiv.scrollHeight;
             }
             index++;
             next();
@@ -2840,7 +3460,8 @@
           textEl.innerHTML = renderMarkdown(fullText);
           textEl.dataset.settled = '1';
           if (startPlaybackSticky && userScrollSticky) {
-            messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+            isProgrammaticScroll = true;
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
           }
           index++;
           next();
@@ -2850,5 +3471,74 @@
 
     next();
   }
+  // Override startup loader with the user's configured loader/bobber animation on load
+  function overrideStartupAnimation() {
+    var startupLoader = document.getElementById('startup-loader');
+    if (startupLoader && !startupLoader.classList.contains('dismissed')) {
+      var oldCanvas = document.getElementById('startup-matrix');
+      if (oldCanvas) {
+        oldCanvas._stopStartupDraw = true;
+        oldCanvas.remove();
+      }
+      var w = window.innerWidth;
+      var h = window.innerHeight;
+      var canvas = createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: w, height: h, loaderMagic: getAnimVal('loaderMagic', false) });
+      if (canvas) {
+        canvas.id = 'startup-matrix';
+        startupLoader.insertBefore(canvas, startupLoader.firstChild);
+      }
+    }
+  }
+
+  function playSplashAnimationPreview() {
+    var loader = document.getElementById('startup-loader');
+    var isNew = false;
+    if (!loader) {
+      loader = document.createElement('div');
+      loader.id = 'startup-loader';
+      loader.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(loader);
+      isNew = true;
+    }
+    
+    loader.classList.remove('dismissed');
+    loader.style.opacity = '1';
+    loader.style.pointerEvents = 'auto';
+    loader.style.display = 'flex';
+    
+    loader.innerHTML = '<div class="startup-wordmark">Junction</div><div class="startup-sub">connecting…</div>';
+    
+    var w = window.innerWidth;
+    var h = window.innerHeight;
+    var canvas = createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: w, height: h, loaderMagic: getAnimVal('loaderMagic', false) });
+    if (canvas) {
+      canvas.id = 'startup-matrix';
+      loader.insertBefore(canvas, loader.firstChild);
+    }
+    
+    setTimeout(function () {
+      loader.classList.add('dismissed');
+      loader.style.opacity = '0';
+      loader.style.pointerEvents = 'none';
+      if (canvas && typeof canvas._stopAnimation === 'function') {
+        try { canvas._stopAnimation(); } catch (e) {}
+      }
+      setTimeout(function () {
+        if (isNew) {
+          loader.remove();
+        } else {
+          loader.style.display = 'none';
+          canvas.remove();
+        }
+      }, 220);
+    }, 3000);
+  }
+  window.playSplashAnimationPreview = playSplashAnimationPreview;
+
+  // Run the override immediately on script parse
+  try {
+    overrideStartupAnimation();
+  } catch (e) {}
+
   window.reanimateAllMessages = reanimateAllMessages;
 })();
