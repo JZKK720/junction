@@ -87,6 +87,19 @@ html, body {
   opacity: 0.85;
 }
 
+/* Textarea canvas overlay support: keep visual text transparent to avoid doubling */
+textarea[data-has-canvas] {
+  color: transparent !important;
+  caret-color: var(--vscode-foreground, currentColor) !important;
+}
+textarea[data-has-canvas]::placeholder {
+  color: transparent !important;
+}
+textarea[data-has-canvas]::selection {
+  color: transparent !important;
+  background: var(--vscode-editor-selectionBackground, rgba(128, 128, 128, 0.3)) !important;
+}
+
 .chat-row .msg-text code {
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.9em;
