@@ -68,6 +68,32 @@ export class GatewayConnection extends EventEmitter {
   }
 
   /**
+   * Transport-level session scoping. The gateway's global `sessions.subscribe`
+   * firehose mirrors `session.message` / `session.tool` for EVERY session (it
+   * exists so operator UIs can attach to in-flight runs). This window only
+   * cares about the sessions its views actually display — events for
+   * unwatched sessions are dropped in the message processor before any view
+   * logic runs, so cross-window bleed is impossible by construction.
+   * (`sessions.changed` list updates always pass; run-scoped events for runs
+   * this connection started are delivered directly by the gateway anyway.)
+   */
+  private readonly watchedSessions = new Set<string>();
+
+  public watchSession(key: string): void {
+    const k = String(key ?? '').trim();
+    if (k) this.watchedSessions.add(k);
+  }
+
+  public unwatchSession(key: string): void {
+    this.watchedSessions.delete(String(key ?? '').trim());
+  }
+
+  public isWatchedSession(key: unknown): boolean {
+    const k = String(key ?? '').trim();
+    return !!k && this.watchedSessions.has(k);
+  }
+
+  /**
    * Generate a unique request ID
    */
   private generateId(): string {
@@ -391,12 +417,34 @@ export class GatewayConnection extends EventEmitter {
     
     // Log the event type for debugging
     this.logger.debug(`Received event`, { event: eventType, hasPayload: !!message.payload });
-    
+
     // Emit the event for subscribers
     this.emit(eventType, message.payload);
     this.emit('event', { type: eventType, payload: message.payload });
     this.emit('message', message);
+    if (this.isGatedUnwatchedStream(processedMessage)) return;
     this.emit('processed_event', processedMessage);
+  }
+
+  /** Conversation-stream event types that must never cross session scope. */
+  private static readonly SESSION_GATED_TYPES = new Set([
+    'chat_message', 'agent_message', 'thinking_chunk',
+    'tool_event', 'item_event', 'session_message',
+  ]);
+
+  /**
+   * Transport choke point for the cross-window bleed: conversation-stream
+   * events for sessions this window doesn't watch are dropped here, before
+   * any view logic. Lifecycle/list events (`session_changed` etc.) always
+   * pass — they feed the chats list, not transcripts. Sessions are watched
+   * at send/adopt time, so a window's own runs always stream.
+   */
+  private isGatedUnwatchedStream(processedMessage: any): boolean {
+    if (!processedMessage || typeof processedMessage !== 'object') return false;
+    if (!GatewayConnection.SESSION_GATED_TYPES.has(processedMessage.type)) return false;
+    const key = String(processedMessage.sessionKey ?? '').trim();
+    if (!key) return false; // run-scoped events without a key are already targeted
+    return !this.isWatchedSession(key);
   }
 
 

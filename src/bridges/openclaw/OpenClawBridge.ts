@@ -14,7 +14,7 @@ import { bindingIdForUri, ChatIndex } from '../../gateway/chatIndex';
 import { MessageProcessor } from '../../utils/messageProcessor';
 import { Logger } from '../../utils/logger';
 import { getOpenClawConfigPath, getOpenClawGatewayUrl, updateOpenClawGateway } from '../../config/agentBridgeConfig';
-import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, hiddenPlanCapabilities, ModelChoice, ToolStatusView } from '../types';
+import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, ModelChoice, ToolStatusView } from '../types';
 
 export class OpenClawBridge extends EventEmitter implements ChatBridge {
     readonly id = 'openclaw';
@@ -26,7 +26,6 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         steering: true,
         usage: true,
         tools: true,
-        ...hiddenPlanCapabilities,
     };
 
     private readonly gateway: GatewayConnection;
@@ -130,6 +129,14 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         return this.sessionManager.getSessionToFolder();
     }
 
+    watchSession(key: string): void {
+        this.gateway.watchSession(key);
+    }
+
+    unwatchSession(key: string): void {
+        this.gateway.unwatchSession(key);
+    }
+
     setActiveSession(folderUri: vscode.Uri, key: string): void {
         this.sessionManager.setActiveSession(folderUri, key);
     }
@@ -154,12 +161,16 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
             }
         }
         if (scope === 'all') this.chatIndex.prune(new Set(raw.map((s) => s.key)));
+        const currentFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
         return raw
             .filter((s) => includeArchived || !archivedKeys.has(s.key))
             .map((s) => {
                 const folderUri = binding.get(s.key);
                 const bindingId = folderUri ? bindingIdForUri(folderUri) : 'agent';
                 const bindingLabel = folderUri ? folderUri.path.split('/').pop() || 'Chat' : 'Agent';
+                const isCurrentGroup = !!folderUri && !!currentFolder
+                    && folderUri.toString() === currentFolder.toString();
+                const ts = (s as any).updatedAt ?? (s as any).lastActiveAt ?? (s as any).createdAt;
                 this.chatIndex.upsert({
                     sessionKey: s.key,
                     bindingId,
@@ -173,6 +184,10 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
                     model: scope === 'all' ? bindingLabel : undefined,
                     isActive: s.key === activeKey,
                     isArchived: archivedKeys.has(s.key),
+                    groupId: bindingId,
+                    groupLabel: isCurrentGroup ? 'This folder' : bindingLabel,
+                    isCurrentGroup,
+                    lastActiveTs: typeof ts === 'number' ? ts : undefined,
                 };
             });
     }

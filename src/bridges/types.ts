@@ -4,6 +4,18 @@ import * as vscode from 'vscode';
 export type BridgeId = 'openclaw' | 'hermes' | 'souveraine' | (string & {});
 export type ChatScope = 'folder' | 'all';
 
+/**
+ * OpenClaw's canonical thinking-level vocabulary — the lingua franca for any
+ * reasoning-capable model that doesn't advertise a named per-model effort enum
+ * (e.g. xiaomi/deepseek/ollama). Used as the always-on fallback so the reasoning
+ * submenu is never empty for a reasoning model. The selected level is sent as the
+ * per-request `thinking` param; the gateway coerces it to the model's nearest
+ * supported value.
+ */
+export const OPENCLAW_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'adaptive'];
+export const VSCODE_WORKSPACE_CONTEXT_PREFIX = 'Chat: VS Code.';
+export const WORKSPACE_LINE_PREFIX_RE = /^\[Workspace: [^\]\n]*\]\n/;
+
 export interface ChoiceMenuItem {
     id: string;
     label: string;
@@ -29,6 +41,24 @@ export interface BridgeSession {
     model?: string;
     isActive?: boolean;
     isArchived?: boolean;
+    /** Grouping key (e.g. folder binding id, or 'recent' for folderless bridges). */
+    groupId?: string;
+    /** Human label for the group header. */
+    groupLabel?: string;
+    /** True when this session's group is the current workspace folder (expanded by default). */
+    isCurrentGroup?: boolean;
+    /** Epoch ms of last activity, for ordering. */
+    lastActiveTs?: number;
+    /** Message count for the card meta row, when known. */
+    messageCount?: number;
+}
+
+/** A collapsible group of sessions in the chats list. */
+export interface SessionGroup {
+    id: string;
+    label: string;
+    collapsed: boolean;
+    sessions: BridgeSession[];
 }
 
 export interface BridgeCapabilities {
@@ -38,8 +68,6 @@ export interface BridgeCapabilities {
     steering: boolean;
     usage: boolean;
     tools: boolean;
-    planReviewMode: boolean;
-    planExecutionMode: boolean;
 }
 
 export interface BridgeContext {
@@ -80,6 +108,13 @@ export interface ChatBridge extends EventEmitter {
     getCurrentSessionKey(folderUri?: vscode.Uri): string | null;
     getSessionToFolder(): ReadonlyMap<string, vscode.Uri>;
     setActiveSession(folderUri: vscode.Uri, key: string): void;
+    /**
+     * Transport-level scoping for shared-gateway bridges: a view declares
+     * which session's conversation stream it displays; events for unwatched
+     * sessions are dropped at the connection. Single-session bridges may omit.
+     */
+    watchSession?(key: string): void;
+    unwatchSession?(key: string): void;
     createChat(folderUri?: vscode.Uri): Promise<string>;
     listSessions(scope: ChatScope, includeArchived: boolean, archivedKeys: ReadonlySet<string>): Promise<BridgeSession[]>;
     renameSession(key: string, label: string): Promise<void>;
@@ -100,8 +135,3 @@ export interface ChatBridge extends EventEmitter {
     getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }>;
     getToolStatus(): ToolStatusView | null;
 }
-
-export const hiddenPlanCapabilities = {
-    planReviewMode: true,
-    planExecutionMode: true,
-};

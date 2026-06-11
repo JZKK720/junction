@@ -5,12 +5,14 @@
 /* ── Container (#attached-files-bar in template.html) ──────────────────── */
 #attached-files-bar {
   display: flex;
+  flex: 1 1 auto;
   gap: 4px;
-  padding: 4px 8px 4px 8px;
+  padding: 0;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
   min-height: 0;
+  min-width: 0;
   /* hidden when empty — JS toggles this */
 }
 
@@ -30,7 +32,7 @@
   box-sizing: border-box;
   border-radius: var(--corner-radius-small, 4px);
   background: color-mix(in srgb,
-      var(--vscode-input-background) 85%,
+      var(--vscode-input-background) 88%,
       var(--vscode-descriptionForeground));
   border: 1px solid var(--vscode-input-border);
   cursor: default;

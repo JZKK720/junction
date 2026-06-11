@@ -5,7 +5,7 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import { getSouveraineBaseUrl, getSouveraineHome, updateSouveraineRuntime } from '../../config/agentBridgeConfig';
 import { jsonRequest, streamSse } from '../http';
-import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, hiddenPlanCapabilities, ModelChoice, ToolStatusView } from '../types';
+import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, ModelChoice, OPENCLAW_THINKING_LEVELS, ToolStatusView } from '../types';
 import { Logger } from '../../utils/logger';
 import { mapSouveraineSseEvent } from './events';
 
@@ -19,7 +19,6 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         steering: false,
         usage: false,
         tools: true,
-        ...hiddenPlanCapabilities,
     };
 
     private activeConversationId: string | null = null;
@@ -132,6 +131,9 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
                 model: value.model,
                 isActive: key === this.activeConversationId,
                 isArchived: archivedKeys.has(key),
+                groupId: 'recent',
+                groupLabel: 'Recent',
+                isCurrentGroup: true,
             }));
         return local;
     }
@@ -190,6 +192,9 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
 
     async listModelChoices(selectedModel?: string, selectedThinking?: string): Promise<ModelChoice[]> {
         const models = ['openai/kimi-k2.6', 'openai/deepseek-v4-pro'];
+        // Souveraine exposes no per-model reasoning-effort catalog; its models reason
+        // via the OpenClaw level system, so offer the canonical levels (forced
+        // per-request). Swap in real per-model efforts if the API gains a caps endpoint.
         return models.map((id) => {
             const slash = id.indexOf('/');
             const provider = slash > 0 ? id.slice(0, slash) : '';
@@ -203,7 +208,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
                 supportsReasoning: true,
                 icon: 'lightbulb',
                 checked: selectedModel === id || selectedModel === model,
-                children: ['off', 'low', 'medium', 'high'].map((level) => ({
+                children: OPENCLAW_THINKING_LEVELS.map((level) => ({
                     id: `${id}:thinking:${level}`,
                     label: level,
                     icon: 'thinking',
@@ -339,7 +344,12 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         const state = path.join(home, '.souveraine');
         await fs.promises.mkdir(state, { recursive: true });
         const configPath = path.join(state, 'config.toml');
-        if (!fs.existsSync(configPath)) {
+        // Regenerate bridge-managed config if missing or stale (pre-oauth versions
+        // pointed at a bifrost gateway that may not exist on this machine).
+        const existing = fs.existsSync(configPath)
+            ? await fs.promises.readFile(configPath, 'utf8').catch(() => '')
+            : '';
+        if (!existing.includes('provider = "openai-oauth"')) {
             const config = [
                 '[server]',
                 'bind = "127.0.0.1"',
@@ -351,8 +361,10 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
                 'allow_loopback = true',
                 '',
                 '[bifrost]',
+                '# Ride the Codex CLI ChatGPT login (~/.codex/auth.json via CODEX_HOME).',
+                'provider = "openai-oauth"',
                 'base_url = "http://127.0.0.1:3360"',
-                'primary_model = "openai/kimi-k2.6"',
+                'primary_model = "gpt-5.5"',
                 '',
             ].join('\n');
             await fs.promises.writeFile(configPath, config, 'utf8');
@@ -368,6 +380,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         const repo = '/home/e/sauce/ai/agents/Souveraine';
         if (!fs.existsSync(repo)) return;
         const home = getSouveraineHome();
+        const realHome = process.env.HOME || '/home/e';
         const logDir = path.join(home, '.souveraine', 'logs');
         fs.mkdirSync(logDir, { recursive: true });
         const out = fs.openSync(path.join(logDir, 'server.log'), 'a');
@@ -389,8 +402,11 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
             env: {
                 ...process.env,
                 HOME: home,
-                CARGO_HOME: process.env.CARGO_HOME || '/home/e/.cargo',
-                RUSTUP_HOME: process.env.RUSTUP_HOME || '/home/e/.rustup',
+                // HOME is overridden for state isolation, so point the
+                // openai-oauth provider back at the real Codex CLI login.
+                CODEX_HOME: process.env.CODEX_HOME || path.join(realHome, '.codex'),
+                CARGO_HOME: process.env.CARGO_HOME || path.join(realHome, '.cargo'),
+                RUSTUP_HOME: process.env.RUSTUP_HOME || path.join(realHome, '.rustup'),
             },
         });
         child.unref();

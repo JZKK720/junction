@@ -3,6 +3,9 @@ import * as vscode from 'vscode';
 import { GatewayConnection } from './connection';
 import { Logger } from '../utils/logger';
 import {
+  VSCODE_WORKSPACE_CONTEXT_PREFIX,
+} from '../bridges/types';
+import {
   folderRootKey,
   ensureFolderSession,
   newChat,
@@ -188,6 +191,10 @@ export class SessionManager extends EventEmitter {
   /** Keys that have already had workspace context injected this session. */
   private injectedSessions = new Set<string>();
 
+  /** Turn counters per session — workspace context is re-injected every N turns. */
+  private turnCounters = new Map<string, number>();
+  private static readonly CONTEXT_INJECT_INTERVAL = 5;
+
   /** Agent overrides set from the webview menus. */
   private agentOverrides: { agentId?: string; provider?: string; model?: string; thinking?: string } = {};
 
@@ -200,34 +207,33 @@ export class SessionManager extends EventEmitter {
       ? vscode.Uri.file(context.workspaceFolder)
       : undefined;
     const sessionKey = await this.ensureSession(folderUri);
+    // Watch before the agent request fires: the transport gate drops
+    // conversation-stream events for unwatched sessions.
+    this.gateway.watchSession(sessionKey);
 
     try {
       this.logger.info('Sending chat message', { sessionKey, messageLength: message.length });
 
       // Set verboseLevel so tool events are visible
+      const bindDir = context?.workspaceFolder ?? context?.workspace;
+      const supportsWorkspaceSessions = !!bindDir && this.gateway.capabilities.supportsWorkspaceSessions();
       try {
-        await this.gateway.sendRequest('sessions.patch', { key: sessionKey, verboseLevel: 'on' });
+        await this.gateway.sendRequest('sessions.patch', {
+          key: sessionKey,
+          verboseLevel: 'on',
+          // Fork gateway resolves active workspace from spawnedCwd; explicit CLI workspace bind still wins.
+          ...(supportsWorkspaceSessions ? { spawnedCwd: bindDir } : {}),
+        });
       } catch (patchError) {
         this.logger.warn('Failed to set verboseLevel, tool events may not be visible', patchError);
       }
 
-      // Inject workspace context once per session via chat.inject (not per-message prepend)
-      if (!this.injectedSessions.has(sessionKey) && context?.workspace) {
-        this.injectedSessions.add(sessionKey);
-        const systemContext = [
-          'This session is driven from the VS Code extension.',
-          `The user is working in: ${context.workspace}`,
-          'When file paths are mentioned, treat them as relative to that workspace unless they are absolute.',
-        ].join(' ');
-        try {
-          await this.gateway.sendRequest('chat.inject', {
-            sessionKey,
-            message: systemContext,
-          });
-        } catch (injectErr) {
-          this.logger.warn('chat.inject failed for workspace context', injectErr);
-        }
-      }
+      // Workspace context is already bound via sessions.patch(spawnedCwd) for
+      // workspace-aware sessions. For non-workspace sessions, inject once
+      // at session start — NOT per message. The gateway treats chat.inject
+      // messages as visible turns, so we avoid re-injecting.
+      // (The VSCODE_WORKSPACE_CONTEXT_PREFIX is informational; the agent
+      // already gets workspace from the session binding.)
 
       const result = await this.gateway.sendRequest(
         'agent',

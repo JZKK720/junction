@@ -7,6 +7,7 @@ import {
     ProviderGroup,
     ModelCatalogBrowseView,
 } from '../types/openclaw';
+import { OPENCLAW_THINKING_LEVELS } from '../bridges/types';
 
 /**
  * Internal cache structure — raw browse view + metadata
@@ -156,9 +157,8 @@ export class ModelManager {
         return this.cache?.flatModels.get(modelId);
     }
 
-    async getModelChoices(gateway: GatewayConnection, selectedModel?: string, selectedThinking?: string, selectedAgentId?: string): Promise<ModelChoice[]> {
+    async getModelChoices(gateway: GatewayConnection, selectedModel?: string, selectedThinking?: string, _selectedAgentId?: string): Promise<ModelChoice[]> {
         const providers = await this.getModels(gateway);
-        const agentThinking = await this.getAgentThinkingSource(gateway, selectedAgentId);
         const configThinking = this.readConfigThinkingSources();
         const items: ModelChoice[] = [];
         for (const group of providers) {
@@ -166,8 +166,10 @@ export class ModelManager {
                 const entry: ModelEntry = typeof model === 'object' ? model : { id: String(model), name: String(model) };
                 const normalized = this.normalizeEntry(group.provider, entry);
                 const caps = entry.capabilities;
-                const supportsReasoning = entry.reasoning === true;
                 const fullId = normalized.provider ? `${normalized.provider}/${normalized.id}` : normalized.id;
+                const supportsReasoning = entry.reasoning === true
+                    || this.hasReasoningVocabulary(entry)
+                    || this.isKnownReasoningFamily(normalized.provider, normalized.id, fullId);
                 const badges = [
                     group.providerName || normalized.provider,
                     entry.contextWindow ? `${entry.contextWindow.toLocaleString()} ctx` : '',
@@ -178,7 +180,6 @@ export class ModelManager {
                 const thinkingLevels = supportsReasoning
                     ? this.getThinkingLevels(
                         entry,
-                        agentThinking,
                         configThinking.get(fullId) || configThinking.get(normalized.id)
                     )
                     : [];
@@ -259,7 +260,7 @@ export class ModelManager {
         if (slash > 0) {
             const prefix = id.slice(0, slash);
             const rest = id.slice(slash + 1);
-            if (!provider || provider === prefix) {
+            if (!provider || provider === prefix || this.isKnownProviderPrefix(prefix)) {
                 provider = prefix;
                 id = rest;
             }
@@ -267,49 +268,72 @@ export class ModelManager {
         return { provider, id };
     }
 
+    private isKnownProviderPrefix(provider: string): boolean {
+        return /^(openai|openai-codex|codex|anthropic|deepseek|xiaomi|ollama|openrouter)$/i.test(provider);
+    }
+
+    private hasReasoningVocabulary(entry: ModelEntry): boolean {
+        const efforts = entry.supportedReasoningEfforts
+            ?? entry.compat?.supportedReasoningEfforts;
+        const effortMap = entry.reasoningEffortMap
+            ?? entry.thinkingLevelMap
+            ?? entry.compat?.reasoningEffortMap;
+        return (Array.isArray(entry.thinkingLevels) && entry.thinkingLevels.length > 0)
+            || (Array.isArray(entry.thinkingOptions) && entry.thinkingOptions.length > 0)
+            || (Array.isArray(efforts) && efforts.length > 0)
+            || (!!effortMap && typeof effortMap === 'object' && Object.keys(effortMap).length > 0);
+    }
+
+    private isKnownReasoningFamily(provider: string, id: string, fullId?: string): boolean {
+        const p = provider.toLowerCase();
+        const name = (fullId || (provider ? `${provider}/${id}` : id)).toLowerCase();
+        return /^(openai|openai-codex|codex)$/.test(p)
+            && /(^|\/)(gpt-5|gpt-codex|codex|o[134])/i.test(name);
+    }
+
+    /**
+     * Resolve the reasoning levels for a SINGLE model — only that model's own
+     * advertised vocabulary. No global/agent union fallback (that was the bug:
+     * every reasoning model showed an identical generic list). If the model
+     * advertises nothing, returns [] and the submenu is hidden.
+     */
     private getThinkingLevels(
         entry: ModelEntry,
-        agentThinking: AgentThinkingSource,
         configThinking?: AgentThinkingSource,
     ): Array<{ id: string; label?: string }> {
+        // 1. Explicit structured levels
         if (Array.isArray(entry.thinkingLevels) && entry.thinkingLevels.length) {
             return entry.thinkingLevels
                 .map((level) => ({ id: String(level.id), label: level.label ? String(level.label) : undefined }))
                 .filter((level) => level.id);
         }
-
         if (Array.isArray(entry.thinkingOptions) && entry.thinkingOptions.length) {
             return entry.thinkingOptions
                 .map((label) => ({ id: String(label).toLowerCase().replace(/\s+/g, '-'), label: String(label) }))
                 .filter((level) => level.id);
         }
 
-        if (configThinking?.levels.length) return configThinking.levels;
-        if (agentThinking.levels.length) return agentThinking.levels;
-        if (configThinking?.defaultLevel) return [{ id: configThinking.defaultLevel, label: configThinking.defaultLevel }];
-        if (agentThinking.defaultLevel) return [{ id: agentThinking.defaultLevel, label: agentThinking.defaultLevel }];
-        return [];
-    }
-
-    private async getAgentThinkingSource(gateway: GatewayConnection, selectedAgentId?: string): Promise<AgentThinkingSource> {
-        try {
-            if (!gateway.capabilities.canListAgents()) return { levels: [] };
-            const res = await gateway.sendRequest('agents.list', {});
-            const agents = Array.isArray(res?.agents) ? res.agents : Array.isArray(res) ? res : [];
-            const defaultId = String(res?.defaultId ?? '');
-            const agent = agents.find((a: any) => {
-                const id = String(a?.agentId ?? a?.id ?? '');
-                return selectedAgentId ? id === selectedAgentId : id === defaultId;
-            }) ?? agents[0];
-            if (!agent) return { levels: [] };
-            return {
-                levels: this.levelsFromUnknown(agent.thinkingLevels ?? agent.thinkingOptions),
-                defaultLevel: typeof agent.thinkingDefault === 'string' ? agent.thinkingDefault : undefined,
-            };
-        } catch (error) {
-            this.logger.warn('agents.list unavailable for thinking levels', error);
-            return { levels: [] };
+        // 2. Per-model reasoning vocabulary (the model's lingua franca)
+        const efforts = entry.supportedReasoningEfforts
+            ?? entry.compat?.supportedReasoningEfforts;
+        if (Array.isArray(efforts) && efforts.length) {
+            return efforts.map((e) => ({ id: String(e), label: String(e) })).filter((l) => l.id);
         }
+        const effortMap = entry.reasoningEffortMap ?? entry.thinkingLevelMap ?? entry.compat?.reasoningEffortMap;
+        if (effortMap && typeof effortMap === 'object') {
+            const keys = Object.keys(effortMap);
+            if (keys.length) return keys.map((k) => ({ id: k, label: k }));
+        }
+
+        // 3. Per-model config override from openclaw.json (keyed by model id)
+        if (configThinking?.levels.length) return configThinking.levels;
+
+        // 4. Always-on fallback: a reasoning model with no advertised named-effort
+        // enum (e.g. xiaomi/deepseek/ollama) uses OpenClaw's canonical levels — its
+        // lingua franca. Selection is forced per-request; the gateway coerces to the
+        // model's nearest supported value. getThinkingLevels is only called for
+        // reasoning models, so the submenu is never empty for them.
+        return OPENCLAW_THINKING_LEVELS.map((id) => ({ id, label: id }));
     }
 
     private readConfigThinkingSources(): Map<string, AgentThinkingSource> {
@@ -326,7 +350,16 @@ export class ModelManager {
                     for (const model of models) {
                         const id = String(model?.id ?? model?.name ?? '');
                         if (!id) continue;
-                        const levels = this.levelsFromUnknown(model.thinkingLevels ?? model.thinkingOptions ?? model.thinkingLevelMap ?? model?.params?.thinking?.levels);
+                        const levels = this.levelsFromUnknown(
+                            model.supportedReasoningEfforts
+                            ?? model?.compat?.supportedReasoningEfforts
+                            ?? model.thinkingLevels
+                            ?? model.thinkingOptions
+                            ?? model.reasoningEffortMap
+                            ?? model?.compat?.reasoningEffortMap
+                            ?? model.thinkingLevelMap
+                            ?? model?.params?.thinking?.levels
+                        );
                         const defaultLevel = typeof model.thinkingDefault === 'string'
                             ? model.thinkingDefault
                             : typeof model?.params?.thinking?.level === 'string'

@@ -8,7 +8,7 @@ import { spawn } from 'child_process';
 import { existsSync } from 'fs';
 import { getHermesApiBaseUrl, getHermesBaseUrl, getHermesHome, getHermesWsUrl, updateHermesRuntime } from '../../config/agentBridgeConfig';
 import { jsonRequest, textRequest } from '../http';
-import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, hiddenPlanCapabilities, ModelChoice, ToolStatusView } from '../types';
+import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, ModelChoice, OPENCLAW_THINKING_LEVELS, ToolStatusView } from '../types';
 import { Logger } from '../../utils/logger';
 import { mapHermesWsEvent } from './events';
 
@@ -28,7 +28,6 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
         steering: false,
         usage: false,
         tools: true,
-        ...hiddenPlanCapabilities,
     };
 
     private ws: WebSocket | null = null;
@@ -155,6 +154,9 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
                 model: value.model,
                 isActive: key === this.activeSessionId,
                 isArchived: archivedKeys.has(key),
+                groupId: 'recent',
+                groupLabel: 'Recent',
+                isCurrentGroup: true,
             }));
         return items;
     }
@@ -217,7 +219,14 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
                 const model = typeof raw === 'string' ? raw : String(raw.id || raw.model || raw.name || '');
                 if (!model) continue;
                 const id = slug ? `${slug}/${model}` : model;
-                const supportsReasoning = raw?.supports_reasoning ?? raw?.supportsReasoning ?? true;
+                // Per-model reasoning vocabulary from the Hermes payload — the
+                // model's own efforts, never a generic union. Hide the submenu
+                // when the API advertises none.
+                const efforts = reasoningEffortsFromRaw(raw);
+                const supportsReasoning = (raw?.supports_reasoning ?? raw?.supportsReasoning ?? false) || efforts.length > 0;
+                // Named per-model efforts when advertised; else OpenClaw's canonical
+                // levels for any reasoning model — so the submenu is never empty.
+                const levels = efforts.length ? efforts : (supportsReasoning ? OPENCLAW_THINKING_LEVELS : []);
                 choices.push({
                     id,
                     label: raw?.label || raw?.name || model,
@@ -227,7 +236,7 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
                     supportsReasoning,
                     icon: supportsReasoning ? 'lightbulb' : 'symbol-method',
                     checked: selectedModel === id || selectedModel === model,
-                    children: supportsReasoning ? ['off', 'minimal', 'low', 'medium', 'high', 'max'].map((level) => ({
+                    children: levels.length ? levels.map((level) => ({
                         id: `${id}:thinking:${level}`,
                         label: level,
                         icon: 'thinking',
@@ -479,4 +488,22 @@ function findOnPath(binary: string): string | null {
 
 function portFromUrl(value: string): string {
     try { return new URL(value).port || ''; } catch { return ''; }
+}
+
+/**
+ * Extract a Hermes model's own reasoning vocabulary from its raw payload.
+ * Returns the model's advertised efforts (its lingua franca) or [] — never a
+ * fabricated generic union. Accepts arrays of strings or {id}, under any of the
+ * common field names Hermes may use.
+ */
+function reasoningEffortsFromRaw(raw: any): string[] {
+    if (!raw || typeof raw !== 'object') return [];
+    const source =
+        raw.supported_reasoning_efforts ?? raw.supportedReasoningEfforts ??
+        raw.reasoning_efforts ?? raw.reasoning_levels ?? raw.reasoningLevels ??
+        raw.thinking_levels ?? raw.thinkingLevels ?? raw.thinking_options ?? raw.thinkingOptions;
+    if (!Array.isArray(source)) return [];
+    return source
+        .map((e) => (typeof e === 'string' ? e : typeof e?.id === 'string' ? e.id : ''))
+        .filter((e): e is string => !!e);
 }

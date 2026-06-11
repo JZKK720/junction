@@ -123,12 +123,23 @@
       button.addEventListener('mousedown', function (event) {
         event.preventDefault();
       });
-      button.addEventListener('click', function () {
+      button.addEventListener('click', function (event) {
         var index = Number(button.dataset.index);
         var item = (itemLists[level] || [])[index];
         if (!item || item.disabled) return;
-        if (hasChildren(item)) openSubmenu(level, index, true);
-        else selectIndex(level, index);
+        // Click on chevron arrow → open submenu; click elsewhere → select directly
+        var target = event.target;
+        var isChevron = target.classList && target.classList.contains('codicon-chevron-right');
+        if (hasChildren(item)) {
+          if (isChevron || typeof item.action !== 'function') {
+            openSubmenu(level, index, true);
+          } else {
+            // Select the item's default action (first child, or the item itself)
+            selectIndex(level, index);
+          }
+        } else {
+          selectIndex(level, index);
+        }
       });
     });
   }
@@ -207,6 +218,11 @@
     if (!item || item.disabled) return;
     if (hasChildren(item)) {
       openSubmenu(level, index, true);
+      return;
+    }
+    if (typeof item.action === 'function') {
+      item.action(item);
+      close();
       return;
     }
     var messageType = activeOptions && activeOptions.selectMessage;

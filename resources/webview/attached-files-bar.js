@@ -34,7 +34,6 @@ function updateLivePill({ filePath, displayText, enabled }) {
       filePillRegistry.delete(livePillFile);
       livePillFile = null;
     }
-    updateFileCount();
     return;
   }
 
@@ -59,7 +58,6 @@ function updateLivePill({ filePath, displayText, enabled }) {
   }
 
   livePillFile = filePath;
-  updateFileCount();
 }
 
 /**
@@ -89,17 +87,6 @@ function addPill({ filePath, displayText, isLive }) {
   const pill = createPillElement(filePath, displayText || filePath, false);
   bar.appendChild(pill);
   filePillRegistry.set(filePath, pill);
-  updateFileCount();
-}
-
-/**
- * Return total number of pills currently in the bar.
- * @returns {number}
- */
-function getPillCount() {
-  const bar = document.getElementById('attached-files-bar');
-  if (!bar) return 0;
-  return bar.querySelectorAll('.file-pill').length;
 }
 
 // ── Pill creation ────────────────────────────────────────────────────────
@@ -162,20 +149,6 @@ function removePill(filePath) {
   }
 
   vscode.postMessage({ type: 'removePill', filePath });
-  updateFileCount();
-}
-
-/**
- * Update the file count badge in the composer footer.
- */
-function updateFileCount() {
-  const count = getPillCount();
-  const badge = document.getElementById('context-badge');
-  if (badge) {
-    badge.textContent = count === 1 ? '1 file' : `${count} files`;
-    badge.title = `${count} file${count === 1 ? '' : 's'} attached`;
-  }
-  vscode.postMessage({ type: 'updateAttachedFileCount', count });
 }
 
 // ── @-mention autocomplete ───────────────────────────────────────────────
@@ -460,6 +433,8 @@ window.addEventListener('message', event => {
 // ── Initial state sync (extension may send state after 'ready') ──────────
 // The extension can call these functions via postMessage after the webview
 // sends 'ready', so the bar is populated from persisted state on load.
+
+function getPillCount() { return filePillRegistry.size; }
 
 // ── Export to global scope (for innerHTML <script> execution) ─────────────
 window.updateLivePill = updateLivePill;

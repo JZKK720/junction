@@ -42,6 +42,24 @@ for mod in ws markdown-it; do
   fi
 done
 
+# Dup-folder trap, part 2: a vsix-installed copy lives at
+# plaer1.junction-<version> (lowercase, versioned, registered in
+# extensions.json) and VS Code may load IT instead of this folder.
+# Keep any such install in sync so a stale bundle can never win.
+for VDIR in "$HOME/.vscode/extensions/plaer1.junction-"*; do
+  [ -d "$VDIR" ] || continue
+  echo "📦 Syncing versioned install ${VDIR}"
+  mkdir -p "$VDIR/dist" "$VDIR/node_modules"
+  cp dist/extension.js dist/extension.js.map "$VDIR/dist/"
+  cp package.json "$VDIR/"
+  cp -r resources "$VDIR/"
+  for mod in ws markdown-it; do
+    if [ -d "node_modules/$mod" ]; then
+      cp -r "node_modules/$mod" "$VDIR/node_modules/"
+    fi
+  done
+done
+
 echo "✅ Installed to ${EXT_DIR}"
 echo ""
 echo "Reload VSCode now:   Ctrl+Shift+P → Developer: Reload Window"

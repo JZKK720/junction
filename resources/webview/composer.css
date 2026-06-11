@@ -1,21 +1,35 @@
 /* ==========================================================================
-   composer.css — Composer input, send/stop buttons, and footer bar
+   composer.css — Composer input, action buttons, and footer bar
    ==========================================================================
    Dependencies: tokens.css (--vscode-* / --space-*), template.html (#composer / #composer-footer slots)
    ========================================================================== */
 
-/* ── Composer container ─────────────────────────────────────────────────── */
+/* ── Composer surface ───────────────────────────────────────────────────── */
+
+#composer-shell {
+  margin: var(--space-medium);
+  flex-shrink: 0;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-large);
+  background: var(--vscode-input-background);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+#composer-shell:focus-within {
+  border-color: var(--vscode-focusBorder);
+}
 
 .context-hints {
   display: flex;
   align-items: center;
   gap: var(--space-small);
   padding: var(--space-small) var(--space-medium) 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
-.context-hint,
-#context-hints-dismiss {
+.context-hint {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -30,26 +44,22 @@
   cursor: pointer;
 }
 
-#context-hints-dismiss {
+.context-hint[data-action="attach-current"] {
   width: 24px;
   justify-content: center;
   padding: 0;
-  font-family: codicon;
+  flex: 0 0 auto;
 }
 
-.context-hint:hover,
-#context-hints-dismiss:hover {
+.context-hint:hover {
   background: var(--vscode-list-hoverBackground);
   color: var(--vscode-editor-foreground);
 }
 
 #composer {
   display: flex;
-  flex-direction: row;
-  align-items: flex-end;
-  gap: var(--space-small);
-  padding: var(--space-small) var(--space-medium);
-  border-top: 1px solid var(--vscode-input-border);
+  align-items: stretch;
+  padding: var(--space-small) var(--space-medium) 0;
   box-sizing: border-box;
   flex-shrink: 0;
 }
@@ -58,26 +68,25 @@
 
 #composer-input {
   flex: 1 1 auto;
-  min-height: 20px;
-  max-height: 200px;
-  padding: 6px 10px;
-  border: 1px solid var(--vscode-input-border);
-  border-radius: var(--corner-radius-medium);
-  background: var(--vscode-input-background);
+  min-height: 24px;
+  max-height: 300px;
+  padding: 6px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: var(--vscode-editor-foreground);
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: var(--vscode-editor-font-size, 12px);
-  line-height: 1.4;
+  line-height: 1.5;
   resize: none;
   overflow-y: auto;
   outline: none;
   box-sizing: border-box;
   scrollbar-width: thin;
-  transition: border-color 0.15s;
 }
 
 #composer-input:focus {
-  border-color: var(--vscode-focusBorder);
+  outline: none;
 }
 
 #composer-input:disabled {
@@ -93,8 +102,7 @@
 /* ── Send / Stop buttons (icon buttons) ─────────────────────────────────── */
 
 #btn-attach-file,
-#btn-send,
-#btn-stop {
+#btn-send {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -108,7 +116,7 @@
   font-family: codicon;
   font-size: 16px;
   line-height: 1;
-  transition: background-color 0.15s, opacity 0.15s;
+  transition: background-color 0.15s, color 0.15s;
   box-sizing: border-box;
 }
 
@@ -126,6 +134,17 @@
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
 }
+#btn-preview-anim {
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.5;
+  transition: opacity 0.12s;
+}
+#btn-preview-anim:hover {
+  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
+  color: var(--vscode-editor-foreground);
+}
 
 #btn-send:hover {
   background: var(--vscode-button-hoverBackground);
@@ -140,41 +159,18 @@
   outline-offset: 1px;
 }
 
-/* ── Stop button — hidden by default, visible when agent is running ────── */
-
-#btn-stop {
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  display: none;
-}
-
-#btn-stop.visible {
-  display: inline-flex;
-}
-
-#btn-stop:hover {
-  background: var(--vscode-button-hoverBackground);
-}
-
-#btn-stop:active {
-  opacity: 0.8;
-}
-
-#btn-stop:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder);
-  outline-offset: 1px;
-}
-
 /* ── Composer footer bar ────────────────────────────────────────────────── */
 
 #composer-footer {
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: space-between;
-  padding: 2px var(--space-medium) var(--space-small) var(--space-medium);
+  justify-content: flex-start;
+  gap: var(--space-small);
+  padding: var(--space-small) var(--space-medium) var(--space-small);
   flex-shrink: 0;
   user-select: none;
+  min-width: 0;
 }
 
 #composer-footer span {
@@ -193,20 +189,24 @@
   color: var(--vscode-editor-foreground);
 }
 
-/* ── Footer spacer (pushes context badge to the right) ───────────────────── */
+/* ── Footer spacer + action cluster ──────────────────────────────────────── */
 
 #composer-footer .footer-spacer {
   flex: 1 1 auto;
+  min-width: var(--space-small);
 }
 
-/* ── Context badge ──────────────────────────────────────────────────────── */
-
-#context-badge {
-  white-space: nowrap;
+#composer-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-small);
+  flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .composer-chip {
-  max-width: 45%;
+  max-width: 38%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -224,3 +224,5 @@
   background: var(--vscode-list-hoverBackground);
   color: var(--vscode-editor-foreground);
 }
+
+

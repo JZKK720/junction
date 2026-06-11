@@ -1,113 +1,150 @@
 /**
- * session-list.js — Session card list for Junction
+ * session-list.js — Grouped, collapsible chats list for Junction
  *
- * Renders session cards inside #session-list-items.
- * Exports renderSessionCards() and setArchiveFilter() (called by view-router).
- * Listens for renderSessions / switchToHome messages from extension host.
+ * Renders collapsible session groups into #session-list-items.
+ * Consumes the grouped `renderSessions` payload: { groups:[{id,label,collapsed,
+ * sessions[]}], activeKey }. Collapse state persists via vscode webview state.
+ * Re-renders only when content actually changes (kills the reload/flicker).
  *
  * postMessage → extension:
- *   resumeSession          { key }
- *   createChat             { text?: string }
- *   showArchivedSessions   { show: boolean }
+ *   resumeSession  { key }
+ *   createChat     { text?: string }
+ *   setChatScope   { scope }
  */
 
 var chatScope = 'folder';
+var _lastSig = null;
+var _collapse = loadCollapse();
 
-// ── Exported API (called by view-router.js) ─────────────────────────
+// ── Collapse persistence (per group id) ─────────────────────────────
+function loadCollapse() {
+  try { var s = vscode.getState && vscode.getState(); return (s && s.collapse) || {}; }
+  catch (e) { return {}; }
+}
+function saveCollapse() {
+  try { var s = (vscode.getState && vscode.getState()) || {}; s.collapse = _collapse; vscode.setState && vscode.setState(s); }
+  catch (e) { /* no-op */ }
+}
+function isCollapsed(group) {
+  if (Object.prototype.hasOwnProperty.call(_collapse, group.id)) return !!_collapse[group.id];
+  return !!group.collapsed;
+}
 
-/**
- * Render session cards into #session-list-items.
- *
- * @param {Array<{ key: string, title: string, model?: string,
- *   messageCount?: number, isArchived?: boolean, isActive?: boolean }>} sessions
- */
-function renderSessionCards(sessions) {
+// ── Exported render (called by view-router + message listener) ──────
+function renderGroups(groups, activeKey) {
   var container = document.getElementById('session-list-items');
   if (!container) return;
+  groups = Array.isArray(groups) ? groups : [];
 
-  container.innerHTML = '';
+  // Skip redundant re-renders (no flicker on no-op refreshes).
+  var sig = JSON.stringify({
+    a: activeKey || null,
+    g: groups.map(function (g) {
+      return {
+        i: g.id, c: isCollapsed(g),
+        s: (g.sessions || []).map(function (s) { return [s.key, s.title, !!s.isActive, !!s.isArchived, s.model || '']; })
+      };
+    })
+  });
+  if (sig === _lastSig) return;
+  _lastSig = sig;
 
-  if (!sessions || sessions.length === 0) {
-    container.innerHTML =
-      '<div class="session-card-empty">No sessions yet</div>';
+  var total = groups.reduce(function (n, g) { return n + ((g.sessions || []).length); }, 0);
+  if (!total) {
+    container.innerHTML = '<div class="session-card-empty">No chats yet</div>';
     return;
   }
 
-  for (var i = 0; i < sessions.length; i++) {
-    var s = sessions[i];
-    var card = document.createElement('div');
-    card.className = 'session-card';
-    if (s.isActive)  card.classList.add('active');
-    if (s.isArchived) card.classList.add('archived');
-    card.setAttribute('data-key', s.key);
+  container.innerHTML = '';
+  groups.forEach(function (group) {
+    var collapsed = isCollapsed(group);
+    var groupEl = document.createElement('div');
+    groupEl.className = 'session-group' + (collapsed ? ' collapsed' : '');
+    groupEl.setAttribute('data-group', group.id);
 
-    // Title
-    var titleEl = document.createElement('div');
-    titleEl.className = 'session-card-title';
-    titleEl.textContent = s.title || 'Untitled';
-    card.appendChild(titleEl);
+    var header = document.createElement('button');
+    header.className = 'session-group-header';
+    header.title = (collapsed ? 'Expand ' : 'Collapse ') + (group.label || 'group');
+    header.innerHTML =
+      '<span class="codicon codicon-chevron-down session-group-caret"></span>' +
+      '<span class="session-group-label"></span>' +
+      '<span class="session-group-count"></span>';
+    header.querySelector('.session-group-label').textContent = group.label || group.id;
+    header.querySelector('.session-group-count').textContent = String((group.sessions || []).length);
+    header.addEventListener('click', function () {
+      var nowCollapsed = !groupEl.classList.contains('collapsed');
+      groupEl.classList.toggle('collapsed', nowCollapsed);
+      _collapse[group.id] = nowCollapsed;
+      saveCollapse();
+      header.title = (nowCollapsed ? 'Expand ' : 'Collapse ') + (group.label || 'group');
+    });
+    groupEl.appendChild(header);
 
-    // Meta row: model badge / message count / archived badge
-    var meta = document.createElement('div');
-    meta.className = 'session-card-meta';
+    var body = document.createElement('div');
+    body.className = 'session-group-body';
+    (group.sessions || []).forEach(function (s) { body.appendChild(makeCard(s, activeKey)); });
+    groupEl.appendChild(body);
 
-    if (s.model) {
-      var badge = document.createElement('span');
-      badge.className = 'session-card-model';
-      badge.textContent = s.model;
-      meta.appendChild(badge);
-    }
-
-    if (s.messageCount !== undefined && s.messageCount !== null) {
-      var cnt = document.createElement('span');
-      cnt.className = 'session-card-count';
-      cnt.textContent = s.messageCount === 1
-        ? '1 msg'
-        : s.messageCount + ' msgs';
-      meta.appendChild(cnt);
-    }
-
-    if (s.isArchived) {
-      var arch = document.createElement('span');
-      arch.className = 'session-card-archived-badge';
-      arch.textContent = 'archived';
-      meta.appendChild(arch);
-    }
-
-    card.appendChild(meta);
-
-    // Click → resume
-    card.addEventListener('click', function (key) {
-      return function () {
-        vscode.postMessage({ type: 'resumeSession', key: key });
-      };
-    }(s.key));
-
-    container.appendChild(card);
-  }
+    container.appendChild(groupEl);
+  });
 }
 
-/**
- * Toggle archived session card visibility.
- * @param {boolean} showArchived
- */
+function makeCard(s, activeKey) {
+  var card = document.createElement('div');
+  card.className = 'session-card';
+  if (s.isActive || s.key === activeKey) card.classList.add('active');
+  if (s.isArchived) card.classList.add('archived');
+  card.setAttribute('data-key', s.key);
+
+  var titleEl = document.createElement('div');
+  titleEl.className = 'session-card-title';
+  titleEl.textContent = s.title || 'Untitled';
+  card.appendChild(titleEl);
+
+  var meta = document.createElement('div');
+  meta.className = 'session-card-meta';
+  if (s.model) {
+    var badge = document.createElement('span');
+    badge.className = 'session-card-model';
+    badge.textContent = s.model;
+    meta.appendChild(badge);
+  }
+  if (s.messageCount !== undefined && s.messageCount !== null) {
+    var cnt = document.createElement('span');
+    cnt.className = 'session-card-count';
+    cnt.textContent = s.messageCount === 1 ? '1 msg' : s.messageCount + ' msgs';
+    meta.appendChild(cnt);
+  }
+  if (s.isArchived) {
+    var arch = document.createElement('span');
+    arch.className = 'session-card-archived-badge';
+    arch.textContent = 'archived';
+    meta.appendChild(arch);
+  }
+  if (meta.childNodes.length) card.appendChild(meta);
+
+  card.addEventListener('click', function () {
+    vscode.postMessage({ type: 'resumeSession', key: s.key });
+  });
+  return card;
+}
+
+// Expose for view-router.
+window.renderGroups = renderGroups;
+
+/** Toggle archived card visibility. */
 function setArchiveFilter(showArchived) {
   var container = document.getElementById('session-list-items');
   if (!container) return;
-  if (showArchived) {
-    container.classList.add('show-archived');
-  } else {
-    container.classList.remove('show-archived');
-  }
+  container.classList.toggle('show-archived', !!showArchived);
 }
+window.setArchiveFilter = setArchiveFilter;
 
 // ── Event listeners ─────────────────────────────────────────────────
-
 (function init() {
   var input = document.getElementById('session-list-input');
   var newChatBtn = document.getElementById('btn-new-chat');
 
-  // "Type a message…" textarea → Enter auto-creates new chat
   if (input) {
     input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
@@ -118,23 +155,18 @@ function setArchiveFilter(showArchived) {
         input.style.height = 'auto';
       }
     });
-
-    // Auto-height
     input.addEventListener('input', function () {
       input.style.height = 'auto';
       input.style.height = input.scrollHeight + 'px';
     });
   }
 
-  // + New chat button
   if (newChatBtn) {
     newChatBtn.addEventListener('click', function () {
       vscode.postMessage({ type: 'createChat' });
     });
   }
 
-  // Scope dropdown: toggle current-binding chats vs all chats.
-  // Label "task"/"workspace" intentionally avoided — derived dynamically.
   var scopeBtn = document.getElementById('chat-scope');
   if (scopeBtn) {
     scopeBtn.addEventListener('click', function () {
@@ -145,31 +177,20 @@ function setArchiveFilter(showArchived) {
 })();
 
 // ── Inbound messages from extension host ────────────────────────────
-
 window.addEventListener('message', function (event) {
   var msg = event.data;
   if (!msg || !msg.type) return;
 
   if (msg.type === 'renderSessions') {
-    renderSessionCards(msg.sessions);
-    // Apply .active to the card matching activeKey
-    if (msg.activeKey) {
-      var cards = document.querySelectorAll('#session-list-items .session-card');
-      for (var i = 0; i < cards.length; i++) {
-        cards[i].classList.toggle(
-          'active',
-          cards[i].getAttribute('data-key') === msg.activeKey
-        );
-      }
-    }
+    renderGroups(msg.groups, msg.activeKey);
   }
 
   if (msg.type === 'switchToHome') {
-    document.getElementById('session-list').style.display = 'flex';
-    document.getElementById('chat-view').style.display = 'none';
-    if (msg.sessions) {
-      renderSessionCards(msg.sessions);
-    }
+    var sl = document.getElementById('session-list');
+    var cv = document.getElementById('chat-view');
+    if (sl) sl.style.display = 'flex';
+    if (cv) cv.style.display = 'none';
+    if (msg.groups) renderGroups(msg.groups, msg.activeKey);
   }
 
   if (msg.type === 'chatScopeLabel') {

@@ -1,9 +1,18 @@
 # Codex (OpenAI ChatGPT) VSCode Extension — UX Audit
 
-**Version:** 26.5527.31454  
-**Date:** 2026-05-31  
+**Version:** 26.5602.71036 (re-audited 2026-06-09; was 26.5527.31454 on 2026-05-31)  
 **Engine:** VS Code ^1.96.2  
-**Size:** ~330 MB installed (bundles full CLI runtime)
+**Size:** ~325 MB installed (bundles full Codex CLI 0.137.0-alpha.4 + ripgrep)
+
+> **Re-audit delta (26.5527 → 26.5602).** New surfaces in the installed build:
+> `chatSessions` provider (`openai-codex` type) feeding VS Code's native chat-sessions UI;
+> custom-editor **"Codex Task"** tabs (`chatgpt.conversationEditor`, scheme `openai-codex:/**/*`);
+> **"New Codex Agent"** command (`chatgpt.newCodexPanel`); settings pages for skills / hooks /
+> computer-use / worktrees; a hotkey popout window; `codex-rules` (`.rules`) Starlark grammar;
+> and a composer **git-branch switcher**. New settings: `composerEnterBehavior`,
+> `reviewDelivery` (inline/detached), `runCodexInWindowsSubsystemForLinux`. Recorded for
+> reference — build scope is still governed by [docs/ux-decisions.md](docs/ux-decisions.md)
+> (most of these are explicitly Skip/Deferred there).
 
 ---
 

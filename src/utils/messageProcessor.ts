@@ -66,7 +66,13 @@ export class MessageProcessor {
         // ── TASK 5: session.tool ──
         // Route through same tool card logic as agent tool events.
         // session.tool comes via sessions.subscribe, NOT sessions.messages.subscribe.
+        // It is a firehose MIRROR for every session on the gateway (exists so
+        // operator UIs can attach to in-flight runs) — drop anything this
+        // window doesn't watch before it reaches view logic.
         connection.on('session.tool', (payload: any) => {
+            if (payload?.sessionKey && !connection.isWatchedSession(payload.sessionKey)) {
+                return;
+            }
             this.logger.info('Session tool event', {
                 phase: payload.phase,
                 toolCallId: payload.toolCallId,
@@ -76,6 +82,7 @@ export class MessageProcessor {
             connection.emit('processed_event', {
                 type: 'tool_event',
                 runId: payload.runId || 'session-tool',
+                sessionKey: payload.sessionKey,
                 seq: payload.seq || 0,
                 phase: payload.phase || 'start',
                 toolCallId: payload.toolCallId,
@@ -113,7 +120,11 @@ export class MessageProcessor {
         });
 
         // ── TASK 7: session.message ──
+        // Same firehose-mirror rule as session.tool: watched sessions only.
         connection.on('session.message', (payload: any) => {
+            if (payload?.sessionKey && !connection.isWatchedSession(payload.sessionKey)) {
+                return;
+            }
             this.logger.info('Session message', {
                 sessionKey: payload.sessionKey,
                 role: payload.role || payload.message?.role
@@ -320,6 +331,7 @@ export class MessageProcessor {
                     type: 'agent_lifecycle',
                     phase: data.phase,
                     runId: message.payload.runId,
+                    sessionKey: message.payload.sessionKey,
                     timestamp: message.payload.ts
                 };
             }
@@ -332,6 +344,7 @@ export class MessageProcessor {
                     seq: message.payload.seq,
                     text: data.text,
                     delta: data.delta || '',
+                    sessionKey: message.payload.sessionKey,
                     timestamp: message.payload.ts
                 };
             }
@@ -355,6 +368,7 @@ export class MessageProcessor {
                     args: args,
                     result: result,
                     isError: isError,
+                    sessionKey: message.payload.sessionKey,
                     timestamp: message.payload.ts
                 };
             }

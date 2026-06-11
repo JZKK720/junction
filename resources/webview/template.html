@@ -6,7 +6,7 @@
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'none';
                  script-src 'nonce-${NONCE_PLACEHOLDER}';
-                 style-src ${CSP_SOURCE_PLACEHOLDER};
+                 style-src ${CSP_SOURCE_PLACEHOLDER} 'unsafe-inline';
                  img-src ${CSP_SOURCE_PLACEHOLDER} https: data:;
                  font-src ${CSP_SOURCE_PLACEHOLDER} data:;
                  media-src 'none';
@@ -15,8 +15,90 @@
   <link rel="stylesheet" href="${TOKENS_CSS_URI}">
   <link rel="stylesheet" href="${CODICON_CSS_URI}">
   <link rel="stylesheet" href="${CHAT_CSS_URI}">
+  <!-- Startup chrome: inline so it paints before the module CSS/JS arrive
+       (pattern from the Codex/Claude Code webviews — instant feedback, and a
+       visible error instead of a blank panel if boot fails). -->
+  <style>
+    #startup-loader {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+      transition: opacity 160ms ease-out;
+    }
+    #startup-loader.dismissed { opacity: 0; pointer-events: none; }
+    .startup-wordmark {
+      font-family: var(--vscode-font-family);
+      font-size: 1.35em;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      background: linear-gradient(100deg,
+        var(--vscode-descriptionForeground) 0%,
+        var(--vscode-descriptionForeground) 38%,
+        var(--vscode-foreground) 50%,
+        var(--vscode-descriptionForeground) 62%,
+        var(--vscode-descriptionForeground) 100%);
+      background-size: 220% 100%;
+      background-position: 140% 0;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: startup-shimmer 2200ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+    }
+    .startup-sub {
+      font-family: var(--vscode-font-family);
+      font-size: 0.8em;
+      color: var(--vscode-descriptionForeground);
+      opacity: 0.7;
+    }
+    #startup-matrix {
+      display: block;
+      margin: 0 auto 12px;
+      border-radius: 4px;
+      opacity: 0.85;
+    }
+    @keyframes startup-shimmer {
+      0% { background-position: 140% 0; }
+      100% { background-position: -120% 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .startup-wordmark {
+        animation: none;
+        background: none;
+        color: var(--vscode-foreground);
+        -webkit-text-fill-color: currentColor;
+      }
+    }
+    #boot-error {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 0.85em;
+      color: var(--vscode-errorForeground, #f48771);
+      background: var(--vscode-inputValidation-errorBackground, transparent);
+      margin: 0;
+      max-height: 30vh;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #boot-error:empty { display: none; }
+    #boot-error:not(:empty) { padding: 8px 12px; }
+  </style>
 </head>
-<body>
+<body tabindex="0">
+  <!-- Boot feedback: shimmer until the first view renders; errors surface
+       here instead of leaving a silent blank panel. -->
+  <div id="startup-loader" aria-hidden="true">
+    <canvas id="startup-matrix" width="240" height="36"></canvas>
+    <div class="startup-wordmark">Junction</div>
+    <div class="startup-sub">connecting…</div>
+  </div>
+  <pre id="boot-error"></pre>
+
   <!-- ============================================================
        CHATS LIST VIEW (home screen)
        ============================================================ -->
@@ -29,7 +111,10 @@
         <span class="codicon codicon-chevron-down"></span>
       </button>
       <span class="header-spacer"></span>
-      <button id="btn-new-chat" class="codicon codicon-plus" title="New chat"></button>
+      <button id="btn-new-chat" class="new-thread-btn" title="New thread">
+        <span class="codicon codicon-plus"></span>
+        <span class="new-thread-label">New thread</span>
+      </button>
     </div>
     <div id="session-list-items">
       <!-- session cards injected by session-list.js -->
@@ -37,6 +122,7 @@
     <div id="session-list-input-container">
       <textarea id="session-list-input"
                 placeholder="Type a message to start a new chat..."
+                spellcheck="true"
                 rows="1"></textarea>
     </div>
   </div>
@@ -48,12 +134,6 @@
     <div id="chat-header">
       <button id="btn-back" class="codicon codicon-arrow-left" title="Back to chats"></button>
       <span id="chat-title" class="title" title="Click to rename">New chat</span>
-      <!-- Environment switcher: bridge/runtime + agent -->
-      <button id="env-switcher" class="env-switcher" title="Switch bridge / agent">
-        <span class="codicon codicon-server-environment"></span>
-        <span id="env-switcher-label">local</span>
-        <span class="codicon codicon-chevron-down"></span>
-      </button>
       <div class="header-spacer"></div>
       <button id="btn-menu" class="codicon codicon-menu" title="Chat actions"></button>
       <button id="btn-settings" class="codicon codicon-gear" title="Settings"></button>
@@ -67,40 +147,42 @@
     <!-- floating slash-command menu (positioned above the composer) -->
     <div id="slash-menu" class="slash-menu" hidden></div>
 
-    <div id="attached-files-bar">
-      <!-- file pills injected by attached-files-bar.js -->
-    </div>
+    <div id="composer-shell">
+      <div id="context-hints" class="context-hints">
+        <button class="context-hint" data-action="attach-current" title="Attach current file" aria-label="Attach current file">
+          <span class="codicon codicon-file-add"></span>
+        </button>
+        <div id="attached-files-bar">
+          <!-- file pills injected by attached-files-bar.js -->
+        </div>
+      </div>
 
-    <div id="context-hints" class="context-hints">
-      <button class="context-hint" data-action="attach-current" title="Attach current file">
-        <span class="codicon codicon-file-add"></span>
-        <span>Attach current</span>
-      </button>
-      <button class="context-hint" data-action="plan" title="Draft a plan">
-        <span class="codicon codicon-list-ordered"></span>
-        <span>Plan</span>
-      </button>
-      <button class="context-hint" data-action="external-compose" title="Compose in editor">
-        <span class="codicon codicon-edit"></span>
-        <span>Editor</span>
-      </button>
-      <button id="context-hints-dismiss" class="codicon codicon-close" title="Hide suggestions"></button>
-    </div>
+      <div id="composer">
+        <div id="composer-resize-handle" style="height:4px;cursor:n-resize;background:transparent;transition:background 0.15s;"></div>
+        <textarea id="composer-input"
+                  placeholder="Ask agent..."
+                  spellcheck="true"
+                  rows="1"></textarea>
+      </div>
 
-    <div id="composer">
-      <button id="btn-attach-file" class="codicon codicon-plus" title="Attach file"></button>
-      <textarea id="composer-input"
-                placeholder="Ask agent..."
-                rows="1"></textarea>
-      <button id="btn-send" class="codicon codicon-send" title="Send"></button>
-      <button id="btn-stop" class="codicon codicon-stop" title="Stop"></button>
-    </div>
-
-    <div id="composer-footer">
-      <button id="model-display" class="composer-chip model-chip" title="Change model">Model</button>
-      <button id="sandbox-display" class="composer-chip sandbox-chip" title="Sandbox / approvals">Sandbox</button>
-      <span class="footer-spacer"></span>
-      <span id="context-badge" class="context-badge" title="0 files attached">0 files</span>
+      <div id="composer-footer">
+        <button id="btn-attach-file" class="codicon codicon-plus" title="Attach file"></button>
+        <!-- Environment switcher: bridge/runtime + agent (bottom-left, Codex "work locally" analog) -->
+        <button id="env-switcher" class="env-switcher" title="Switch bridge / agent">
+          <span class="codicon codicon-server-environment"></span>
+          <span id="env-switcher-label">local</span>
+          <span class="codicon codicon-chevron-down"></span>
+        </button>
+        <button id="model-display" class="composer-chip model-chip" title="Change model">Model</button>
+        <button id="sandbox-display" class="composer-chip sandbox-chip" title="Sandbox / approvals">Sandbox</button>
+        <span class="footer-spacer"></span>
+        <div id="composer-actions">
+          <button id="btn-send" class="codicon codicon-send" title="Send" onclick="window.composerSend && window.composerSend()"></button>
+          <button id="btn-share" class="codicon codicon-copy" title="Share / export chat"></button>
+          <button id="btn-preview-anim" class="codicon codicon-eye" title="Preview animation"></button>
+          <button id="btn-anim-settings" class="codicon codicon-settings-gear" title="Animation settings"></button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -109,6 +191,71 @@
     // loaded after this script. Modules own all DOM wiring; view-router.js
     // posts the boot signal (`initRequest`).
     const vscode = acquireVsCodeApi();
+
+    // Boot-error sentinel: surface script failures in the panel instead of
+    // dying silently behind the startup loader.
+    (function () {
+      var errBox = document.getElementById('boot-error');
+      function report(text) {
+        if (!errBox) return;
+        errBox.textContent += (errBox.textContent ? '\n' : '') + text;
+        var loader = document.getElementById('startup-loader');
+        if (loader) loader.classList.add('dismissed');
+      }
+      window.addEventListener('error', function (e) {
+        // Suppress harmless VS Code internal PointerEvent clone errors
+        if (e.message && e.message.indexOf('PointerEvent') !== -1 &&
+            e.message.indexOf('clone') !== -1) { e.preventDefault(); return; }
+        if (e.message && e.message.indexOf('DataCloneError') !== -1 &&
+            e.filename && e.filename.indexOf('vscode') !== -1) { e.preventDefault(); return; }
+        var msg = 'Error: ' + (e.message || 'unknown') +
+          (e.filename ? ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')' : '');
+        report(msg);
+        try { vscode.postMessage({ type: 'consoleError', text: msg }); } catch (_) {}
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var msg = 'Unhandled rejection: ' + (e.reason && e.reason.message ? e.reason.message : String(e.reason));
+        report(msg);
+        try { vscode.postMessage({ type: 'consoleError', text: msg }); } catch (_) {}
+      });
+      // Matrix loader animation on startup canvas
+      (function () {
+        var canvas = document.getElementById('startup-matrix');
+        if (!canvas) return;
+        var ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%';
+        var fontSize = 11;
+        var cols = Math.floor(canvas.width / fontSize);
+        var drops = [];
+        for (var i = 0; i < cols; i++) drops.push(Math.random() * canvas.height);
+        function draw() {
+          if (canvas.classList && canvas.closest('#startup-loader.dismissed')) return;
+          ctx.fillStyle = 'rgba(0,0,0,0.08)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#10a37f';
+          ctx.font = fontSize + 'px monospace';
+          for (var i = 0; i < cols; i++) {
+            var ch = chars[Math.floor(Math.random() * chars.length)];
+            ctx.globalAlpha = 0.4 + Math.random() * 0.6;
+            ctx.fillText(ch, i * fontSize, drops[i]);
+            drops[i] += fontSize * 0.6;
+            if (drops[i] > canvas.height && Math.random() > 0.97) drops[i] = 0;
+          }
+          ctx.globalAlpha = 1;
+          requestAnimationFrame(draw);
+        }
+        draw();
+      })();
+      // Watchdog: if nothing dismissed the loader after 10s, say so.
+      setTimeout(function () {
+        var loader = document.getElementById('startup-loader');
+        if (loader && !loader.classList.contains('dismissed')) {
+          var sub = loader.querySelector('.startup-sub');
+          if (sub) sub.textContent = 'still connecting… is the gateway running?';
+        }
+      }, 10000);
+    })();
   </script>
 </body>
 </html>

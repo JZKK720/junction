@@ -123,6 +123,9 @@
         { id: 'fork', label: 'Fork conversation', icon: 'git-branch' },
         { id: 'forkRewind', label: 'Fork and rewind', icon: 'discard' },
         { id: 'archive', label: 'Archive', icon: 'archive', key: _sessionKey, disabled: !_sessionKey },
+        { id: 'share', label: 'Share / export chat', icon: 'clippy', action: function () {
+          window.dispatchEvent(new CustomEvent('junction-share-chat'));
+        }},
         { id: 'settings', label: 'Settings', icon: 'gear' }
       ]
     });
@@ -173,20 +176,7 @@
       });
     }
 
-    // Environment switcher (bridge/runtime + agent)
-    var envBtn = document.getElementById('env-switcher');
-    if (envBtn) {
-      envBtn.addEventListener('click', function () {
-        if (window.choiceMenu) {
-          window.choiceMenu.open(envBtn, {
-            title: 'Bridge / agent',
-            loading: true,
-            selectMessage: 'selectEnvironmentChoice'
-          });
-        }
-        vscode.postMessage({ type: 'requestEnvironmentChoices' });
-      });
-    }
+    // Environment switcher moved to the composer footer (see composer.js).
   }
 
   // ── Message listener ───────────────────────────────────────────────────
@@ -202,21 +192,6 @@
         }
         if (msg.title !== undefined) {
           window.setChatTitle(msg.title);
-        }
-        break;
-      case 'envLabel':
-        var envLabel = document.getElementById('env-switcher-label');
-        if (envLabel && msg.label) envLabel.textContent = msg.label;
-        break;
-      case 'environmentChoices':
-        var envBtn = document.getElementById('env-switcher');
-        if (window.choiceMenu && envBtn) {
-          window.choiceMenu.open(envBtn, {
-            title: 'Bridge / agent',
-            items: msg.items || [],
-            emptyText: 'No gateways or agents available',
-            selectMessage: 'selectEnvironmentChoice'
-          });
         }
         break;
       case 'agentChoices':

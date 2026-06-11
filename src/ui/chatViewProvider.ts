@@ -1,16 +1,35 @@
 import * as vscode from 'vscode';
-import { ChatBase } from './chatBase';
+import * as crypto from 'crypto';
 import { BridgeRegistry } from '../bridges/registry';
+import { OpenClawBridge } from '../bridges/openclaw/OpenClawBridge';
+import { HermesBridge } from '../bridges/hermes/HermesBridge';
+import { SouveraineBridge } from '../bridges/souveraine/SouveraineBridge';
+import { ChatBase } from './chatBase';
 
+/**
+ * Per-window ChatViewProvider. VS Code runs one extension host per window,
+ * so one provider instance == one window. The registry (and its gateway
+ * connections) is built here with a window-unique instanceId rather than the
+ * old globalState-shared id, which leaked one identity across windows.
+ */
 export class ChatViewProvider extends ChatBase implements vscode.WebviewViewProvider {
     public static readonly viewType = 'junction.chatView';
     private _view?: vscode.WebviewView;
 
-    constructor(
-        extensionUri: vscode.Uri,
-        bridgeRegistry: BridgeRegistry
-    ) {
-        super(extensionUri, bridgeRegistry);
+    constructor(context: vscode.ExtensionContext) {
+        // Bridges + CheckpointManager need the real ExtensionContext
+        // (globalState, storage paths) — never a stub.
+        const registry = new BridgeRegistry(context);
+        const instanceId = `junction-${crypto.randomUUID()}`;
+        registry.register(new OpenClawBridge(context, instanceId));
+        registry.register(new HermesBridge(context));
+        registry.register(new SouveraineBridge(context));
+        super(context.extensionUri, registry);
+    }
+
+    /** Window-scoped registry, exposed for status bar + command wiring. */
+    public get registry(): BridgeRegistry {
+        return this.bridgeRegistry;
     }
 
     protected postToWebview(message: any): void {

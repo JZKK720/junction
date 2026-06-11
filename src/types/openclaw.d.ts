@@ -70,6 +70,21 @@ export interface ModelEntry {
     /** Model/session-aware thinking levels, when advertised */
     thinkingLevels?: Array<{ id: string; label?: string }>;
     thinkingOptions?: string[];
+    /**
+     * Per-model reasoning vocabulary as advertised by the gateway/config — the
+     * model's own "lingua franca" (e.g. GPT-5 minimal/low/medium/high, Codex
+     * low/medium/high/xhigh). Preferred source for the reasoning submenu so each
+     * model shows only its supported efforts, never a generic union.
+     */
+    supportedReasoningEfforts?: string[];
+    /** OpenClaw thinking-level → provider effort map; its keys are the levels. */
+    reasoningEffortMap?: Record<string, string>;
+    thinkingLevelMap?: Record<string, string>;
+    /** Provider-compat block carrying per-model reasoning capability. */
+    compat?: {
+        supportedReasoningEfforts?: string[];
+        reasoningEffortMap?: Record<string, string>;
+    };
     /** Whether this is the default model for the provider */
     default?: boolean;
     /** Model capabilities */

@@ -14,6 +14,15 @@
  *     message renderer.
  */
 
+// ── Startup loader dismissal (first real view wins) ────────────
+
+function dismissStartupLoader() {
+  var loader = document.getElementById('startup-loader');
+  if (!loader || loader.classList.contains('dismissed')) return;
+  loader.classList.add('dismissed');
+  setTimeout(function () { loader.remove(); }, 220);
+}
+
 // ── View navigation (override template.html inline stubs) ──────
 
 function showSessionList() {
@@ -65,13 +74,15 @@ window.addEventListener('message', function (event) {
     // ── Navigation ──────────────────────────────────────────────
 
     case 'switchToHome':
+      dismissStartupLoader();
       showSessionList();
-      if (msg.sessions) {
-        renderSessionCards(msg.sessions);
+      if (msg.groups && typeof window.renderGroups === 'function') {
+        window.renderGroups(msg.groups, msg.activeKey);
       }
       break;
 
     case 'switchToChat':
+      dismissStartupLoader();
       setChatTitle(msg.title);
       showChatView();
       if (msg.history) {
@@ -82,7 +93,9 @@ window.addEventListener('message', function (event) {
     // ── Data updates ────────────────────────────────────────────
 
     case 'renderSessions':
-      renderSessionCards(msg.sessions);
+      if (typeof window.renderGroups === 'function') {
+        window.renderGroups(msg.groups, msg.activeKey);
+      }
       break;
 
     case 'updateTitle':
@@ -93,4 +106,16 @@ window.addEventListener('message', function (event) {
 
 // ── Init — smart reopen ────────────────────────────────────────
 
-vscode.postMessage({ type: 'initRequest' });
+// Ensure VS Code API is available before posting
+function postInit() {
+  if (typeof vscode !== 'undefined' && vscode.postMessage) {
+    vscode.postMessage({ type: 'initRequest' });
+  } else {
+    setTimeout(postInit, 50);
+  }
+}
+if (document.readyState === 'complete') {
+  postInit();
+} else {
+  window.addEventListener('load', postInit);
+}

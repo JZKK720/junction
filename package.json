@@ -6,7 +6,7 @@
   "publisher": "Plaer1",
   "icon": "resources/icon.png",
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.120.0"
   },
   "repository": "https://github.com/Plaer1/junction",
   "categories": [
@@ -58,18 +58,6 @@
       {
         "command": "junction.addFileToThread",
         "title": "Add File to Junction Thread"
-      },
-      {
-        "command": "junction.openExternalComposer",
-        "title": "Junction: Compose in Editor"
-      },
-      {
-        "command": "junction.sendExternalComposer",
-        "title": "Junction: Send Composer"
-      },
-      {
-        "command": "junction.rewindToCheckpoint",
-        "title": "Junction: Rewind to Checkpoint"
       }
     ],
     "keybindings": [],
@@ -101,7 +89,11 @@
       "properties": {
         "junction.activeBridge": {
           "type": "string",
-          "enum": ["openclaw", "hermes", "souveraine"],
+          "enum": [
+            "openclaw",
+            "hermes",
+            "souveraine"
+          ],
           "default": "openclaw",
           "description": "Active local agent bridge."
         },
@@ -157,7 +149,11 @@
         },
         "junction.sendBehavior": {
           "type": "string",
-          "enum": ["enter", "ctrlEnter", "smartEnter"],
+          "enum": [
+            "enter",
+            "ctrlEnter",
+            "smartEnter"
+          ],
           "enumDescriptions": [
             "Enter sends; Shift+Enter inserts a newline",
             "Ctrl/Cmd+Enter sends; Enter inserts a newline",
@@ -168,23 +164,65 @@
         },
         "junction.followUpMode": {
           "type": "string",
-          "enum": ["queue", "steer", "interrupt"],
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
           "enumDescriptions": [
+            "Use the per-bridge setting (or queue if not set)",
             "Hold the message until the current run finishes, then send",
             "Inject the message into the running turn (needs gateway support; falls back to queue)",
             "Stop the current run, then send the new message"
           ],
-          "default": "queue",
-          "description": "What happens when you send a message while the agent is still running."
+          "default": "default",
+          "description": "Global follow-up mode. Per-bridge overrides: junction.openclaw.followUpMode, junction.hermes.followUpMode, junction.souveraine.followUpMode."
+        },
+        "junction.openclaw.followUpMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
+          "default": "default",
+          "description": "Follow-up mode for OpenClaw. 'default' uses the global junction.followUpMode."
+        },
+        "junction.hermes.followUpMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
+          "default": "default",
+          "description": "Follow-up mode for Hermes. 'default' uses the global junction.followUpMode."
+        },
+        "junction.souveraine.followUpMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
+          "default": "default",
+          "description": "Follow-up mode for Souveraine. 'default' uses the global junction.followUpMode."
         },
         "junction.reasoningDisplay": {
           "type": "string",
-          "enum": ["expanded", "compact"],
+          "enum": [
+            "expanded",
+            "compact"
+          ],
           "enumDescriptions": [
             "Stream the reasoning expanded, then auto-collapse to a summary when it finishes",
             "Show a compact 'Thinking… ~N tokens' line while reasoning, then reveal the block when it finishes"
           ],
-          "default": "expanded",
+          "default": "compact",
           "description": "How reasoning/thinking blocks are displayed in the chat."
         },
         "junction.checkpoints.enabled": {
@@ -194,20 +232,67 @@
         },
         "junction.sandboxMode": {
           "type": "string",
-          "enum": ["default", "readonly", "workspace-write", "full-access"],
+          "enum": [
+            "default",
+            "readonly",
+            "workspace-write",
+            "full-access"
+          ],
           "default": "default",
           "description": "Local UI preference for agent sandbox display. Applied only when the active bridge supports a matching control surface."
         },
         "junction.approvalMode": {
           "type": "string",
-          "enum": ["default", "ask", "never"],
+          "enum": [
+            "default",
+            "ask",
+            "never"
+          ],
           "default": "default",
           "description": "Local UI preference for approval display. Applied only when the active bridge supports a matching control surface."
+        },
+        "junction.extraRichText": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Pretext-powered extra-rich text rendering with animated text effects (matrix scroll, typewriter, etc.). Uses canvas-based text layout for smoother animations."
         },
         "junction.todoCodeLensEnabled": {
           "type": "boolean",
           "default": false,
           "description": "Show CodeLens actions above TODO/FIXME/HACK comments to send them to Junction."
+        },
+        "junction.activityStream.layout": {
+          "type": "string",
+          "enum": [
+            "accordion",
+            "timeline",
+            "hybrid"
+          ],
+          "enumDescriptions": [
+            "Codex-style: finished activity folds into a summary accordion (\"Edited 2 files, ran 3 commands\")",
+            "Claude Code-style: rows stay inline on a vertical timeline rail; nothing folds",
+            "Both: activity folds into the accordion, and the expanded body renders as a timeline rail"
+          ],
+          "default": "accordion",
+          "description": "How a turn's tool/activity rows are laid out in the chat stream."
+        },
+        "junction.activityStream.rail": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the vertical guide line beside activity rows (timeline/hybrid layouts)."
+        },
+        "junction.activityStream.dots": {
+          "type": "string",
+          "enum": [
+            "status",
+            "minimal"
+          ],
+          "enumDescriptions": [
+            "Colored status dots (green success, red error, blinking while running) — Claude Code look",
+            "Neutral dots with a spinner while running — Codex look"
+          ],
+          "default": "status",
+          "description": "Status indicator style on activity rows."
         }
       }
     }
@@ -225,8 +310,9 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
-    "@types/vscode": "^1.95.0",
+    "@types/vscode": "^1.120.0",
     "@types/ws": "^8.18.1",
+    "@vscode/codicons": "^0.0.45",
     "esbuild": "^0.19.0",
     "typescript": "^5.3.0"
   }

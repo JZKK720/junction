@@ -42,7 +42,7 @@ export function registerTodoCodeLensCommand(context: vscode.ExtensionContext, ge
             const provider = getChatViewProvider();
             if (!provider) return;
             provider.addFilePill(uri);
-            await provider.sendExternalComposerText(`Implement this code comment:\n${vscode.workspace.asRelativePath(uri)}:${line + 1}\n${text}`);
+            await provider.sendText(`Implement this code comment:\n${vscode.workspace.asRelativePath(uri)}:${line + 1}\n${text}`);
             await vscode.commands.executeCommand('workbench.view.extension.junction-explorer');
         },
     ));

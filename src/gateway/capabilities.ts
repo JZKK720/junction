@@ -124,6 +124,11 @@ export class GatewayCapabilities {
         return this.hasMethod('models.list');
     }
 
+    /** Current OpenClaw fork supports structural workspace binding through sessions.patch spawnedCwd. */
+    supportsWorkspaceSessions(): boolean {
+        return this.methodsKnown && this.methods.has('sessions.fork');
+    }
+
     canAbort(): boolean {
         return this.hasMethod('chat.abort') || this.hasMethod('sessions.abort');
     }

@@ -10,8 +10,8 @@ html, body {
   height: 100%;
   margin: 0;
   padding: 0;
-  background: var(--vscode-editor-background);
-  color: var(--vscode-editor-foreground);
+  background: var(--vscode-sideBar-background);
+  color: var(--vscode-sideBar-foreground, var(--vscode-foreground));
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size, 13px);
 }
@@ -19,11 +19,11 @@ html, body {
 #chat-messages {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: var(--space-medium);
+  padding: var(--space-medium) var(--space-large);
   scrollbar-width: thin;
   display: flex;
   flex-direction: column;
-  gap: var(--space-medium);
+  gap: 2px;
 }
 
 /* ── Message rows ─────────────────────────────────────────────────────────── */
@@ -32,43 +32,146 @@ html, body {
   flex-direction: column;
   gap: var(--space-small);
   position: relative;
+  padding: 12px 0;
+}
+.chat-row + .chat-row {
+  border-top: 1px solid var(--vscode-widget-border, var(--vscode-input-border, rgba(128,128,128,0.08)));
 }
 
 .chat-row .msg-text {
   border-radius: var(--corner-radius-medium);
   padding: var(--space-small) var(--space-medium);
-  line-height: 1.5;
+  line-height: 1.6;
   word-wrap: break-word;
   overflow-wrap: anywhere;
 }
 
 .chat-row .msg-text pre {
   overflow-x: auto;
-  padding: var(--space-medium);
-  border-radius: var(--corner-radius-small);
-  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  padding: 12px 14px;
+  border-radius: var(--corner-radius-small, 4px);
+  background: var(--vscode-textCodeBlock-background);
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: var(--vscode-editor-font-size, 12px);
+  border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.08));
+  margin: 4px 0;
+  line-height: 1.5;
+  white-space: pre;
+}
+.chat-row .msg-text pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  white-space: pre;
+}
+
+/* Syntax highlighting (Discord-like) */
+.hl-cm { color: var(--vscode-codeLens-foreground, #6a9955); font-style: italic; }
+.hl-st { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+.hl-kw { color: var(--vscode-symbolIcon-keywordForeground, #c586c0); }
+.hl-nu { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+.hl-bl { color: var(--vscode-debugTokenExpression-boolean, #569cd6); }
+.hl-fn { color: var(--vscode-symbolIcon-functionForeground, #dcdcaa); }
+.hl-ty { color: var(--vscode-symbolIcon-classForeground, #4ec9b0); }
+.hl-op { color: var(--vscode-editor-foreground, #d4d4d4); }
+.hl-pu { color: var(--vscode-editor-foreground, #d4d4d4); }
+
+/* ── Pretext canvas elements ──────────────────────────────────────────────── */
+.pretext-canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+.matrix-loader {
+  border-radius: 4px;
+  opacity: 0.85;
 }
 
 .chat-row .msg-text code {
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 0.95em;
+  font-size: 0.9em;
+  background: var(--vscode-textCodeBlock-background);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.08));
 }
 
+/* ── Markdown element styles ──────────────────────────────────────────────── */
+.msg-text h1, .msg-text h2, .msg-text h3, .msg-text h4, .msg-text h5, .msg-text h6 {
+  color: var(--vscode-foreground);
+  font-weight: 600;
+  margin: 12px 0 4px;
+  line-height: 1.3;
+}
+.msg-text h1 { font-size: 1.3em; }
+.msg-text h2 { font-size: 1.15em; }
+.msg-text h3 { font-size: 1.05em; }
+.msg-text h4, .msg-text h5, .msg-text h6 { font-size: 1em; opacity: 0.9; }
+.msg-text p { margin: 4px 0; }
+.msg-text em { font-style: italic; opacity: 0.9; }
+.msg-text strong { font-weight: 600; color: var(--vscode-foreground); }
+.msg-text a {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+}
+.msg-text a:hover { text-decoration: underline; }
+.msg-text blockquote {
+  margin: 4px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--vscode-widget-border, rgba(128,128,128,0.2));
+  color: var(--vscode-descriptionForeground);
+}
+.msg-text ul, .msg-text ol {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+.msg-text li { margin: 2px 0; }
+.msg-text hr {
+  border: none;
+  border-top: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.15));
+  margin: 8px 0;
+}
+.msg-text table {
+  border-collapse: collapse;
+  margin: 4px 0;
+  font-size: 0.9em;
+}
+.msg-text th, .msg-text td {
+  border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.15));
+  padding: 4px 8px;
+  text-align: left;
+}
+.msg-text th {
+  background: var(--vscode-editor-lineHighlightBackground, rgba(128,128,128,0.04));
+  font-weight: 600;
+}
+.msg-text img {
+  max-width: 100%;
+  border-radius: var(--corner-radius-small, 4px);
+}
+
+/* ── User messages — right-aligned bubble ─────────────────────────────────── */
 .chat-row.user {
   align-items: flex-end;
+  padding-left: 40px;
 }
 
 .chat-row.user .msg-text {
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground);
-  max-width: 85%;
+  background: var(--vscode-chat-requestBackground, var(--vscode-input-background));
+  color: var(--vscode-chat-requestForeground, inherit);
+  border: 1px solid var(--vscode-chat-requestBorder, var(--vscode-input-border, rgba(128,128,128,0.12)));
+  max-width: 80%;
+  border-radius: 16px 16px 4px 16px;
+  padding: 8px 14px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
+/* ── Assistant messages — full width ──────────────────────────────────────── */
 .chat-row.assistant .msg-text {
   background: transparent;
-  padding-left: 0;
+  padding: 4px 0;
+  border: none;
+  width: 100%;
 }
 
 /* Subagent nesting */
@@ -119,104 +222,511 @@ html, body {
   background: var(--vscode-list-hoverBackground);
 }
 
-/* ── Reasoning disclosure (inline, auto-collapse) ────────────────────────── */
+/* ── Reasoning slot ──────────────────────────────────────────────────────── */
+.reasoning-slot:empty {
+  display: none;
+}
+.reasoning-slot {
+  margin-bottom: 4px;
+}
+
+/* ── Reasoning disclosure ────────────────────────────────────────────────── */
 .reasoning-disclosure {
-  border: 1px solid var(--vscode-input-border);
-  border-radius: var(--corner-radius-medium);
-  background: var(--vscode-sideBar-background);
+  border: none;
+  border-radius: 0;
+  background: transparent;
   overflow: hidden;
+  margin: 4px 0 6px;
+  max-width: 100%;
+}
+.reasoning-disclosure.thinking {
+  border-left: 2px solid var(--vscode-focusBorder, #10a37f);
+  padding-left: 8px;
 }
 .reasoning-disclosure > summary {
   cursor: pointer;
-  padding: var(--space-small) var(--space-medium);
-  font-size: 0.85em;
+  padding: 4px 0;
+  font-size: 0.82em;
   color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
   user-select: none;
   list-style: none;
   display: flex;
   align-items: center;
-  gap: var(--space-small);
+  gap: 6px;
+  max-width: 100%;
+  border-radius: 0;
+  transition: opacity 0.12s;
 }
 .reasoning-disclosure > summary::-webkit-details-marker { display: none; }
-.reasoning-disclosure[open] > summary { border-bottom: 1px solid var(--vscode-input-border); }
-.reasoning-label { flex: 0 1 auto; }
+.reasoning-disclosure > summary:hover { opacity: 1; }
+.reasoning-disclosure[open] > summary {
+  padding-bottom: 4px;
+}
+.reasoning-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
 
-/* Loading widget for thinking mode — mount point only; NO spinner yet.
-   When .reasoning-disclosure.thinking is set, an animation can hook here later. */
-.thinking-loader {
-  display: none;            /* hidden until a spinner/indicator is added */
-  width: 12px;
-  height: 12px;
+/* Pulse indicator for active thinking */
+.thinking-throbber {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  opacity: 0.5;
+  transition: opacity 0.2s, background 0.2s;
+  background: var(--vscode-descriptionForeground);
 }
-.reasoning-disclosure.thinking .thinking-loader {
-  display: inline-block;    /* slot becomes visible while thinking (still empty) */
+.reasoning-disclosure.thinking .thinking-throbber {
+  background: var(--vscode-focusBorder, #10a37f);
+  opacity: 0.8;
+  animation: thinking-pulse 1.4s ease-in-out infinite;
 }
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 0.9; transform: scale(1.1); }
+}
+.thinking-toggle {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  font-size: 14px;
+  transition: transform 0.15s ease;
+  color: var(--vscode-descriptionForeground);
+}
+.reasoning-disclosure[open] .thinking-toggle {
+  transform: rotate(90deg);
+}
+
+/* Content area */
 .reasoning-content {
   margin: 0;
-  padding: var(--space-medium);
-  max-height: 240px;
+  padding: 8px 10px;
+  max-height: 300px;
   overflow-y: auto;
-  white-space: pre-wrap;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.82em;
   color: var(--vscode-descriptionForeground);
+  border-top: none;
+  background: transparent;
+  scrollbar-width: thin;
+  line-height: 1.5;
+}
+.reasoning-content .thinking-json {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: inherit;
+}
+.reasoning-content .thinking-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+/* ── Thinking bar (reverse matrix effect) ─────────────────────────────────── */
+.thinking-bar {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  margin-right: 8px;
+  vertical-align: middle;
+  line-height: 1;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  letter-spacing: -0.5px;
+  color: var(--vscode-focusBorder, #10a37f);
+  user-select: none;
+}
+.thinking-bar[data-active="done"] {
+  opacity: 0.4;
+}
+.thinking-bar-cols {
+  display: flex;
+  gap: 1px;
+  align-items: flex-end;
+  height: calc(1em * 3);
+}
+.thinking-bar-col {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 0;
+}
+.thinking-bar-cell {
+  display: block;
+  width: 1em;
+  height: 1em;
+  text-align: center;
+  line-height: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity 0.15s ease, filter 0.2s ease;
+  color: var(--vscode-focusBorder, #10a37f);
+}
+.thinking-bar-line {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: -0.5px;
+  color: var(--vscode-focusBorder, #10a37f);
+  opacity: 0.7;
+  white-space: nowrap;
+  margin-top: -1px;
+}
+
+/* ── Raw JSON message payloads ────────────────────────────────────────────── */
+.msg-text .msg-json {
+  overflow-x: auto;
+  padding: 10px 12px;
+  margin: 0;
+  border-radius: var(--corner-radius-small, 4px);
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.08));
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow-y: auto;
   scrollbar-width: thin;
 }
 
-/* ── Tool-call cards ─────────────────────────────────────────────────────── */
-.tool-calls { display: flex; flex-direction: column; gap: var(--space-small); margin-top: var(--space-small); }
-.tool-call-card {
-  border: 1px solid var(--vscode-input-border);
-  border-radius: var(--corner-radius-medium);
-  overflow: hidden;
+/* JSON syntax highlighting */
+.json-key { color: var(--vscode-symbolIcon-keyForeground, #9cdcfe); }
+.json-string { color: var(--vscode-debugTokenExpression-string, #ce9178); }
+.json-number { color: var(--vscode-debugTokenExpression-number, #b5cea8); }
+.json-bool { color: var(--vscode-debugTokenExpression-boolean, #569cd6); }
+.json-null { color: var(--vscode-debugTokenExpression-boolean, #569cd6); }
+
+/* ── File links in chat messages ─────────────────────────────────────────── */
+.file-link {
+  color: var(--vscode-textLink-foreground);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--vscode-textLink-foreground);
+  cursor: pointer;
+  transition: color 0.1s, border-color 0.1s;
+  padding: 0 1px;
+  border-radius: 2px;
 }
-.tool-call-header {
+.file-link:hover {
+  color: var(--vscode-textLink-activeForeground);
+  border-bottom-color: var(--vscode-textLink-activeForeground);
+  background: color-mix(in srgb, var(--vscode-textLink-foreground) 12%, transparent);
+}
+
+/* ── Tool action rows (Codex-style) ──────────────────────────────────────── */
+.tool-calls {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 2px;
+}
+.tool-calls:empty { display: none; }
+
+.tool-row, .tool-group {
+  max-width: 100%;
+  border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.12));
+  border-radius: var(--corner-radius-medium, 6px);
+  background: var(--vscode-editor-lineHighlightBackground, rgba(128,128,128,0.03));
+  margin: 6px 0;
+  overflow: hidden;
+  transition: background 0.15s, border-color 0.15s;
+}
+.tool-row:hover, .tool-group:hover {
+  background: var(--vscode-editor-lineHighlightBackground, rgba(128,128,128,0.06));
+  border-color: var(--vscode-focusBorder, rgba(16, 163, 127, 0.4));
+}
+.tool-row[open], .tool-group[open] {
+  background: var(--vscode-editor-lineHighlightBackground, rgba(128,128,128,0.04));
+  border-color: var(--vscode-focusBorder, rgba(16, 163, 127, 0.6));
+}
+
+.tool-row-summary {
+  list-style: none;
   display: flex;
   align-items: center;
-  gap: var(--space-small);
-  padding: var(--space-small) var(--space-medium);
-  background: var(--vscode-editor-lineHighlightBackground, var(--vscode-sideBarSectionHeader-background));
+  gap: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
   font-size: 0.85em;
+  color: var(--vscode-descriptionForeground);
+  user-select: none;
+  min-width: 0;
+  transition: color 0.12s;
 }
-.tool-call-name { font-weight: 600; flex: 1 1 auto; }
-.tool-call-status {
-  font-size: 0.8em;
-  padding: 1px 6px;
-  border-radius: var(--corner-radius-small);
-  background: var(--vscode-badge-background);
-  color: var(--vscode-badge-foreground);
+.tool-row-summary::-webkit-details-marker { display: none; }
+.tool-row-summary:hover {
+  color: var(--vscode-foreground);
 }
-.tool-call-status.running {
-  background: var(--vscode-statusBarItem-warningBackground, var(--vscode-badge-background));
-  color: var(--vscode-statusBarItem-warningForeground, var(--vscode-badge-foreground));
+
+.tool-row-status {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.tool-call-status.success {
-  background: var(--vscode-terminal-ansiGreen, var(--vscode-badge-background));
-  color: var(--vscode-editor-background, var(--vscode-badge-foreground));
+.tool-row-status.done::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-charts-green, #10a37f));
 }
-.tool-call-status.error {
-  background: var(--vscode-inputValidation-errorBackground, var(--vscode-badge-background));
-  color: var(--vscode-inputValidation-errorForeground, var(--vscode-errorForeground));
-  border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-errorForeground));
+.tool-row-status.error::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--vscode-errorForeground, var(--vscode-inputValidation-errorForeground, #f14c4c));
 }
-.tool-call-args, .tool-call-output, .tool-call-update {
-  margin: 0;
-  padding: var(--space-medium);
-  max-height: 300px;
-  overflow: auto;
-  white-space: pre-wrap;
+.tool-row-status.running { color: var(--vscode-progressBar-background, var(--vscode-focusBorder)); }
+.tool-row-status.running .codicon { font-size: 12px; }
+
+.tool-verb { flex: 0 0 auto; font-weight: 500; }
+.tool-target {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--vscode-foreground);
+  opacity: 0.85;
+}
+.tool-target.mono {
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 0.82em;
-  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  font-size: 0.92em;
+  opacity: 0.7;
+}
+
+.tool-diff {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9em;
+}
+.diff-plus { color: var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-terminal-ansiGreen)); }
+.diff-minus { color: var(--vscode-gitDecoration-deletedResourceForeground, var(--vscode-terminal-ansiRed)); }
+
+.tool-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 12px;
+  opacity: 0;
+  transition: transform 0.15s ease, opacity 0.12s;
+  color: var(--vscode-descriptionForeground);
+}
+.tool-row-summary:hover .tool-chevron { opacity: 0.8; }
+.tool-row[open] > .tool-row-summary .tool-chevron,
+.tool-group[open] > .tool-group-summary .tool-chevron {
+  transform: rotate(90deg);
+  opacity: 0.8;
+}
+
+.tool-detail {
+  margin: 0 10px 10px 10px;
+  border-left: none;
+  padding-left: 0;
+  max-height: 320px;
+  overflow-y: auto;
   scrollbar-width: thin;
 }
-.tool-call-output { border-top: 1px solid var(--vscode-input-border); }
+
+/* Strip styling for tool rows nested inside a group */
+.tool-group-body {
+  margin-left: 0;
+  border-left: none;
+  padding: 0;
+  background: var(--vscode-editor-lineHighlightBackground, rgba(128,128,128,0.02));
+  border-top: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.1));
+}
+.tool-group-body > .tool-row {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  margin: 0;
+  transition: background 0.1s;
+}
+.tool-group-body > .tool-row:not(:last-child) {
+  border-bottom: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.08));
+}
+.tool-group-body > .tool-row:hover {
+  background: var(--vscode-editor-lineHighlightBackground, rgba(128,128,128,0.04));
+}
+.tool-group-body > .tool-row .tool-detail {
+  margin: 0 10px 10px 30px;
+}
+.tool-detail:empty { display: none; }
+.tool-detail-section { padding: 4px 0; }
+.tool-detail-label {
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.6;
+  margin-bottom: 2px;
+}
+.tool-detail-section pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.82em;
+  line-height: 1.45;
+  color: var(--vscode-descriptionForeground);
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* ── Code editor (tool I/O panels) ──────────────────────────────────────── */
+.code-editor {
+  border: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.15));
+  border-radius: var(--corner-radius-medium, 6px);
+  overflow: hidden;
+  margin: 6px 0;
+  background: var(--vscode-textCodeBlock-background, var(--vscode-editor-background));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+.code-editor-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--vscode-editor-lineHighlightBackground, rgba(128,128,128,0.06));
+  border-bottom: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.12));
+  font-size: 0.75em;
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--vscode-descriptionForeground);
+}
+.code-editor-label {
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.code-editor-lang {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
+  font-size: 0.9em;
+}
+.code-editor-copy {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--corner-radius-small, 4px);
+  font-size: 13px;
+  opacity: 0.6;
+  transition: opacity 0.12s, background 0.1s;
+}
+.code-editor-header:hover .code-editor-copy { opacity: 0.9; }
+.code-editor-copy:hover {
+  opacity: 1 !important;
+  background: var(--vscode-list-hoverBackground);
+  color: var(--vscode-editor-foreground);
+}
+.code-editor-body {
+  display: flex;
+  overflow: auto;
+  max-height: 280px;
+  scrollbar-width: thin;
+}
+.code-editor-lines {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 0;
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid var(--vscode-widget-border, rgba(128,128,128,0.12));
+  background: var(--vscode-editor-lineHighlightBackground, rgba(128,128,128,0.03));
+  flex: 0 0 auto;
+  min-width: 36px;
+}
+.code-editor-line-num {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.8em;
+  line-height: 1.5;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.4;
+  padding: 0 8px;
+}
+.code-editor-code {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 8px 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+  line-height: 1.5;
+  color: var(--vscode-editor-foreground);
+  background: transparent;
+  white-space: pre;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+/* Accordion */
+.tool-group-title { font-weight: 500; }
+.tool-group-body {
+  margin-left: 10px;
+  border-left: 2px solid var(--vscode-widget-border, rgba(128,128,128,0.15));
+  padding-left: 6px;
+}
+
+/* ── Working indicator ────────────────────────────────────────────────────── */
+.working-row { padding: 6px 0 10px; }
+.working-row.suppressed { display: none; }
+.working-shimmer {
+  font-size: 0.85em;
+  font-weight: 500;
+  background: linear-gradient(90deg,
+    var(--vscode-descriptionForeground) 0%,
+    var(--vscode-descriptionForeground) 35%,
+    var(--vscode-foreground) 50%,
+    var(--vscode-descriptionForeground) 65%,
+    var(--vscode-descriptionForeground) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: working-shimmer 1.8s linear infinite;
+}
+@keyframes working-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .working-shimmer {
+    animation: none;
+    background: none;
+    color: var(--vscode-descriptionForeground);
+    -webkit-text-fill-color: currentColor;
+  }
+  .reasoning-disclosure.thinking .thinking-throbber { animation: none; }
+}
 
 /* ── Token footer ─────────────────────────────────────────────────────────── */
 .token-footer {
-  font-size: 0.7em;
+  font-size: 0.72em;
   color: var(--vscode-descriptionForeground);
-  padding-top: 2px;
+  padding: 4px 0 0;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }
 
 /* ── Slash-command menu ──────────────────────────────────────────────────── */
@@ -241,9 +751,9 @@ html, body {
 .slash-name { font-weight: 600; }
 .slash-desc { color: var(--vscode-descriptionForeground); font-size: 0.9em; }
 
-/* ── Footer chips (model / reasoning / context) ───────────────────────────── */
+/* ── Footer chips ─────────────────────────────────────────────────────────── */
 .composer-chip {
-  background: var(--vscode-sideBar-background);
+  background: transparent;
   color: var(--vscode-descriptionForeground);
   border: 1px solid var(--vscode-input-border);
   border-radius: 999px;
@@ -256,11 +766,16 @@ html, body {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-right: var(--space-small);
+  transition: color 0.1s, border-color 0.1s, background 0.1s;
 }
-.composer-chip:hover { color: var(--vscode-editor-foreground); border-color: var(--vscode-focusBorder); }
-.context-badge { white-space: nowrap; }
+.composer-chip:hover {
+  color: var(--vscode-editor-foreground);
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-list-hoverBackground);
+}
+.send-mode-chip { display: inline-flex; align-items: center; gap: 3px; }
 
-/* ── Environment switcher (header) ───────────────────────────────────────── */
+/* ── Environment switcher ─────────────────────────────────────────────────── */
 .env-switcher, .chat-scope {
   display: inline-flex;
   align-items: center;
@@ -276,6 +791,7 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
 .env-switcher:hover, .chat-scope:hover {
   color: var(--vscode-editor-foreground);
@@ -283,7 +799,127 @@ html, body {
   border-color: var(--vscode-input-border);
 }
 
-/* ── Responsive: hide chip labels on narrow widths ───────────────────────── */
+/* ── Responsive ───────────────────────────────────────────────────────────── */
 @container (max-width: 360px) {
   .composer-chip { max-width: 6rem; }
+}
+
+/* ── Activity-stream variants (junction.activityStream.*) ──────────────────
+   Timeline geometry mirrors Claude Code's webview (timelineMessage_*): 7px
+   status dot centered on a 1px rail at left 12px, rows padded left 30px,
+   rail trimmed to the dot on the first/last row, hidden for a lone row.
+   Colors stay themed (--vscode-charts-*) instead of Claude's hex values. */
+
+/* Timeline scopes: top-level rows (timeline layout) or accordion body rows
+   (hybrid layout). */
+.stream-layout-timeline #chat-messages .tool-calls > .tool-row,
+.stream-layout-hybrid #chat-messages .tool-group-body > .tool-row {
+  position: relative;
+}
+.stream-layout-timeline #chat-messages .tool-calls > .tool-row > .tool-row-summary,
+.stream-layout-hybrid #chat-messages .tool-group-body > .tool-row > .tool-row-summary {
+  padding-left: 30px;
+}
+.stream-layout-timeline #chat-messages .tool-calls > .tool-row > .tool-row-summary .tool-row-status,
+.stream-layout-hybrid #chat-messages .tool-group-body > .tool-row > .tool-row-summary .tool-row-status {
+  position: absolute;
+  left: 6px;
+  top: 8px;
+  width: 13px;
+  height: 13px;
+}
+.stream-layout-timeline #chat-messages .tool-calls > .tool-row .tool-row-status::before,
+.stream-layout-hybrid #chat-messages .tool-group-body > .tool-row .tool-row-status::before {
+  width: 7px;
+  height: 7px;
+}
+.stream-layout-timeline #chat-messages .tool-calls > .tool-row .tool-detail,
+.stream-layout-hybrid #chat-messages .tool-group-body > .tool-row .tool-detail {
+  margin-left: 30px;
+  border-left: none;
+  padding-left: 0;
+}
+
+/* The rail: 1px guide line through consecutive rows (Claude left:12px). */
+.stream-rail.stream-layout-timeline #chat-messages .tool-calls > .tool-row::after,
+.stream-rail.stream-layout-hybrid #chat-messages .tool-group-body > .tool-row::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: -6px;
+  bottom: -6px;
+  width: 1px;
+  background: var(--vscode-sideBarActivityBarTop-border, var(--vscode-panel-border, rgba(128,128,128,0.25)));
+}
+.stream-rail.stream-layout-timeline #chat-messages .tool-calls > .tool-row:first-child::after,
+.stream-rail.stream-layout-hybrid #chat-messages .tool-group-body > .tool-row:first-child::after {
+  top: 14px;
+}
+.stream-rail.stream-layout-timeline #chat-messages .tool-calls > .tool-row:last-child::after,
+.stream-rail.stream-layout-hybrid #chat-messages .tool-group-body > .tool-row:last-child::after {
+  bottom: auto;
+  height: 14px;
+}
+.stream-rail.stream-layout-timeline #chat-messages .tool-calls > .tool-row:only-child::after,
+.stream-rail.stream-layout-hybrid #chat-messages .tool-group-body > .tool-row:only-child::after {
+  display: none;
+}
+/* Dot must sit above the rail. */
+.stream-layout-timeline #chat-messages .tool-row-status,
+.stream-layout-hybrid #chat-messages .tool-group-body .tool-row-status {
+  z-index: 1;
+  background: var(--vscode-sideBar-background);
+  border-radius: 999px;
+}
+
+/* Hybrid: per-row rail replaces the accordion body's left border. */
+.stream-layout-hybrid #chat-messages .tool-group-body {
+  border-left: none;
+  margin-left: 6px;
+  padding-left: 0;
+}
+/* Rail off: drop the guide borders everywhere. */
+body:not(.stream-rail) #chat-messages .tool-group-body,
+body:not(.stream-rail) #chat-messages .tool-detail {
+  border-left: none;
+}
+
+/* Claude-flavored thinking summary in timeline mode. */
+.stream-layout-timeline #chat-messages .reasoning-disclosure > summary {
+  font-style: italic;
+}
+
+/* ── Status dots (junction.activityStream.dots) ───────────────────────────
+   status: colored dots, blink while running (Claude). minimal: neutral dot
+   + spinner (Codex, the pre-existing look). */
+.stream-dots-status #chat-messages .tool-row-status.done::before {
+  background: var(--vscode-charts-green, var(--vscode-gitDecoration-addedResourceForeground));
+  opacity: 0.95;
+}
+.stream-dots-status #chat-messages .tool-row-status.error::before {
+  background: var(--vscode-charts-red, var(--vscode-errorForeground));
+  opacity: 1;
+}
+.stream-dots-status #chat-messages .tool-row-status.running .codicon {
+  display: none;
+}
+.stream-dots-status #chat-messages .tool-row-status.running::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  animation: junction-dot-blink 1s linear infinite;
+}
+.stream-layout-timeline.stream-dots-status #chat-messages .tool-calls > .tool-row .tool-row-status.running::before,
+.stream-layout-hybrid.stream-dots-status #chat-messages .tool-group-body > .tool-row .tool-row-status.running::before {
+  width: 7px;
+  height: 7px;
+}
+@keyframes junction-dot-blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0.3; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stream-dots-status #chat-messages .tool-row-status.running::before { animation: none; }
 }
