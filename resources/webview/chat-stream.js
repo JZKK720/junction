@@ -1141,11 +1141,12 @@
     return messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < threshold;
   }
   function scrollToBottom() {
-    if (isNearBottom()) {
+    if (userScrollSticky) {
       messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
     }
   }
   function forceScrollToBottom() {
+    userScrollSticky = true;
     messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
   }
 
@@ -1288,6 +1289,10 @@
     messagesDiv.addEventListener('scroll', function () {
       var hasScroll = messagesDiv.scrollHeight > messagesDiv.clientHeight + 4;
       maxBtn.style.display = hasScroll ? '' : 'none';
+      
+      // Update sticky scroll state based on user scroll position
+      var atBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < 50;
+      userScrollSticky = atBottom;
     });
 
     // Modal
@@ -1367,6 +1372,7 @@
   var toolCalls = new Map();         // toolCallId → tool card element
   var toolContainers = new Map();    // runId → .tool-calls container
   var isRestoringHistory = false;
+  var userScrollSticky = true;
 
   // ── User rows + per-message actions ────────────────────────────────────────
   function addUserRow(text, messageId, hasCheckpoint) {
@@ -2733,6 +2739,8 @@
     var rows = Array.from(document.querySelectorAll('#chat-messages .chat-row'));
     if (rows.length === 0) return;
 
+    var startPlaybackSticky = userScrollSticky;
+
     // Stop active canvas animations
     rows.forEach(function (row) {
       var textEl = row.querySelector('.msg-text');
@@ -2754,7 +2762,9 @@
       if (index >= rows.length) return;
       var row = rows[index];
       row.style.display = '';
-      forceScrollToBottom();
+      if (startPlaybackSticky && userScrollSticky) {
+        messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+      }
 
       var textEl = row.querySelector('.msg-text');
       if (!textEl) {
@@ -2780,19 +2790,25 @@
       if (canvas) {
         textEl.innerHTML = '';
         textEl.appendChild(canvas);
-        forceScrollToBottom();
+        if (startPlaybackSticky && userScrollSticky) {
+          messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+        }
 
         setTimeout(function () {
           textEl.innerHTML = renderMarkdown(fullText);
           textEl.dataset.settled = '1';
-          forceScrollToBottom();
+          if (startPlaybackSticky && userScrollSticky) {
+            messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+          }
           index++;
           next();
         }, duration + 50);
       } else {
         textEl.innerHTML = renderMarkdown(fullText);
         textEl.dataset.settled = '1';
-        forceScrollToBottom();
+        if (startPlaybackSticky && userScrollSticky) {
+          messagesDiv.scrollTo({ top: messagesDiv.scrollHeight, behavior: 'smooth' });
+        }
         index++;
         next();
       }
