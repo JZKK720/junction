@@ -31,6 +31,17 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
 
     constructor(readonly context: vscode.ExtensionContext) {
         super();
+        const saved = this.context.workspaceState.get<Array<[string, { title: string; model?: string }]>>('junction.souveraine.knownConversations');
+        if (saved) {
+            this.knownConversations = new Map(saved);
+        }
+        this.activeConversationId = this.context.workspaceState.get<string | null>('junction.souveraine.activeConversationId', null);
+    }
+
+    private persistSessions(): void {
+        const data = Array.from(this.knownConversations.entries());
+        this.context.workspaceState.update('junction.souveraine.knownConversations', data);
+        this.context.workspaceState.update('junction.souveraine.activeConversationId', this.activeConversationId);
     }
 
     async connect(): Promise<boolean> {
@@ -104,6 +115,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
 
     setActiveSession(_folderUri: vscode.Uri, key: string): void {
         this.activeConversationId = key;
+        this.context.workspaceState.update('junction.souveraine.activeConversationId', key);
     }
 
     async createChat(): Promise<string> {
@@ -119,6 +131,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
             title: `Chat ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`,
             model: this.selection.modelId,
         });
+        this.persistSessions();
         return id;
     }
 
@@ -143,6 +156,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         const existing = this.knownConversations.get(key) ?? { title: label, model: this.selection.modelId };
         existing.title = label;
         this.knownConversations.set(key, existing);
+        this.persistSessions();
     }
 
     async getSessionHistory(): Promise<any> {
@@ -304,6 +318,12 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         const modelId = provider ? `${provider}/${model}` : model;
         const thinking = data.thinking !== undefined ? String(data.thinking) : this.selection.thinking;
         this.setSelection({ modelId, thinking });
+        if (this.activeConversationId) {
+            const known = this.knownConversations.get(this.activeConversationId) ?? { title: this.activeConversationId };
+            known.model = modelId;
+            this.knownConversations.set(this.activeConversationId, known);
+            this.persistSessions();
+        }
         return { display: String(data.label ?? model), modelId, thinking };
     }
 

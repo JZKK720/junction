@@ -41,6 +41,17 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
 
     constructor(readonly context: vscode.ExtensionContext) {
         super();
+        const saved = this.context.workspaceState.get<Array<[string, { title: string; model?: string }]>>('junction.hermes.knownSessions');
+        if (saved) {
+            this.knownSessions = new Map(saved);
+        }
+        this.activeSessionId = this.context.workspaceState.get<string | null>('junction.hermes.activeSessionId', null);
+    }
+
+    private persistSessions(): void {
+        const data = Array.from(this.knownSessions.entries());
+        this.context.workspaceState.update('junction.hermes.knownSessions', data);
+        this.context.workspaceState.update('junction.hermes.activeSessionId', this.activeSessionId);
     }
 
     async connect(): Promise<boolean> {
@@ -133,6 +144,7 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
 
     setActiveSession(_folderUri: vscode.Uri, key: string): void {
         this.activeSessionId = key;
+        this.context.workspaceState.update('junction.hermes.activeSessionId', key);
     }
 
     async createChat(): Promise<string> {
@@ -142,6 +154,7 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
         const key = res?.session_id || res?.session?.id || `hermes-${Date.now()}`;
         this.activeSessionId = key;
         this.knownSessions.set(key, { title });
+        this.persistSessions();
         return key;
     }
 
@@ -165,6 +178,7 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
         const existing = this.knownSessions.get(key) ?? { title: label };
         existing.title = label;
         this.knownSessions.set(key, existing);
+        this.persistSessions();
     }
 
     async getSessionHistory(): Promise<any> {
@@ -268,6 +282,7 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
             const known = this.knownSessions.get(this.activeSessionId) ?? { title: this.activeSessionId };
             known.model = modelId;
             this.knownSessions.set(this.activeSessionId, known);
+            this.persistSessions();
         }
         return { display: String(data.label ?? model), modelId, thinking };
     }
