@@ -6,6 +6,7 @@ export interface JsonRequestOptions {
     headers?: Record<string, string>;
     body?: unknown;
     timeoutMs?: number;
+    signal?: AbortSignal;
 }
 
 export interface SseEvent {
@@ -88,6 +89,11 @@ export function streamSse(
     };
 
     return new Promise<void>((resolve, reject) => {
+        if (opts.signal?.aborted) {
+            resolve();
+            return;
+        }
+
         const req = lib.request(parsed, { method: opts.method ?? 'POST', headers }, (res) => {
             if ((res.statusCode ?? 500) >= 400) {
                 let errText = '';
@@ -122,7 +128,21 @@ export function streamSse(
                 resolve();
             });
         });
-        req.on('error', reject);
+
+        if (opts.signal) {
+            opts.signal.addEventListener('abort', () => {
+                req.destroy();
+                resolve();
+            });
+        }
+
+        req.on('error', (err) => {
+            if (opts.signal?.aborted) {
+                resolve();
+            } else {
+                reject(err);
+            }
+        });
         req.setTimeout(opts.timeoutMs ?? 0, () => req.destroy(new Error(`SSE timed out: ${url}`)));
         if (body) req.write(body);
         req.end();

@@ -16,7 +16,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         sessions: true,
         models: true,
         agents: true,
-        steering: false,
+        steering: true,
         usage: false,
         tools: true,
     };
@@ -27,6 +27,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
     private selection: BridgeSelectionState = { modelId: 'openai/kimi-k2.6' };
     private knownConversations = new Map<string, { title: string; model?: string }>();
     private buffers = new Map<string, string>();
+    private activeAbortController: AbortController | null = null;
 
     constructor(readonly context: vscode.ExtensionContext) {
         super();
@@ -145,7 +146,52 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
     }
 
     async getSessionHistory(): Promise<any> {
-        return { messages: [] };
+        if (!this.activeConversationId) return { messages: [] };
+        try {
+            const res = await jsonRequest<any>(`${getSouveraineBaseUrl()}/v1/conversations/${this.activeConversationId}/messages`, {
+                method: 'GET',
+            });
+            const rawMessages = Array.isArray(res?.messages) ? res.messages : (Array.isArray(res) ? res : []);
+            const messages: any[] = [];
+            for (const msg of rawMessages) {
+                if (!msg) continue;
+                let role = msg.role;
+                if (!role && msg.message_type) {
+                    if (msg.message_type === 'user_message') role = 'user';
+                    else if (msg.message_type === 'assistant_message') role = 'assistant';
+                    else if (msg.message_type === 'reasoning_message') role = 'assistant';
+                }
+                if (role !== 'user' && role !== 'assistant') {
+                    continue;
+                }
+                
+                let content = '';
+                if (typeof msg.content === 'string') {
+                    content = msg.content;
+                } else if (Array.isArray(msg.content)) {
+                    const parts: string[] = [];
+                    for (const part of msg.content) {
+                        if (typeof part === 'string') parts.push(part);
+                        else if (part && typeof part === 'object') {
+                            if (part.text) parts.push(part.text);
+                            else if (part.content) parts.push(part.content);
+                        }
+                    }
+                    content = parts.join('');
+                } else if (msg.text) {
+                    content = msg.text;
+                }
+                
+                messages.push({
+                    role,
+                    content,
+                });
+            }
+            return { messages };
+        } catch (err) {
+            Logger.getInstance().warn('Failed to fetch Souveraine session history', err);
+            return { messages: [] };
+        }
     }
 
     async sendChatMessage(message: string, context?: BridgeContext): Promise<any> {
@@ -154,18 +200,40 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         const runId = this.activeConversationId!;
         const text = context?.workspace ? `[Workspace: ${context.workspace}]\n${message}` : message;
         this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId });
-        await streamSse(`${getSouveraineBaseUrl()}/v1/conversations/${encodeURIComponent(runId)}/messages`, {
-            method: 'POST',
-            body: {
-                stream: true,
-                messages: [{ role: 'user', content: text }],
-            },
-        }, (event) => this.mapSse(runId, event.event, event.data));
+        
+        if (this.activeAbortController) {
+            this.activeAbortController.abort();
+        }
+        this.activeAbortController = new AbortController();
+        const signal = this.activeAbortController.signal;
+
+        try {
+            await streamSse(`${getSouveraineBaseUrl()}/v1/conversations/${encodeURIComponent(runId)}/messages`, {
+                method: 'POST',
+                body: {
+                    stream: true,
+                    messages: [{ role: 'user', content: text }],
+                },
+                signal,
+            }, (event) => this.mapSse(runId, event.event, event.data));
+        } finally {
+            if (this.activeAbortController?.signal === signal) {
+                this.activeAbortController = null;
+            }
+        }
+        
         this.emit('stream', { type: 'agent_lifecycle', phase: 'completed', runId });
         return { conversation_id: runId };
     }
 
     async stopRun(): Promise<void> {
+        // SSE request cancellation: abort stream if active
+        // Comment: Souveraine has no server-side run-cancel endpoint; the server may finish the turn internally.
+        // We just stop listening by aborting the SSE request client-side.
+        if (this.activeAbortController) {
+            this.activeAbortController.abort();
+            this.activeAbortController = null;
+        }
         this.emit('stream', { type: 'agent_lifecycle', phase: 'cancelled', runId: this.activeConversationId || 'souveraine' });
     }
 
@@ -173,13 +241,23 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         return {};
     }
 
-    async injectMessage(_sessionKey: string, message: string): Promise<boolean> {
-        await this.sendChatMessage(message);
-        return true;
+    async injectMessage(sessionKey: string, message: string): Promise<boolean> {
+        // E's ruling contract: POST /v1/conversations/{id}/interject with { "text": message }
+        // Future server implementation will process this endpoint to steer the running conversation turn.
+        try {
+            await jsonRequest<any>(`${getSouveraineBaseUrl()}/v1/conversations/${sessionKey}/interject`, {
+                method: 'POST',
+                body: { text: message },
+            });
+            return true;
+        } catch (err) {
+            Logger.getInstance().warn('Souveraine steer/interject endpoint failed (expected until server updates)', err);
+            return false;
+        }
     }
 
     canSteer(): boolean {
-        return false;
+        return true;
     }
 
     canAdminInject(): boolean {
