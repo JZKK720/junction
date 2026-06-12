@@ -1508,9 +1508,9 @@
 
   /** Post-process HTML to turn file paths into clickable links. */
   function linkifyFilePaths(html) {
-    // Match paths like: src/ui/chatBase.ts, package.json, ./foo/bar.js, ~/sauce/foo.ts
+    // Match paths like: src/ui/chatBase.ts, package.json, ./foo/bar.js, ~/sauce/foo.ts with optional line/col coordinates
     // Must have a file extension and look like a path (contain / or start with ./ or ~/)
-    var pathRe = /(?<!["'=\w])(\.\.?\/[\w.\-\/]+|[~\/]\w[\w.\-\/]*\.\w{1,10}|(?:[\w]+\.)+[\w]{1,10})(?!["'<>\w])/g;
+    var pathRe = /(?<!["'=\w])(\.\.?\/[\w.\-\/]+|[~\/]\w[\w.\-\/]*\.\w{1,10}|(?:[\w]+\.)+[\w]{1,10})(?::\d+){0,2}(?!["'<>\w])/g;
     var seen = new Set();
     return html.replace(pathRe, function (match) {
       // Skip if it's inside an HTML tag or already a link
@@ -1518,7 +1518,7 @@
       seen.add(match);
       // Don't linkify things that are clearly not files (single words without dots, etc.)
       if (!match.includes('/') && !match.startsWith('.') && !match.startsWith('~')) return match;
-      if (!match.match(/\.[a-z]{1,10}$/i)) return match;
+      if (!match.match(/\.[a-z]{1,10}(?::\d+){0,2}$/i)) return match;
       return '<span class="file-link" data-file="' + escapeHtml(match) + '" title="Open ' + escapeHtml(match) + '">' + escapeHtml(match) + '</span>';
     });
   }
@@ -1533,25 +1533,33 @@
     var threshold = 80; // px from bottom
     return messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < threshold;
   }
-  function scrollToBottom() {
-    if (userScrollSticky) {
-      isProgrammaticScroll = true;
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  var scrollRequested = false;
+  var scrollForceRequested = false;
+  function requestScroll(force) {
+    if (force) {
+      scrollForceRequested = true;
     }
+    if (scrollRequested) return;
+    scrollRequested = true;
+    requestAnimationFrame(function () {
+      scrollRequested = false;
+      var force = scrollForceRequested;
+      scrollForceRequested = false;
+      if (!messagesDiv) return;
+      if (force) {
+        userScrollSticky = true;
+      }
+      if (userScrollSticky) {
+        isProgrammaticScroll = true;
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      }
+    });
+  }
+  function scrollToBottom() {
+    requestScroll(false);
   }
   function forceScrollToBottom() {
-    userScrollSticky = true;
-    isProgrammaticScroll = true;
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    // Deferred scroll to handle layout computation timing on view transition
-    setTimeout(function () {
-      isProgrammaticScroll = true;
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    }, 50);
-    setTimeout(function () {
-      isProgrammaticScroll = true;
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    }, 200);
+    requestScroll(true);
   }
 
   // ── Share / export chat ──────────────────────────────────────────────────
@@ -1680,6 +1688,12 @@
       var atBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < 50;
       userScrollSticky = atBottom;
     });
+    messagesDiv.addEventListener('transitionend', function () {
+      requestScroll(false);
+    });
+    messagesDiv.addEventListener('animationend', function () {
+      requestScroll(false);
+    });
   })();
 
   // ── State ───────────────────────────────────────────────────────────────
@@ -1692,8 +1706,10 @@
   var userScrollSticky = true;
   var isProgrammaticScroll = false;
 
+  var historyFragment = null;
+
   // ── User rows + per-message actions ────────────────────────────────────────
-  function addUserRow(text, messageId, hasCheckpoint) {
+  function addUserRow(text, messageId, hasCheckpoint, insertTarget) {
     if (isWorkspaceContext(text)) return null;
     var row = document.createElement('div');
     row.className = 'chat-row user';
@@ -1710,16 +1726,22 @@
 
     if (messageId) row.appendChild(buildCheckpointMarker(messageId, hasCheckpoint));
     row.appendChild(buildMsgActions(messageId));
-    if (workingRow && workingRow.parentNode === messagesDiv) {
+    if (historyFragment) {
+      historyFragment.appendChild(row);
+    } else if (insertTarget && insertTarget.parentNode === messagesDiv) {
+      messagesDiv.insertBefore(row, insertTarget);
+    } else if (workingRow && workingRow.parentNode === messagesDiv) {
       messagesDiv.insertBefore(row, workingRow);
     } else {
       messagesDiv.appendChild(row);
     }
-    forceScrollToBottom();
+    if (!isRestoringHistory) {
+      forceScrollToBottom();
+    }
     return row;
   }
 
-  function buildAssistantRow(runId, track) {
+  function buildAssistantRow(runId, track, insertTarget) {
     var row = document.createElement('div');
     row.className = 'chat-row assistant';
     if (track) {
@@ -1748,7 +1770,11 @@
     // Share/copy actions for assistant messages
     row.appendChild(buildMsgActions(null));
 
-    if (workingRow && workingRow.parentNode === messagesDiv) {
+    if (historyFragment) {
+      historyFragment.appendChild(row);
+    } else if (insertTarget && insertTarget.parentNode === messagesDiv) {
+      messagesDiv.insertBefore(row, insertTarget);
+    } else if (workingRow && workingRow.parentNode === messagesDiv) {
       messagesDiv.insertBefore(row, workingRow);
     } else {
       messagesDiv.appendChild(row);
@@ -1757,11 +1783,11 @@
     return row;
   }
 
-  function addAssistantHistoryRow(item, index) {
+  function addAssistantHistoryRow(item, index, insertTarget) {
     var runId = item.runId || 'history:' + index;
     var isActiveRun = item.runId && (messagesDiv.dataset.activeRun === item.runId || !item.thinkingComplete);
     try {
-      var row = buildAssistantRow(runId, isActiveRun);
+      var row = buildAssistantRow(runId, isActiveRun, insertTarget);
       var bubble = row.querySelector('.msg-text');
       bubble.dataset.rawText = item.content || '';
       bubble.innerHTML = renderMarkdown(item.content || '');
@@ -2943,6 +2969,7 @@
     if (activeRunId) {
       messagesDiv.dataset.activeRun = activeRunId;
     }
+    historyFragment = document.createDocumentFragment();
     (history || []).forEach(function (item, index) {
       if (!item) return;
       // Filter out gateway-injected workspace context messages
@@ -2955,6 +2982,12 @@
         addUserRow(item.content, item.messageId, item.hasCheckpoint);
       }
     });
+    if (workingRow && workingRow.parentNode === messagesDiv) {
+      messagesDiv.insertBefore(historyFragment, workingRow);
+    } else {
+      messagesDiv.appendChild(historyFragment);
+    }
+    historyFragment = null;
     isRestoringHistory = false;
     // Restart thinking bar for active run if persisted across reload
     var activeRunIdVal = messagesDiv.dataset.activeRun;
@@ -3108,15 +3141,23 @@
           isRestoringHistory = true; // suppress rise-up animation and forceScroll
           var scrollHeightBefore = messagesDiv.scrollHeight;
           var baseIndex = _jsonlOffset; // unique offset to avoid runId collisions across pages
+          var firstMessageRow = null;
+          for (var i = 0; i < messagesDiv.children.length; i++) {
+            var child = messagesDiv.children[i];
+            if (child.classList.contains('chat-row') && child !== workingRow) {
+              firstMessageRow = child;
+              break;
+            }
+          }
           (msg.turns || []).forEach(function (turn, index) {
             if (!turn) return;
             if (isWorkspaceContext(turn.content)) return;
             if (turn.role === 'assistant') {
               if (!turn.content && !turn.thinking && !(turn.tools && turn.tools.length)) return;
-              addAssistantHistoryRow(turn, baseIndex + index);
+              addAssistantHistoryRow(turn, baseIndex + index, firstMessageRow);
             } else {
               if (!turn.content) return;
-              addUserRow(turn.content, turn.messageId, turn.hasCheckpoint);
+              addUserRow(turn.content, turn.messageId, turn.hasCheckpoint, firstMessageRow);
             }
           });
           isRestoringHistory = false;

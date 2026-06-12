@@ -933,18 +933,52 @@ export abstract class ChatBase {
     protected async handleOpenFile(filePath: string): Promise<void> {
         if (!filePath) return;
         try {
+            let line: number | undefined;
+            let col: number | undefined;
+            
+            // Extract :line:col or :line from path
+            const parts = filePath.split(':');
+            let cleanPath = filePath;
+            if (parts.length > 1) {
+                const last = parts[parts.length - 1];
+                const prev = parts[parts.length - 2];
+                if (/^\d+$/.test(last)) {
+                    if (prev && /^\d+$/.test(prev)) {
+                        col = parseInt(last, 10);
+                        line = parseInt(prev, 10);
+                        cleanPath = parts.slice(0, -2).join(':');
+                    } else {
+                        line = parseInt(last, 10);
+                        cleanPath = parts.slice(0, -1).join(':');
+                    }
+                }
+            }
+
+            if (cleanPath.startsWith('~/')) {
+                const home = process.env.HOME || process.env.USERPROFILE || '';
+                cleanPath = cleanPath.replace(/^~\//, home + '/');
+            }
+
             // Resolve relative to workspace
             const workspace = vscode.workspace.workspaceFolders?.[0];
             let uri: vscode.Uri;
-            if (filePath.startsWith('/') || filePath.startsWith('file:')) {
-                uri = vscode.Uri.file(filePath);
+            if (cleanPath.startsWith('/') || cleanPath.startsWith('file:')) {
+                uri = vscode.Uri.file(cleanPath);
             } else if (workspace) {
-                uri = vscode.Uri.joinPath(workspace.uri, filePath);
+                uri = vscode.Uri.joinPath(workspace.uri, cleanPath);
             } else {
-                uri = vscode.Uri.file(filePath);
+                uri = vscode.Uri.file(cleanPath);
             }
             const doc = await vscode.workspace.openTextDocument(uri);
-            await vscode.window.showTextDocument(doc, { preview: false });
+            const editor = await vscode.window.showTextDocument(doc, { preview: false });
+            if (line !== undefined) {
+                const zeroIndexedLine = Math.max(0, line - 1);
+                const zeroIndexedCol = (col !== undefined) ? Math.max(0, col - 1) : 0;
+                const position = new vscode.Position(zeroIndexedLine, zeroIndexedCol);
+                const selection = new vscode.Selection(position, position);
+                editor.selection = selection;
+                editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+            }
         } catch (err: any) {
             vscode.window.showWarningMessage(`Could not open ${filePath}: ${err.message || err}`);
         }
