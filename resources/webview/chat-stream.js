@@ -2685,9 +2685,7 @@
     if (!block) {
       block = document.createElement('details');
       block.className = 'reasoning-disclosure thinking';
-      // History rows (opts.row) and finished thinking start collapsed;
-      // live streaming honours the reasoningDisplay mode.
-      block.open = (opts.row || opts.complete) ? false : (reasoningMode !== 'compact');
+      block.open = (opts.row || opts.complete) ? (reasoningMode === 'chronological') : (reasoningMode === 'compact');
       block.innerHTML = '<summary>' + summaryHtml('', { showBar: isActive }) + '</summary>' +
         '<div class="reasoning-content"></div>';
       slot.appendChild(block);
@@ -2788,8 +2786,7 @@
     var bar = block.querySelector('.thinking-bar');
     if (bar) stopThinkingBar(bar);
     block.querySelector('summary').innerHTML = summaryHtml(label);
-    // expanded mode auto-collapses; compact stays collapsed but expandable.
-    block.open = false;
+    block.open = (reasoningMode === 'chronological');
     // Clear persisted active run
     if (messagesDiv.dataset.activeRun === runId) {
       delete messagesDiv.dataset.activeRun;
@@ -2959,7 +2956,7 @@
           scheduleBarTick(bar);
         }
         block.classList.add('thinking');
-        block.open = (reasoningMode !== 'compact');
+        block.open = (reasoningMode === 'compact');
       }
     }
     forceScrollToBottom();
