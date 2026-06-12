@@ -25,7 +25,7 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
         sessions: true,
         models: true,
         agents: false,
-        steering: false,
+        steering: true,
         usage: false,
         tools: true,
     };
@@ -191,12 +191,17 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
 
     async injectMessage(_sessionKey: string, message: string): Promise<boolean> {
         if (!this.activeSessionId) return false;
-        await this.request('prompt.submit', { session_id: this.activeSessionId, text: message }, 120000);
-        return true;
+        try {
+            await this.request('prompt.submit', { session_id: this.activeSessionId, text: `/steer ${message}` }, 120000);
+            return true;
+        } catch (err) {
+            Logger.getInstance().warn('Hermes steer failed', err);
+            return false;
+        }
     }
 
     canSteer(): boolean {
-        return false;
+        return true;
     }
 
     canAdminInject(): boolean {
