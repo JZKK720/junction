@@ -291,65 +291,54 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         const agents = this.gateway.capabilities.canListAgents()
             ? await listAgents(this.gateway).catch(() => [])
             : [];
-        const items: ChoiceMenuItem[] = gateways.map((g) => {
-            const agentChildren: ChoiceMenuItem[] = agents
-                .map((agent): ChoiceMenuItem | null => {
-                    const agentId = agent.agentId || agent.id || '';
-                    if (!agentId || g.url !== currentUrl) return null;
-                    return {
-                        id: `openclaw:agent:${agentId}`,
-                        label: agent.name || agent.displayName || agentId,
-                        description: agent.displayName || agentId,
-                        icon: 'hubot',
-                        checked: agentId === this.selection.agentId,
-                        agentId,
-                        url: g.url,
-                    } satisfies ChoiceMenuItem;
-                })
-                .filter((item): item is ChoiceMenuItem => item !== null);
-            const children: ChoiceMenuItem[] = [
-                {
-                    id: `openclaw:gateway:${g.url}`,
-                    label: g.url === currentUrl ? 'Use current runtime' : 'Connect to runtime',
+
+        // Flat list: each agent × runtime combo is one item.
+        const items: ChoiceMenuItem[] = [];
+        for (const g of gateways) {
+            const runtime = this.runtimeNameForUrl(g.url);
+            const port = this.portForUrl(g.url);
+            const runtimeAgents = g.url === currentUrl ? agents : [];
+            if (runtimeAgents.length === 0) {
+                // Runtime with no agent info — show as runtime:port
+                items.push({
+                    id: `openclaw:runtime:${g.url}`,
+                    label: `${runtime}:${port}`,
                     description: g.url,
-                    icon: g.url === currentUrl ? 'check' : 'plug',
+                    section: 'OpenClaw runtimes',
+                    icon: 'server-environment',
                     checked: g.url === currentUrl,
                     url: g.url,
                     configPath: g.configPath,
-                },
-                ...agentChildren,
-            ];
-            return {
-                id: `openclaw:runtime:${g.url}`,
-                label: g.displayName,
-                description: g.url,
-                section: 'OpenClaw runtimes',
-                icon: 'server-environment',
-                checked: g.url === currentUrl,
-                url: g.url,
-                configPath: g.configPath,
-                children,
-            };
-        });
+                });
+            } else {
+                for (const agent of runtimeAgents) {
+                    const agentId = agent.agentId || agent.id || '';
+                    if (!agentId) continue;
+                    items.push({
+                        id: `openclaw:agent:${agentId}`,
+                        label: `${agentId}@${runtime}:${port}`,
+                        description: agent.displayName || agentId,
+                        section: 'OpenClaw runtimes',
+                        icon: 'hubot',
+                        checked: agentId === this.selection.agentId && g.url === currentUrl,
+                        agentId,
+                        url: g.url,
+                    });
+                }
+            }
+        }
         if (!items.some((item) => item.url === currentUrl)) {
+            const runtime = this.runtimeNameForUrl(currentUrl);
+            const port = this.portForUrl(currentUrl);
             items.unshift({
                 id: `openclaw:runtime:${currentUrl}`,
-                label: this.runtimeNameForUrl(currentUrl),
+                label: `${runtime}:${port}`,
                 description: currentUrl,
                 section: 'OpenClaw runtimes',
                 icon: 'server-environment',
                 checked: true,
                 url: currentUrl,
                 configPath: getOpenClawConfigPath(),
-                children: [{
-                    id: `openclaw:gateway:${currentUrl}`,
-                    label: 'Use current runtime',
-                    description: currentUrl,
-                    icon: 'check',
-                    checked: true,
-                    url: currentUrl,
-                    configPath: getOpenClawConfigPath(),
-                }],
             });
         }
         items.push({

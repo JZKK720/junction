@@ -231,21 +231,15 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
 
     async listEnvironmentChoices(): Promise<ChoiceMenuItem[]> {
         const available = await jsonRequest(`${getSouveraineBaseUrl()}/health`, { timeoutMs: 750 }).then(() => true).catch(() => false);
+        const port = portFromUrl(getSouveraineBaseUrl());
         return [
             {
-                id: 'souveraine:runtime:managed',
-                label: 'souveraine',
-                description: getSouveraineBaseUrl(),
+                id: 'souveraine:managed',
+                label: `souvieling@souveraine:${port}`,
+                description: available ? 'Detected Souveraine runtime' : 'Configured Souveraine runtime',
                 section: 'Souveraine',
-                icon: available ? 'server-environment' : 'debug-disconnect',
+                icon: 'hubot',
                 checked: true,
-                children: [{
-                    id: 'souveraine:managed',
-                    label: 'souvieling',
-                    description: available ? 'Detected Souveraine runtime' : 'Configured Souveraine runtime',
-                    icon: 'hubot',
-                    checked: true,
-                }],
             },
             {
                 id: 'souveraine:settings',

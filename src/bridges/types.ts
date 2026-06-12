@@ -12,7 +12,7 @@ export type ChatScope = 'folder' | 'all';
  * per-request `thinking` param; the gateway coerces it to the model's nearest
  * supported value.
  */
-export const OPENCLAW_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'adaptive'];
+export const OPENCLAW_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high'];
 export const VSCODE_WORKSPACE_CONTEXT_PREFIX = 'Chat: VS Code.';
 export const WORKSPACE_LINE_PREFIX_RE = /^\[Workspace: [^\]\n]*\]\n/;
 
@@ -119,6 +119,7 @@ export interface ChatBridge extends EventEmitter {
     listSessions(scope: ChatScope, includeArchived: boolean, archivedKeys: ReadonlySet<string>): Promise<BridgeSession[]>;
     renameSession(key: string, label: string): Promise<void>;
     getSessionHistory(limit?: number, folderUri?: vscode.Uri): Promise<any>;
+    getSessionHistoryFromJsonl?(sessionKey: string, offset?: number, maxBytes?: number): Promise<any>;
     sendChatMessage(message: string, context?: BridgeContext): Promise<any>;
     stopRun(sessionKey: string, runId?: string): Promise<void>;
     getUsage(sessionKey: string): Promise<any>;

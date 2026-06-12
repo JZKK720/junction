@@ -269,21 +269,15 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
 
     async listEnvironmentChoices(): Promise<ChoiceMenuItem[]> {
         const available = await textRequest(getHermesBaseUrl(), { timeoutMs: 750 }).then(() => true).catch(() => false);
+        const port = portFromUrl(getHermesBaseUrl());
         return [
             {
-                id: 'hermes:runtime:managed',
-                label: 'hermes',
-                description: getHermesBaseUrl(),
+                id: 'hermes:managed',
+                label: `hermling@hermes:${port}`,
+                description: available ? 'Detected dashboard runtime' : 'Configured dashboard runtime',
                 section: 'Hermes',
-                icon: available ? 'server-environment' : 'debug-disconnect',
+                icon: 'hubot',
                 checked: true,
-                children: [{
-                    id: 'hermes:managed',
-                    label: 'hermling',
-                    description: available ? 'Detected dashboard runtime' : 'Configured dashboard runtime',
-                    icon: 'hubot',
-                    checked: true,
-                }],
             },
             {
                 id: 'hermes:settings',
