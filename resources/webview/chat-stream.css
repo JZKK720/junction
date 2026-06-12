@@ -247,6 +247,9 @@ textarea[data-has-canvas]::selection {
   opacity: 0;
   transition: opacity 0.12s;
 }
+.chat-row.running .msg-actions {
+  display: none !important;
+}
 
 .checkpoint-marker {
   display: inline-block;

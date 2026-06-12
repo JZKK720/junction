@@ -1722,6 +1722,9 @@
   function buildAssistantRow(runId, track) {
     var row = document.createElement('div');
     row.className = 'chat-row assistant';
+    if (track) {
+      row.classList.add('running');
+    }
     if (!isRestoringHistory) {
       row.classList.add('rise-up-anim');
     }
@@ -3157,6 +3160,10 @@
         break;
       case 'assistant_stream_end':
         activeRuns.delete(msg.runId);
+        var activeRow = document.querySelector('[data-run-id="' + msg.runId + '"]');
+        if (activeRow) {
+          activeRow.classList.remove('running');
+        }
         // Turn finished — fold this run's actions into Codex-style accordions.
         groupToolRows(toolContainers.get(msg.runId));
         break;
