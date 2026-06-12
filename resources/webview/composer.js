@@ -563,7 +563,7 @@
         if (key === 'textFade') defaultVal = 0.5;
         
         slider.value = window.animConfig[actualKey] !== undefined ? window.animConfig[actualKey] : defaultVal;
-        slider.style.cssText = 'width:60px;height:12px;';
+        slider.style.cssText = 'width:60px;height:12px;accent-color:var(--vscode-button-background);';
         
         var val = document.createElement('span');
         val.textContent = slider.value;
@@ -591,7 +591,6 @@
       ctrlRow.appendChild(makeSlider('Dens', 'density', 0.25, 2, 0.25));
       ctrlRow.appendChild(makeSlider('Int', 'intensity', 0.25, 2, 0.25));
       ctrlRow.appendChild(makeSlider('Len', 'length', 0.5, 5, 0.1));
-      ctrlRow.appendChild(makeSlider('BG Opacity', 'bgAlpha', 0, 1.0, 0.05));
       ctrlRow.appendChild(makeSlider('Diff Area', 'diffusionHeight', 1.0, 6.0, 0.2));
       ctrlRow.appendChild(makeSlider('Noise Res', 'noiseRes', 1, 12, 1));
       ctrlRow.appendChild(makeSlider('Text Fade', 'textFade', 0, 1.0, 0.1));
@@ -675,41 +674,92 @@
       togglesRow.appendChild(colorWrap);
 
       // BG Color Selector
+      var bgKey = isLoader ? 'loaderBgColor' : 'bgColor';
+      var bgAlphaKey = isLoader ? 'loaderBgAlpha' : 'bgAlpha';
+
+      var bgWrap = document.createElement('div');
+      bgWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;';
       var bgLabel = document.createElement('span');
       bgLabel.textContent = 'BG:';
-      bgLabel.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);margin-left:8px;';
-      togglesRow.appendChild(bgLabel);
+      bgLabel.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
+      bgWrap.appendChild(bgLabel);
 
-      var bgBtn = document.createElement('button');
-      bgBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:var(--vscode-input-background);color:var(--vscode-editor-foreground);';
-      var bgOptions = [
-        { val: 'theme', text: 'Theme BG' },
-        { val: '#000000', text: 'Black' },
-        { val: '#ffffff', text: 'White' },
-        { val: '#1e1e1e', text: 'Dark Grey' },
-        { val: '#101014', text: 'Midnight' }
-      ];
-      var bgKey = isLoader ? 'loaderBgColor' : 'bgColor';
-      function updateBgButton() {
-        var currentVal = window.animConfig[bgKey] || 'theme';
-        var currentOpt = bgOptions.find(function (o) { return o.val === currentVal; }) || bgOptions[0];
-        bgBtn.textContent = currentOpt.text;
+      var bgSelect = document.createElement('select');
+      bgSelect.style.cssText = 'font-size:10px;background:var(--vscode-input-background);color:var(--vscode-editor-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;padding:1px 2px;cursor:pointer;';
+      var optTheme = document.createElement('option');
+      optTheme.value = 'theme';
+      optTheme.textContent = 'Theme';
+      var optCustom = document.createElement('option');
+      optCustom.value = 'custom';
+      optCustom.textContent = 'Custom';
+      bgSelect.appendChild(optTheme);
+      bgSelect.appendChild(optCustom);
+      bgWrap.appendChild(bgSelect);
+
+      var bgColorInput = document.createElement('input');
+      bgColorInput.type = 'color';
+      bgColorInput.style.cssText = 'width:24px;height:18px;border:1px solid var(--vscode-input-border);border-radius:3px;padding:0;cursor:pointer;background:transparent;display:none;';
+      
+      var bgAlphaInput = document.createElement('input');
+      bgAlphaInput.type = 'range';
+      bgAlphaInput.min = '0'; bgAlphaInput.max = '1'; bgAlphaInput.step = '0.05';
+      bgAlphaInput.style.cssText = 'width:40px;height:12px;accent-color:var(--vscode-button-background);';
+      
+      var bgAlphaVal = document.createElement('span');
+      bgAlphaVal.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:22px;text-align:right;';
+
+      function syncBgFromConfig() {
+        var currentBg = window.animConfig[bgKey] || 'theme';
+        var currentBgAlpha = window.animConfig[bgAlphaKey] !== undefined ? window.animConfig[bgAlphaKey] : (window.animConfig.bgAlpha !== undefined ? window.animConfig.bgAlpha : 0.05);
+        if (currentBg === 'theme') {
+          bgSelect.value = 'theme';
+          bgColorInput.style.display = 'none';
+          bgColorInput.value = '#000000';
+        } else {
+          bgSelect.value = 'custom';
+          bgColorInput.style.display = 'inline-block';
+          bgColorInput.value = currentBg;
+        }
+        bgAlphaInput.value = currentBgAlpha;
+        bgAlphaVal.textContent = Math.round(currentBgAlpha * 100) + '%';
       }
-      bgBtn.addEventListener('click', function () {
-        var currentVal = window.animConfig[bgKey] || 'theme';
-        var idx = bgOptions.findIndex(function (o) { return o.val === currentVal; });
-        var nextIdx = (idx + 1) % bgOptions.length;
-        window.animConfig[bgKey] = bgOptions[nextIdx].val;
-        updateBgButton();
+
+      function updateBgConfig() {
+        if (bgSelect.value === 'theme') {
+          window.animConfig[bgKey] = 'theme';
+          bgColorInput.style.display = 'none';
+        } else {
+          window.animConfig[bgKey] = bgColorInput.value;
+          bgColorInput.style.display = 'inline-block';
+        }
+        var alphaValNum = parseFloat(bgAlphaInput.value);
+        window.animConfig[bgAlphaKey] = alphaValNum;
+        if (!isLoader) window.animConfig.bgAlpha = alphaValNum;
+        else window.animConfig.loaderBgAlpha = alphaValNum;
+
         refreshPreview();
         if (typeof window.updateAllCanvasBackgrounds === 'function') {
           window.updateAllCanvasBackgrounds();
         }
         if (typeof window.refreshWorking === 'function') window.refreshWorking();
         if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
+      }
+
+      bgSelect.addEventListener('change', function () {
+        updateBgConfig();
+        syncBgFromConfig();
       });
-      updateBgButton();
-      togglesRow.appendChild(bgBtn);
+      bgColorInput.addEventListener('input', updateBgConfig);
+      bgAlphaInput.addEventListener('input', function () {
+        bgAlphaVal.textContent = Math.round(parseFloat(this.value) * 100) + '%';
+        updateBgConfig();
+      });
+
+      syncBgFromConfig();
+      bgWrap.appendChild(bgColorInput);
+      bgWrap.appendChild(bgAlphaInput);
+      bgWrap.appendChild(bgAlphaVal);
+      togglesRow.appendChild(bgWrap);
 
       // Width button
       var widthBtn = document.createElement('button');
