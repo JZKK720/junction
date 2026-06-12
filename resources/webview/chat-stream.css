@@ -79,6 +79,21 @@ html, body {
   font-size: inherit;
   white-space: pre;
 }
+.chat-row .msg-text .code-editor pre {
+  background: transparent !important;
+  border: none !important;
+  padding: 10px 12px !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  overflow-x: auto;
+}
+.chat-row .msg-text .code-editor pre code {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+}
 
 /* Syntax highlighting (Discord-like) */
 .hl-cm { color: var(--vscode-codeLens-foreground, #6a9955); font-style: italic; }

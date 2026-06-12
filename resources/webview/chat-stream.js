@@ -29,7 +29,15 @@
       linkify: true,
       breaks: true,
       highlight: function (str, lang) {
-        return '<pre><code class="language-' + escapeHtml(lang || '') + '">' + simpleHighlight(str, lang) + '</code></pre>';
+        var cleanLang = (lang || 'CODE').toUpperCase();
+        return '<div class="code-editor">' +
+          '<div class="code-editor-header">' +
+            '<span class="code-editor-lang">' + escapeHtml(cleanLang) + '</span>' +
+          '</div>' +
+          '<div class="code-editor-body">' +
+            '<pre class="code-editor-code"><code class="language-' + escapeHtml(lang || '') + '">' + simpleHighlight(str, lang) + '</code></pre>' +
+          '</div>' +
+        '</div>';
       }
     });
   }
