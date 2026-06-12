@@ -921,6 +921,7 @@
     suggestions.forEach(function (cmd) {
       var item = document.createElement('div');
       item.className = 'slash-item';
+      item.title = cmd.description || ('/' + cmd.name);
       item.innerHTML = '<span class="slash-name">/' + escapeHtml(cmd.name) + '</span>' +
         (cmd.description ? '<span class="slash-desc">' + escapeHtml(cmd.description) + '</span>' : '');
       item.addEventListener('click', function () {

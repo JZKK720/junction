@@ -112,6 +112,7 @@ function createPillElement(filePath, displayText, isLive) {
   const label = document.createElement('span');
   label.className = 'file-pill-label';
   label.textContent = displayText;
+  label.title = filePath;
 
   // Remove button
   const btn = document.createElement('button');

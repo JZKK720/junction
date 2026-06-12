@@ -23,7 +23,9 @@ async function activate(context: vscode.ExtensionContext) {
     const bridgeRegistry = chatViewProvider.registry;
 
     context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatViewProvider)
+        vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatViewProvider, {
+            webviewOptions: { retainContextWhenHidden: true }
+        })
     );
 
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -55,12 +57,25 @@ async function activate(context: vscode.ExtensionContext) {
         bridge.on('connected', onConnected);
         bridge.on('disconnected', onDisconnected);
         bridge.on('pairingRequired', onPairingRequired);
+        context.subscriptions.push({
+            dispose: () => {
+                bridge.off('connected', onConnected);
+                bridge.off('disconnected', onDisconnected);
+                bridge.off('pairingRequired', onPairingRequired);
+            }
+        });
     }
 
-    bridgeRegistry.on('changed', (bridge) => {
+    const onRegistryChanged = (bridge: any) => {
         statusBar.text = `$(sync~spin) ${bridge.label}`;
         statusBar.tooltip = `Junction: connecting to ${bridge.label}`;
         statusBar.backgroundColor = undefined;
+    };
+    bridgeRegistry.on('changed', onRegistryChanged);
+    context.subscriptions.push({
+        dispose: () => {
+            bridgeRegistry.off('changed', onRegistryChanged);
+        }
     });
 
     context.subscriptions.push(
