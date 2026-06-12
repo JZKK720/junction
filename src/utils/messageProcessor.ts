@@ -79,6 +79,8 @@ export class MessageProcessor {
                 toolName: payload.toolName || payload.name
             });
             // Transform into the same format as agent tool events
+            const toolName = payload.toolName || payload.name;
+            if (!toolName) return; // Skip malformed events without a tool name
             connection.emit('processed_event', {
                 type: 'tool_event',
                 runId: payload.runId || 'session-tool',
@@ -86,7 +88,7 @@ export class MessageProcessor {
                 seq: payload.seq || 0,
                 phase: payload.phase || 'start',
                 toolCallId: payload.toolCallId,
-                toolName: payload.toolName || payload.name || 'unknown',
+                toolName: toolName,
                 args: payload.args || {},
                 result: payload.result || '',
                 isError: payload.isError || false,
@@ -353,7 +355,7 @@ export class MessageProcessor {
             if (stream === 'tool') {
                 // Tool events can have different phases: start, update, result
                 const toolCallId = data.toolCallId;
-                const toolName = data.name;
+                const toolName = data.toolName || data.name;
                 const args = data.args || {}; // Only available in 'start' phase
                 const result = data.result || ''; // Only available in 'result' phase
                 const isError = data.isError || false; // Only in 'result' phase
