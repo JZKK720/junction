@@ -182,6 +182,27 @@
   }
   window.saveAnimSettings = saveAnimSettings;
 
+  var wackyPositive = '👍';
+  var wackyNegative = '👎';
+  (function () {
+    var positives = ['👍', '😊', 'good', '❤️', '⬆️'];
+    var negatives = ['👎', '😠', 'bad', '💔', '⬇️'];
+    wackyPositive = positives[Math.floor(Math.random() * positives.length)];
+    wackyNegative = negatives[Math.floor(Math.random() * negatives.length)];
+  })();
+
+  function getReactionPair() {
+    var mode = (window.animConfig && window.animConfig.reactionPair) || 'thumbs';
+    switch (mode) {
+      case 'faces': return { up: '😊', down: '😠' };
+      case 'words': return { up: 'good', down: 'bad' };
+      case 'hearts': return { up: '❤️', down: '💔' };
+      case 'arrows': return { up: '⬆️', down: '⬇️' };
+      case 'wacky': return { up: wackyPositive, down: wackyNegative };
+      default: return { up: '👍', down: '👎' };
+    }
+  }
+
   if (!window._junctionSplashColor) {
     window._junctionSplashColor = 'rgba(128, 0, 128, 1)';
   }
@@ -1782,9 +1803,6 @@
     bubble.className = 'msg-text';
     row.appendChild(bubble);
 
-    // Share/copy actions for assistant messages
-    row.appendChild(buildMsgActions(null));
-
     if (historyFragment) {
       historyFragment.appendChild(row);
     } else if (insertTarget && insertTarget.parentNode === messagesDiv) {
@@ -1803,6 +1821,12 @@
     var isActiveRun = item.runId && (messagesDiv.dataset.activeRun === item.runId || !item.thinkingComplete);
     try {
       var row = buildAssistantRow(runId, isActiveRun, insertTarget);
+      if (item.messageId) {
+        row.setAttribute('data-message-id', item.messageId);
+      }
+      if (item.reaction) {
+        row.setAttribute('data-reaction', item.reaction);
+      }
       var bubble = row.querySelector('.msg-text');
       bubble.dataset.rawText = item.content || '';
       bubble.innerHTML = renderMarkdown(item.content || '');
@@ -1816,6 +1840,7 @@
       if (item.tools && item.tools.length) {
         renderToolHistory(row, item.tools);
       }
+      row.appendChild(buildMsgActions(item.messageId || runId, true));
       return row;
     } catch (e) {
       console.error('addAssistantHistoryRow failed:', e);
@@ -1832,7 +1857,7 @@
     return marker;
   }
 
-  function buildMsgActions(messageId) {
+  function buildMsgActions(messageId, isAssistant) {
     var bar = document.createElement('div');
     bar.className = 'msg-actions';
     var actions = [
@@ -1872,6 +1897,54 @@
       });
       bar.appendChild(b);
     });
+
+    if (isAssistant && messageId) {
+      var row = document.querySelector('[data-message-id="' + messageId + '"]') || 
+                document.querySelector('[data-run-id="' + messageId + '"]');
+      var currentReaction = row ? row.getAttribute('data-reaction') : null;
+
+      var pair = getReactionPair();
+      var reactions = [
+        { type: 'up', glyph: pair.up, label: 'Good response' },
+        { type: 'down', glyph: pair.down, label: 'Bad response' }
+      ];
+
+      reactions.forEach(function (r) {
+        var b = document.createElement('button');
+        b.className = 'msg-action';
+        if (r.glyph.length > 2) {
+          b.classList.add('text-reaction');
+        }
+        b.textContent = r.glyph;
+        b.title = r.label;
+        if (currentReaction === r.type) {
+          b.classList.add('active');
+        }
+        b.addEventListener('click', function () {
+          var parent = bar.parentElement;
+          var old = parent ? parent.getAttribute('data-reaction') : null;
+          var newVal = (old === r.type) ? null : r.type;
+          if (parent) {
+            if (newVal) {
+              parent.setAttribute('data-reaction', newVal);
+            } else {
+              parent.removeAttribute('data-reaction');
+            }
+          }
+          bar.querySelectorAll('.msg-action').forEach(function (btn) {
+            if (btn.title === 'Good response' || btn.title === 'Bad response') {
+              btn.classList.remove('active');
+            }
+          });
+          if (newVal === r.type) {
+            b.classList.add('active');
+          }
+          vscode.postMessage({ type: 'setReaction', messageId: messageId, value: newVal });
+        });
+        bar.appendChild(b);
+      });
+    }
+
     return bar;
   }
 
@@ -3219,6 +3292,12 @@
         var activeRow = document.querySelector('[data-run-id="' + msg.runId + '"]');
         if (activeRow) {
           activeRow.classList.remove('running');
+          if (msg.messageId) {
+            activeRow.setAttribute('data-message-id', msg.messageId);
+          }
+          var oldActions = activeRow.querySelector('.msg-actions');
+          if (oldActions) oldActions.remove();
+          activeRow.appendChild(buildMsgActions(msg.messageId || msg.runId, true));
         }
         // Turn finished — fold this run's actions into Codex-style accordions.
         groupToolRows(toolContainers.get(msg.runId));

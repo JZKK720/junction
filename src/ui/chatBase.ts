@@ -30,6 +30,7 @@ interface TranscriptTurn {
     thinkingComplete?: boolean;
     thinkingDurationMs?: number;
     tools?: TranscriptTool[];
+    reaction?: 'up' | 'down' | null;
 }
 
 interface TranscriptTool {
@@ -301,6 +302,7 @@ export abstract class ChatBase {
                     case 'rewindCode': await this.handleRewindCode(data.messageId, !!data.fork); break;
                     case 'openFile': await this.handleOpenFile(data.filePath); break;
                     case 'copyToClipboard': await vscode.env.clipboard.writeText(data.text || ''); break;
+                    case 'setReaction': await this.handleSetReaction(data.messageId, data.value); break;
                 }
             } catch (error: any) {
                 const message = error?.message || String(error);
@@ -407,7 +409,7 @@ export abstract class ChatBase {
         return '';
     }
 
-    protected historyMessages(): Array<{ role: string; content: string; messageId?: string; hasCheckpoint?: boolean }> {
+    protected historyMessages(): Array<{ role: string; content: string; messageId?: string; hasCheckpoint?: boolean; reaction?: 'up' | 'down' | null }> {
         return this.transcript
             .map((turn) => {
                 const content = this.visibleTurnContent(turn.role, turn.content);
@@ -423,6 +425,7 @@ export abstract class ChatBase {
                     thinkingComplete: turn.thinkingComplete,
                     thinkingDurationMs: turn.thinkingDurationMs,
                     tools: turn.tools,
+                    reaction: turn.reaction,
                 };
             })
             .filter((item): item is any => item !== null);
@@ -495,10 +498,10 @@ export abstract class ChatBase {
         if (existing) return existing;
 
         const id = `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-        const turn: TranscriptTurn = { id, role: 'assistant', content: '', runId };
+        const turn: TranscriptTurn = { id, role: 'assistant', content: '', runId, messageId: id };
         this.transcript.push(turn);
         this.runTurnIds.set(runId, id);
-        this.postToWebview({ type: 'assistant_stream_start', runId });
+        this.postToWebview({ type: 'assistant_stream_start', runId, messageId: id });
         this.persistCurrentTranscript();
         return turn;
     }
@@ -981,6 +984,16 @@ export abstract class ChatBase {
             }
         } catch (err: any) {
             vscode.window.showWarningMessage(`Could not open ${filePath}: ${err.message || err}`);
+        }
+    }
+
+    /** Set a reaction on a turn and persist it. */
+    protected async handleSetReaction(messageId: string, value: 'up' | 'down' | null): Promise<void> {
+        if (!messageId) return;
+        const turn = this.transcript.find((item) => item.messageId === messageId || item.id === messageId);
+        if (turn) {
+            turn.reaction = value;
+            this.persistCurrentTranscript();
         }
     }
 
@@ -1510,7 +1523,13 @@ export abstract class ChatBase {
             const lastText = this.activeRuns.get(runId) || '';
             const nextText = this.stripReplyMarker(event.content || lastText);
             this.updateAssistantTurn(runId, nextText);
-            if (event.state === 'final') { this.postToWebview({ type: 'assistant_stream_end', runId }); this.activeRuns.delete(runId); }
+            if (event.state === 'final') {
+                const turnId = this.runTurnIds.get(runId);
+                const turn = turnId ? this.transcript.find(t => t.id === turnId) : undefined;
+                const messageId = turn?.messageId || turnId;
+                this.postToWebview({ type: 'assistant_stream_end', runId, messageId });
+                this.activeRuns.delete(runId);
+            }
             return;
         }
 
@@ -1552,7 +1571,10 @@ export abstract class ChatBase {
      * call from the terminal-phase branch or the stale-run guard.
      */
     protected finalizeRun(runId: string, usage?: { inputTokens?: number; outputTokens?: number }): void {
-        this.postToWebview({ type: 'assistant_stream_end', runId });
+        const turnId = this.runTurnIds.get(runId);
+        const turn = turnId ? this.transcript.find(t => t.id === turnId) : undefined;
+        const messageId = turn?.messageId || turnId;
+        this.postToWebview({ type: 'assistant_stream_end', runId, messageId });
         this.activeRuns.delete(runId);
         // Clear per-session tracking for this runId
         for (const [session, rid] of this.activeRunIdsBySession) {

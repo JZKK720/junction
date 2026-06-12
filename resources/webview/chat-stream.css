@@ -279,6 +279,16 @@ textarea[data-has-canvas]::selection {
   color: var(--vscode-editor-foreground);
   background: var(--vscode-list-hoverBackground);
 }
+.msg-action.active {
+  color: var(--vscode-button-background);
+  background: var(--vscode-list-hoverBackground);
+}
+.msg-action.text-reaction {
+  font-family: var(--vscode-font-family);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 4px;
+}
 
 /* ── Reasoning slot ──────────────────────────────────────────────────────── */
 .reasoning-slot:empty {

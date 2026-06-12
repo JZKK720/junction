@@ -762,6 +762,57 @@
       updateMagicButton();
       togglesRow.appendChild(magicBtn);
 
+      if (!isLoader) {
+        var reactionWrap = document.createElement('div');
+        reactionWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;';
+        
+        var reactionLbl = document.createElement('span');
+        reactionLbl.textContent = 'Reactions:';
+        reactionLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
+        
+        var reactionSelect = document.createElement('select');
+        reactionSelect.style.cssText = 'font-size:9px;background:var(--vscode-input-background);color:var(--vscode-editor-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;padding:1px 2px;cursor:pointer;';
+        
+        var optionsList = [
+          { val: 'thumbs', text: '👍/👎' },
+          { val: 'faces', text: '😊/😠' },
+          { val: 'words', text: 'good/bad' },
+          { val: 'hearts', text: '❤️/💔' },
+          { val: 'arrows', text: '⬆️/⬇️' },
+          { val: 'wacky', text: 'Wacky' }
+        ];
+        
+        optionsList.forEach(function (opt) {
+          var o = document.createElement('option');
+          o.value = opt.val;
+          o.textContent = opt.text;
+          reactionSelect.appendChild(o);
+        });
+        
+        reactionSelect.value = window.animConfig.reactionPair || 'thumbs';
+        reactionSelect.addEventListener('change', function () {
+          window.animConfig.reactionPair = this.value;
+          
+          var rows = document.querySelectorAll('.chat-row.assistant:not(.running)');
+          rows.forEach(function (row) {
+            var msgActions = row.querySelector('.msg-actions');
+            if (msgActions) {
+              var mid = row.getAttribute('data-message-id') || row.getAttribute('data-run-id');
+              if (mid) {
+                msgActions.remove();
+                row.appendChild(buildMsgActions(mid, true));
+              }
+            }
+          });
+          
+          if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
+        });
+        
+        reactionWrap.appendChild(reactionLbl);
+        reactionWrap.appendChild(reactionSelect);
+        togglesRow.appendChild(reactionWrap);
+      }
+
       section.appendChild(togglesRow);
       return { dom: section };
     }
