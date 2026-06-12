@@ -300,6 +300,7 @@ export abstract class ChatBase {
                     case 'forkConversation': await this.handleForkConversation(data.messageId); break;
                     case 'rewindCode': await this.handleRewindCode(data.messageId, !!data.fork); break;
                     case 'openFile': await this.handleOpenFile(data.filePath); break;
+                    case 'copyToClipboard': await vscode.env.clipboard.writeText(data.text || ''); break;
                 }
             } catch (error: any) {
                 const message = error?.message || String(error);

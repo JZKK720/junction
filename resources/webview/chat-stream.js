@@ -1806,7 +1806,16 @@
         if (a.act === 'copy') {
           var row = bar.parentElement;
           var t = row && row.querySelector('.msg-text');
-          if (t) { try { navigator.clipboard.writeText(t.textContent || ''); } catch (e) {} }
+          if (t) {
+            var textToCopy = t.dataset.rawText || t.textContent || '';
+            vscode.postMessage({ type: 'copyToClipboard', text: textToCopy });
+            b.classList.remove('codicon-copy');
+            b.classList.add('codicon-check');
+            setTimeout(function () {
+              b.classList.remove('codicon-check');
+              b.classList.add('codicon-copy');
+            }, 1500);
+          }
         } else if (a.act === 'share') {
           openShareForRow(bar.parentElement);
         } else if (a.act === 'fork') {
@@ -2244,10 +2253,9 @@
     // Copy button handler
     var copyBtn = header.querySelector('.code-editor-copy');
     copyBtn.addEventListener('click', function () {
-      navigator.clipboard.writeText(text).then(function () {
-        copyBtn.innerHTML = '<span class="codicon codicon-check"></span>';
-        setTimeout(function () { copyBtn.innerHTML = '<span class="codicon codicon-copy"></span>'; }, 1500);
-      });
+      vscode.postMessage({ type: 'copyToClipboard', text: text });
+      copyBtn.innerHTML = '<span class="codicon codicon-check"></span>';
+      setTimeout(function () { copyBtn.innerHTML = '<span class="codicon codicon-copy"></span>'; }, 1500);
     });
 
     // Code content
