@@ -3203,6 +3203,11 @@
   });
 
   // ── Global Canvas Text Renderer ──────────────────────────────────────────
+  // DORMANT: bindTextareaToCanvas has no live caller since the global text-to-canvas
+  // converter was disabled. Kept per e's instruction. To re-enable, call with a
+  // textarea element (e.g. the composer input). Known limits: selection visibility,
+  // IME composition — see .archive/hybrid-reports/02-*.md. Wiring it live requires
+  // e's explicit word (hard rule 1 in 00-README.md).
   function bindTextareaToCanvas(textarea) {
     if (!textarea || textarea.dataset.hasCanvas) return;
     textarea.dataset.hasCanvas = 'true';
@@ -3276,13 +3281,23 @@
       });
     }
 
-    textarea.addEventListener('input', updateCanvas);
-    textarea.addEventListener('scroll', updateCanvas);
-    textarea.addEventListener('keyup', updateCanvas);
-    textarea.addEventListener('keydown', updateCanvas);
-    textarea.addEventListener('change', updateCanvas);
-    textarea.addEventListener('focus', updateCanvas);
-    textarea.addEventListener('blur', updateCanvas);
+    // HYBRID: RAF-throttle updateCanvas to prevent per-keystroke lag
+    var updateRaf = 0;
+    function throttledUpdate() {
+      if (updateRaf) return;
+      updateRaf = requestAnimationFrame(function () {
+        updateRaf = 0;
+        updateCanvas();
+      });
+    }
+
+    textarea.addEventListener('input', throttledUpdate);
+    textarea.addEventListener('scroll', throttledUpdate);
+    textarea.addEventListener('keyup', throttledUpdate);
+    textarea.addEventListener('keydown', throttledUpdate);
+    textarea.addEventListener('change', throttledUpdate);
+    textarea.addEventListener('focus', throttledUpdate);
+    textarea.addEventListener('blur', throttledUpdate);
 
     var resizeTimeout = null;
     if (window.ResizeObserver) {
@@ -3297,97 +3312,6 @@
 
     setTimeout(updateCanvas, 50);
   }
-
-  function convertTextNodeToCanvas(textNode) {
-    if (!textNode || !textNode.parentNode) return;
-    var text = textNode.nodeValue;
-    if (!text || !text.trim()) return; // skip empty or whitespace-only nodes
-
-    var parent = textNode.parentNode;
-    var parentTag = parent.tagName.toLowerCase();
-    if (parentTag === 'script' || parentTag === 'style' || parentTag === 'canvas' ||
-        parentTag === 'textarea' || parentTag === 'input' || parent.classList.contains('pretext-canvas') ||
-        parent.classList.contains('code-editor-line-num')) {
-      return;
-    }
-
-    var font = getComputedStyle(parent).font;
-    var color = getComputedStyle(parent).color;
-    var fontSize = parseFloat(getComputedStyle(parent).fontSize) || 13;
-
-    var parts = text.split(/(\s+)/);
-    var fragment = document.createDocumentFragment();
-    var dpr = window.devicePixelRatio || 1;
-
-    parts.forEach(function (part) {
-      if (!part) return;
-      if (/^\s+$/.test(part)) {
-        fragment.appendChild(document.createTextNode(part));
-      } else {
-        var canvas = document.createElement('canvas');
-        canvas.className = 'pretext-canvas static-text';
-        canvas.dataset.originalText = part;
-
-        var ctx = canvas.getContext('2d');
-        if (!ctx) {
-          fragment.appendChild(document.createTextNode(part));
-          return;
-        }
-        ctx.font = font;
-
-        var th = Math.ceil(fontSize * 1.3);
-        var baselineY = Math.ceil(fontSize * 0.95);
-        var tw = Math.ceil(ctx.measureText(part).width) + 2;
-
-        canvas.width = tw * dpr;
-        canvas.height = th * dpr;
-        canvas.style.width = tw + 'px';
-        canvas.style.height = th + 'px';
-        canvas.style.display = 'inline-block';
-        canvas.style.verticalAlign = '-' + (th - baselineY) + 'px';
-
-        ctx.scale(dpr, dpr);
-        ctx.font = font;
-        ctx.fillStyle = color;
-        ctx.textBaseline = 'alphabetic';
-        ctx.fillText(part, 1, baselineY);
-
-        fragment.appendChild(canvas);
-      }
-    });
-
-    parent.replaceChild(fragment, textNode);
-  }
-
-  function convertDocumentToCanvas() {
-    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-    var node;
-    var nodes = [];
-    while (node = walker.nextNode()) {
-      nodes.push(node);
-    }
-    nodes.forEach(function (n) {
-      convertTextNodeToCanvas(n);
-    });
-
-    document.querySelectorAll('textarea').forEach(function (t) {
-      bindTextareaToCanvas(t);
-    });
-  }
-
-  // HYBRID: MutationObserver for static-text canvas conversion DISABLED.
-  // This was converting every text node in the document to canvas (~70MB GPU for 50 messages).
-  // Canvas is now only used for animation effects; text is rendered as native DOM.
-  // Textareas still get canvas overlays via bindTextareaToCanvas.
-  //
-  // if (document.body) {
-  //   convertDocumentToCanvas();
-  // } else {
-  //   document.addEventListener('DOMContentLoaded', convertDocumentToCanvas);
-  // }
-  //
-  // var observer = new MutationObserver(function (mutations) { ... });
-  // observer.observe(document.body, { childList: true, subtree: true });
 
   var activeReanimateToken = 0;
   function reanimateAllMessages() {
