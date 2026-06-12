@@ -836,7 +836,7 @@
     splashLenInput.style.cssText = 'width:60px;height:12px;accent-color:var(--vscode-button-background);';
     var splashLenVal = document.createElement('span');
     splashLenVal.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:20px;text-align:right;';
-    splashLenInput.value = window.animConfig.splashLength || 4.0;
+    splashLenInput.value = window.animConfig.splashLength !== undefined ? window.animConfig.splashLength : 1.0;
     splashLenVal.textContent = splashLenInput.value;
     splashLenInput.addEventListener('input', function () {
       window.animConfig.splashLength = parseFloat(this.value);
@@ -847,6 +847,45 @@
     splashLenWrap.appendChild(splashLenInput);
     splashLenWrap.appendChild(splashLenVal);
     splashRow.appendChild(splashLenWrap);
+
+    // Splash fade slider
+    var splashFadeWrap = document.createElement('div');
+    splashFadeWrap.style.cssText = 'display:flex;align-items:center;gap:3px;';
+    var splashFadeLbl = document.createElement('span');
+    splashFadeLbl.textContent = 'Fade (s):';
+    splashFadeLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:40px;';
+    var splashFadeInput = document.createElement('input');
+    splashFadeInput.type = 'range';
+    splashFadeInput.min = '0.1'; splashFadeInput.max = '3'; splashFadeInput.step = '0.1';
+    splashFadeInput.style.cssText = 'width:60px;height:12px;accent-color:var(--vscode-button-background);';
+    var splashFadeVal = document.createElement('span');
+    splashFadeVal.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:20px;text-align:right;';
+    splashFadeInput.value = window.animConfig.splashFade !== undefined ? window.animConfig.splashFade : 0.3;
+    splashFadeVal.textContent = splashFadeInput.value;
+    splashFadeInput.addEventListener('input', function () {
+      window.animConfig.splashFade = parseFloat(this.value);
+      splashFadeVal.textContent = this.value;
+      if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
+    });
+    splashFadeWrap.appendChild(splashFadeLbl);
+    splashFadeWrap.appendChild(splashFadeInput);
+    splashFadeWrap.appendChild(splashFadeVal);
+    splashRow.appendChild(splashFadeWrap);
+
+    // Disable toggle
+    var splashDisableBtn = document.createElement('button');
+    var isSplashDisabled = !!window.animConfig.splashDisabled;
+    splashDisableBtn.textContent = 'Splash: ' + (isSplashDisabled ? 'OFF' : 'ON');
+    splashDisableBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (isSplashDisabled ? 'var(--vscode-input-background)' : 'var(--vscode-button-background)') + ';color:' + (isSplashDisabled ? 'var(--vscode-editor-foreground)' : 'var(--vscode-button-foreground)') + ';';
+    splashDisableBtn.addEventListener('click', function () {
+      window.animConfig.splashDisabled = !window.animConfig.splashDisabled;
+      var updatedVal = window.animConfig.splashDisabled;
+      splashDisableBtn.textContent = 'Splash: ' + (updatedVal ? 'OFF' : 'ON');
+      splashDisableBtn.style.background = updatedVal ? 'var(--vscode-input-background)' : 'var(--vscode-button-background)';
+      splashDisableBtn.style.color = updatedVal ? 'var(--vscode-editor-foreground)' : 'var(--vscode-button-foreground)';
+      if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
+    });
+    splashRow.appendChild(splashDisableBtn);
 
     splashSection.appendChild(splashRow);
     box.appendChild(splashSection);

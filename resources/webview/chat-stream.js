@@ -130,7 +130,11 @@
     loaderNoiseRes: 4,
     loaderTextFade: 0.5,
     loaderCooling: 0.65,
-    loaderSpread: 0.3
+    loaderSpread: 0.3,
+
+    splashLength: 1.0,
+    splashFade: 0.3,
+    splashDisabled: false
   };
   window.animConfig = animConfig; // expose for composer.js cross-script access
   var ANIM_MODES = ['matrix','zalgo','fire','bounce','spiral','galaxy','leak'];
@@ -151,6 +155,9 @@
       if (savedState._junctionLoaderAnimColor) {
         window._junctionLoaderAnimColor = savedState._junctionLoaderAnimColor;
       }
+      if (savedState._junctionSplashColor) {
+        window._junctionSplashColor = savedState._junctionSplashColor;
+      }
     }
   } catch (e) {}
 
@@ -161,18 +168,23 @@
       state._junctionAnimationMode = window._junctionAnimationMode;
       state._junctionAnimColor = window._junctionAnimColor;
       state._junctionLoaderAnimColor = window._junctionLoaderAnimColor;
+      state._junctionSplashColor = window._junctionSplashColor;
       vscode.setState(state);
       vscode.postMessage({
         type: 'saveAnimConfig',
         config: window.animConfig,
         mode: window._junctionAnimationMode,
         color: window._junctionAnimColor,
-        loaderColor: window._junctionLoaderAnimColor
+        loaderColor: window._junctionLoaderAnimColor,
+        splashColor: window._junctionSplashColor
       });
     } catch (e) {}
   }
   window.saveAnimSettings = saveAnimSettings;
 
+  if (!window._junctionSplashColor) {
+    window._junctionSplashColor = 'rgba(128, 0, 128, 1)';
+  }
   if (!window._junctionAnimColor) {
     window._junctionAnimColor = getComputedStyle(document.body).color || '#ccc';
   }
@@ -199,6 +211,9 @@
   function getAnimIntensity(localOpts) { return getAnimVal('intensity', 1.0, localOpts); }
 
   function getAnimColor(localOpts) {
+    if (localOpts && localOpts.isSplash) {
+      return window._junctionSplashColor || window._junctionLoaderAnimColor || window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+    }
     if (window._activeLoaderContext || (localOpts && localOpts.loader)) {
       return window._junctionLoaderAnimColor || window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
     }

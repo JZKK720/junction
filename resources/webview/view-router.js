@@ -19,12 +19,20 @@
 function dismissStartupLoader() {
   var loader = document.getElementById('startup-loader');
   if (!loader || loader.classList.contains('dismissed')) return;
-  
-  // Wait a short delay to allow elements behind the loader to render
+
+  var animConfig = window.animConfig || {};
+  var isDisabled = !!animConfig.splashDisabled;
+
+  var splashLength = isDisabled ? 0.01 : (animConfig.splashLength !== undefined ? animConfig.splashLength : 1.0);
+  var splashFade = isDisabled ? 0.01 : (animConfig.splashFade !== undefined ? animConfig.splashFade : 0.3);
+
   setTimeout(function () {
+    loader.style.transition = 'opacity ' + splashFade + 's ease-out';
     loader.classList.add('dismissed');
-    setTimeout(function () { loader.remove(); }, 220);
-  }, 150);
+    setTimeout(function () {
+      loader.remove();
+    }, splashFade * 1000 + 50);
+  }, splashLength * 1000);
 }
 
 // ── View navigation (override template.html inline stubs) ──────

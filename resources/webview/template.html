@@ -193,6 +193,18 @@
     // posts the boot signal (`initRequest`).
     const vscode = acquireVsCodeApi();
 
+    // Early splash disable check
+    try {
+      var savedState = vscode.getState();
+      if (savedState && savedState.animConfig && savedState.animConfig.splashDisabled) {
+        var loader = document.getElementById('startup-loader');
+        if (loader) {
+          loader.style.display = 'none';
+          loader.classList.add('dismissed');
+        }
+      }
+    } catch (_) {}
+
     // Boot-error sentinel: surface script failures in the panel instead of
     // dying silently behind the startup loader.
     (function () {
