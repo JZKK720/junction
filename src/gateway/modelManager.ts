@@ -1,6 +1,7 @@
 import { GatewayConnection } from './connection';
 import { Logger } from '../utils/logger';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { getOpenClawConfigPath } from '../config/agentBridgeConfig';
 import {
     ModelEntry,
@@ -17,6 +18,8 @@ interface ModelCache {
     timestamp: number;
     /** Flattened model list for menu lookups */
     flatModels: Map<string, ModelEntry>;
+    /** SHA-256 of the serialized catalog, used for hash-based cache checks */
+    catalogHash?: string;
 }
 
 export interface ModelChoice {
@@ -50,6 +53,8 @@ interface AgentThinkingSource {
  */
 export class ModelManager {
     private cache: ModelCache | null = null;
+    private lastCatalogHash: string | null = null;
+    private staleCache: ModelCache | null = null;
     private logger: Logger;
     private authScopes: string[] = [];
 
@@ -93,7 +98,22 @@ export class ModelManager {
         this.logger.info('Fetching model catalog from gateway...');
 
         try {
-            const payload = await gateway.sendRequest('models.list', { view: 'default' });
+            const params: Record<string, unknown> = { view: 'default' };
+            if (this.lastCatalogHash) {
+                params.catalogHash = this.lastCatalogHash;
+            }
+            const payload = await gateway.sendRequest('models.list', params);
+
+            // Hash-based cache check: gateway returns empty models + hash when unchanged
+            const responseHash = payload?.hash;
+            if (Array.isArray(payload?.models) && payload.models.length === 0 && responseHash && this.lastCatalogHash === responseHash) {
+                this.logger.info('Model catalog unchanged (hash match), using cache');
+                if (this.staleCache) {
+                    this.cache = this.staleCache;
+                    this.cache.timestamp = Date.now();
+                }
+                return this.cache ? this.cache.providers : [];
+            }
 
             const providers = this.normalizeCatalog(payload);
 
@@ -119,10 +139,18 @@ export class ModelManager {
                 }
             }
 
+            // Compute hash of the received catalog for future cache checks
+            const catalogHash = responseHash
+                ?? crypto.createHash('sha256').update(JSON.stringify(payload.models)).digest('hex');
+
+            this.lastCatalogHash = catalogHash;
+            this.staleCache = null; // consumed
+
             this.cache = {
                 providers,
                 timestamp: Date.now(),
                 flatModels,
+                catalogHash,
             };
 
             this.logger.info(`Cached ${flatModels.size} models from ${providers.length} providers`);
@@ -138,6 +166,8 @@ export class ModelManager {
      * Call on reconnect via Group 1's `onReconnect`.
      */
     invalidate(): void {
+        this.staleCache = this.cache; // stash for hash-match restore
+        this.lastCatalogHash = this.cache?.catalogHash ?? null;
         this.cache = null;
         this.logger.debug('Model cache invalidated');
     }
