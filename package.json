@@ -294,6 +294,11 @@
           "default": "status",
           "description": "Status indicator style on activity rows."
         },
+        "junction.steerKeybinding": {
+          "type": "string",
+          "default": "",
+          "description": "Custom keybinding to steer in-flight runs (e.g., 'Ctrl+Shift+Enter'). Left empty by default (unbound)."
+        },
         "junction.showFullHistory": {
           "type": "boolean",
           "default": false,

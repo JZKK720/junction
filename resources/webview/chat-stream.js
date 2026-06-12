@@ -1745,7 +1745,7 @@
   var historyFragment = null;
 
   // ── User rows + per-message actions ────────────────────────────────────────
-  function addUserRow(text, messageId, hasCheckpoint, insertTarget) {
+  function addUserRow(text, messageId, hasCheckpoint, insertTarget, isSteer) {
     if (isWorkspaceContext(text)) return null;
     var row = document.createElement('div');
     row.className = 'chat-row user';
@@ -1753,6 +1753,7 @@
       row.classList.add('rise-up-anim');
     }
     if (messageId) row.setAttribute('data-message-id', messageId);
+    if (isSteer) row.setAttribute('data-steer', 'true');
 
     var bubble = document.createElement('div');
     bubble.className = 'msg-text';
@@ -1760,8 +1761,16 @@
     bubble.innerHTML = renderMarkdown(text);
     row.appendChild(bubble);
 
+    if (isSteer) {
+      var steerBadge = document.createElement('span');
+      steerBadge.className = 'steer-badge';
+      steerBadge.style.cssText = 'font-size:8px;font-weight:bold;color:var(--vscode-button-background);border:1px solid var(--vscode-button-background);border-radius:3px;padding:0px 3px;margin-right:6px;vertical-align:middle;display:inline-block;margin-bottom:2px;';
+      steerBadge.textContent = 'STEER';
+      bubble.insertBefore(steerBadge, bubble.firstChild);
+    }
+
     if (messageId) row.appendChild(buildCheckpointMarker(messageId, hasCheckpoint));
-    row.appendChild(buildMsgActions(messageId));
+    row.appendChild(buildMsgActions(messageId, false));
     if (historyFragment) {
       historyFragment.appendChild(row);
     } else if (insertTarget && insertTarget.parentNode === messagesDiv) {
@@ -3067,7 +3076,7 @@
         addAssistantHistoryRow(item, index);
       } else {
         if (!item.content) return;
-        addUserRow(item.content, item.messageId, item.hasCheckpoint);
+        addUserRow(item.content, item.messageId, item.hasCheckpoint, null, item.isSteer);
       }
     });
     if (workingRow && workingRow.parentNode === messagesDiv) {
@@ -3245,7 +3254,7 @@
               addAssistantHistoryRow(turn, baseIndex + index, firstMessageRow);
             } else {
               if (!turn.content) return;
-              addUserRow(turn.content, turn.messageId, turn.hasCheckpoint, firstMessageRow);
+              addUserRow(turn.content, turn.messageId, turn.hasCheckpoint, firstMessageRow, turn.isSteer);
             }
           });
           isRestoringHistory = false;
@@ -3263,7 +3272,22 @@
         break;
       case 'userEcho':
         if (!isWorkspaceContext(msg.text)) {
-          addUserRow(msg.text, msg.messageId, msg.hasCheckpoint);
+          addUserRow(msg.text, msg.messageId, msg.hasCheckpoint, null, msg.isSteer);
+        }
+        break;
+      case 'steerFailed':
+        var row = document.querySelector('[data-message-id="' + msg.messageId + '"]');
+        if (row) {
+          var bubble = row.querySelector('.msg-text');
+          if (bubble) {
+            var notice = document.createElement('div');
+            notice.className = 'steer-notice';
+            notice.style.cssText = 'font-size:10px;color:var(--vscode-errorForeground);margin-top:4px;font-style:italic;';
+            notice.textContent = '(Steering failed; queued as follow-up)';
+            bubble.appendChild(notice);
+          }
+          var badge = row.querySelector('.steer-badge');
+          if (badge) badge.remove();
         }
         break;
       case 'checkpointReady':

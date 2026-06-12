@@ -229,10 +229,35 @@
   })();
 
   var sendBehavior = 'enter';
+  var steerKeybinding = '';
   var isSending = false;
 
   function post(type, data) { vscode.postMessage(Object.assign({ type: type }, data || {})); }
   function isSingleLine() { return !composerInput.value.includes('\n'); }
+
+  function parseKeybindingEvent(e, binding) {
+    var parts = binding.toLowerCase().split('+');
+    var hasCtrl = false;
+    var hasShift = false;
+    var hasAlt = false;
+    var hasMeta = false;
+    var key = '';
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i].trim();
+      if (p === 'ctrl' || p === 'control') hasCtrl = true;
+      else if (p === 'shift') hasShift = true;
+      else if (p === 'alt') hasAlt = true;
+      else if (p === 'meta' || p === 'cmd' || p === 'command') hasMeta = true;
+      else key = p;
+    }
+    var eKey = e.key.toLowerCase();
+    if (e.ctrlKey !== hasCtrl) return false;
+    if (e.shiftKey !== hasShift) return false;
+    if (e.altKey !== hasAlt) return false;
+    if (e.metaKey !== hasMeta) return false;
+    if (eKey !== key) return false;
+    return true;
+  }
 
   function setSending(active) {
     isSending = !!active;
@@ -274,11 +299,17 @@
   // ── Keydown: send-behavior modes ────────────────────────────────────────────
   composerInput.addEventListener('keydown', function (e) {
     if (slashMenu && !slashMenu.hidden && e.key === 'Escape') { hideSlashMenu(); return; }
-    if (e.key !== 'Enter') return;
-    // Ctrl+Shift+Enter always sends (steer override)
-    if ((e.ctrlKey || e.metaKey) && e.shiftKey) {
-      e.preventDefault(); send('steer'); return;
+
+    // Check if custom steer keybinding matches
+    if (steerKeybinding && steerKeybinding.trim() !== '') {
+      if (parseKeybindingEvent(e, steerKeybinding)) {
+        e.preventDefault();
+        send('steer');
+        return;
+      }
     }
+
+    if (e.key !== 'Enter') return;
     // Ctrl+Enter always sends in any mode
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
       e.preventDefault(); send(); return;
@@ -1083,6 +1114,7 @@
     switch (msg.type) {
       case 'config':
         if (msg.sendBehavior) sendBehavior = msg.sendBehavior;
+        if (msg.steerKeybinding !== undefined) steerKeybinding = msg.steerKeybinding;
         if (msg.animConfig) {
           Object.assign(window.animConfig, msg.animConfig);
         }

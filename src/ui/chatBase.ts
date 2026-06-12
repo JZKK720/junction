@@ -31,6 +31,7 @@ interface TranscriptTurn {
     thinkingDurationMs?: number;
     tools?: TranscriptTool[];
     reaction?: 'up' | 'down' | null;
+    isSteer?: boolean;
 }
 
 interface TranscriptTool {
@@ -85,7 +86,7 @@ export abstract class ChatBase {
         this.postToWebview({ type: 'runActive', active: running, sessionKey: next ?? undefined });
     }
     protected activeRuns = new Map<string, string>();
-    protected cachedHistory: Array<{ role: string; content: string }> = [];
+    protected cachedHistory: Array<{ role: string; content: string; isSteer?: boolean }> = [];
     protected transcript: TranscriptTurn[] = [];
     protected runTurnIds = new Map<string, string>();
     protected fallbackRunCounter = 0;
@@ -139,7 +140,8 @@ export abstract class ChatBase {
                 e.affectsConfiguration('junction.reasoningDisplay') ||
                 e.affectsConfiguration('junction.sendBehavior') ||
                 e.affectsConfiguration('junction.extraRichText') ||
-                e.affectsConfiguration('junction.showFullHistory')) {
+                e.affectsConfiguration('junction.showFullHistory') ||
+                e.affectsConfiguration('junction.steerKeybinding')) {
                 this.sendConfig();
                 this.renderTranscript();
             }
@@ -443,10 +445,10 @@ export abstract class ChatBase {
         if (text.trim()) await this.handleUserMessage(text);
     }
 
-    protected appendUserTurn(text: string, messageId: string): void {
-        this.transcript.push({ id: messageId, role: 'user', content: text, messageId, hasCheckpoint: false });
-        this.cachedHistory.push({ role: 'user', content: text });
-        this.postToWebview({ type: 'userEcho', text, messageId, hasCheckpoint: false });
+    protected appendUserTurn(text: string, messageId: string, isSteer?: boolean): void {
+        this.transcript.push({ id: messageId, role: 'user', content: text, messageId, hasCheckpoint: false, isSteer });
+        this.cachedHistory.push({ role: 'user', content: text, isSteer });
+        this.postToWebview({ type: 'userEcho', text, messageId, hasCheckpoint: false, isSteer });
         this.persistCurrentTranscript();
     }
 
@@ -523,7 +525,6 @@ export abstract class ChatBase {
         this.persistCurrentTranscript();
     }
 
-    /** Push composer/webview config (send behavior, reasoning display mode). */
     protected sendConfig(): void {
         const reasoningDisplay = config().get<string>('reasoningDisplay', 'compact');
         this.postToWebview({
@@ -535,6 +536,7 @@ export abstract class ChatBase {
             activityRail: config().get<boolean>('activityStream.rail', true),
             activityDots: config().get<string>('activityStream.dots', 'status'),
             showFullHistory: config().get<boolean>('showFullHistory', false),
+            steerKeybinding: config().get<string>('steerKeybinding', ''),
         });
     }
 
@@ -1318,7 +1320,19 @@ export abstract class ChatBase {
     protected async handleUserMessage(text: string, dispatchOverride?: string): Promise<void> {
         text = this.routePrefixedMessage(text);
         const messageId = this.makeMessageId('m');
-        this.appendUserTurn(text, messageId);
+
+        let isSteer = false;
+        if (this.activeRunId) {
+            this.refreshFollowUpMode();
+            const mode = (dispatchOverride === 'queue' || dispatchOverride === 'steer' || dispatchOverride === 'interrupt')
+                ? dispatchOverride
+                : this.followUpMode;
+            if (mode === 'steer' && this.bridge.canSteer()) {
+                isSteer = true;
+            }
+        }
+
+        this.appendUserTurn(text, messageId, isSteer);
         const checkpointed = await this.snapshotCheckpoint(messageId, text);
         this.markCheckpoint(messageId, checkpointed);
 
@@ -1331,12 +1345,18 @@ export abstract class ChatBase {
             }
             const sessionKey = this.bridge.getCurrentSessionKey();
             if (this.followUpMode === 'steer' && sessionKey && this.bridge.canSteer()) {
+                let success = false;
                 try {
-                    await this.bridge.injectMessage(sessionKey, text);
+                    success = await this.bridge.injectMessage(sessionKey, text);
+                } catch (err) {
+                    Logger.getInstance().warn('steer (chat.inject) failed', err);
+                }
+                if (success) {
                     this.followUpMode = savedMode;
                     return;
-                } catch (err) {
-                    Logger.getInstance().warn('steer (chat.inject) failed, queueing', err);
+                } else {
+                    Logger.getInstance().warn('steer failed, queueing as follow-up');
+                    this.postToWebview({ type: 'steerFailed', messageId });
                 }
             }
             if (this.followUpMode === 'interrupt' && sessionKey) {
@@ -1628,14 +1648,13 @@ export abstract class ChatBase {
             const turns = this.rebuildTurnsFromGatewayHistory(messages);
             if (turns.length > this.transcript.length) {
                 this.transcript = turns;
-                this.cachedHistory = turns.map((turn) => ({ role: turn.role, content: turn.content }));
+                this.cachedHistory = turns.map((turn) => ({ role: turn.role, content: turn.content, isSteer: turn.isSteer }));
             }
             this.renderTranscript();
             this.persistCurrentTranscript();
         } catch (error: any) { Logger.getInstance().warn('restoreHistory failed', error); }
     }
 
-    /** Load full history (up to 1000 turns) when user clicks 'See more'. */
     protected async handleLoadMoreHistory(): Promise<void> {
         try {
             const history = await this.bridge.getSessionHistory(1000);
@@ -1647,7 +1666,7 @@ export abstract class ChatBase {
             const turns = this.rebuildTurnsFromGatewayHistory(messages);
             if (turns.length > this.transcript.length) {
                 this.transcript = turns;
-                this.cachedHistory = turns.map((turn) => ({ role: turn.role, content: turn.content }));
+                this.cachedHistory = turns.map((turn) => ({ role: turn.role, content: turn.content, isSteer: turn.isSteer }));
             }
             this.renderTranscript();
             this.persistCurrentTranscript();
@@ -1749,7 +1768,7 @@ export abstract class ChatBase {
                 const content = this.extractHistoryText(msg);
                 const visible = content ? this.visibleTurnContent('user', content) : null;
                 if (visible) {
-                    turns.push({ id: this.makeMessageId('m'), role: 'user', content: visible });
+                    turns.push({ id: this.makeMessageId('m'), role: 'user', content: visible, isSteer: !!(msg.isSteer || m?.isSteer) });
                 }
                 continue;
             }
