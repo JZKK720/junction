@@ -555,6 +555,13 @@ export abstract class ChatBase {
         this.postToWebview({ type: 'switchToChat', title, history: this.historyMessages() });
         this.postToWebview({ type: 'history', messages: this.historyMessages() });
         await this.restoreHistory();
+        const sessionKey = this.bridge.getCurrentSessionKey();
+        if (sessionKey) {
+            const activeRunId = this.activeRunIdsBySession.get(sessionKey) || (this.activeRunId ? this.activeRunId : null);
+            if (activeRunId) {
+                this.postToWebview({ type: 'runActive', runId: activeRunId, active: true });
+            }
+        }
         await this.pushSessions();
     }
 
