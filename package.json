@@ -215,12 +215,12 @@
         "junction.reasoningDisplay": {
           "type": "string",
           "enum": [
-            "expanded",
-            "compact"
+            "compact",
+            "chronological"
           ],
           "enumDescriptions": [
-            "Stream the reasoning expanded, then auto-collapse to a summary when it finishes",
-            "Show a compact 'Thinking… ~N tokens' line while reasoning, then reveal the block when it finishes"
+            "Stream thinking expanded, then auto-collapse to a summary when it finishes",
+            "Show a compact 'Thinking… ~N tokens' line while reasoning, then reveal the full text and keep it expanded after finish"
           ],
           "default": "compact",
           "description": "How reasoning/thinking blocks are displayed in the chat."
@@ -269,8 +269,8 @@
             "hybrid"
           ],
           "enumDescriptions": [
-            "Codex-style: finished activity folds into a summary accordion (\"Edited 2 files, ran 3 commands\")",
-            "Claude Code-style: rows stay inline on a vertical timeline rail; nothing folds",
+            "Finished activity folds into a summary accordion (\"Edited 2 files, ran 3 commands\")",
+            "Rows stay inline on a vertical timeline rail; nothing folds",
             "Both: activity folds into the accordion, and the expanded body renders as a timeline rail"
           ],
           "default": "accordion",
@@ -288,8 +288,8 @@
             "minimal"
           ],
           "enumDescriptions": [
-            "Colored status dots (green success, red error, blinking while running) — Claude Code look",
-            "Neutral dots with a spinner while running — Codex look"
+            "Colored status dots (green success, red error, blinking while running)",
+            "Neutral dots with a spinner while running"
           ],
           "default": "status",
           "description": "Status indicator style on activity rows."

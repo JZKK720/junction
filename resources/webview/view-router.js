@@ -19,8 +19,12 @@
 function dismissStartupLoader() {
   var loader = document.getElementById('startup-loader');
   if (!loader || loader.classList.contains('dismissed')) return;
-  loader.classList.add('dismissed');
-  setTimeout(function () { loader.remove(); }, 220);
+  
+  // Wait a short delay to allow elements behind the loader to render
+  setTimeout(function () {
+    loader.classList.add('dismissed');
+    setTimeout(function () { loader.remove(); }, 220);
+  }, 150);
 }
 
 // ── View navigation (override template.html inline stubs) ──────
