@@ -1361,6 +1361,7 @@
         animId = requestAnimationFrame(frame);
       } else {
         done = true;
+        canvas.width = 0; canvas.height = 0;
         canvas.remove();
       }
     }
@@ -1876,17 +1877,19 @@
           if (canvas) {
             document.body.appendChild(canvas);
           }
+          // HYBRID: Use actual animation duration for magic mode swap delay
+          var magicSwapDelay = Math.round((getAnimVal('length', 2.0) || 2.0) * 1000);
           setTimeout(function () {
             text.style.opacity = '1';
             var existing = document.querySelectorAll('canvas.full-screen-anim');
             existing.forEach(function (c) {
               if (c._stopAnimation) {
                 try { c._stopAnimation(); } catch (e) {}
-              } else {
-                c.remove();
               }
+              c.width = 0; c.height = 0;
+              c.remove();
             });
-          }, 850);
+          }, magicSwapDelay);
           ensureToolContainer(runId, row);
           scrollToBottom();
           return;
@@ -1928,6 +1931,8 @@
 
           scrollToBottom();
 
+          // HYBRID: Use actual animation duration for swap delay
+          var isFullSwapDelay = Math.round((getAnimVal('length', 2.0) || 2.0) * 1000);
           setTimeout(function () {
             animSlot.style.transition = 'height 0.8s cubic-bezier(0.25, 1, 0.5, 1)';
             animSlot.style.height = '0px';
@@ -1940,9 +1945,12 @@
               if (canvas && typeof canvas._stopAnimation === 'function') {
                 canvas._stopAnimation();
               }
+              if (canvas) {
+                canvas.width = 0; canvas.height = 0;
+              }
               scrollToBottom();
             }, 800);
-          }, 850);
+          }, isFullSwapDelay);
           
           ensureToolContainer(runId, row);
           scrollToBottom();
@@ -1958,14 +1966,16 @@
             width: width
           });
           if (canvas) {
-            var animSlot = getPillAnimSlot(text);
-            animSlot.innerHTML = '';
-            animSlot.appendChild(canvas);
-            
+            // Order matters: getPillTextContent first (it may clear innerHTML),
+            // then getPillAnimSlot inserts before firstChild.
             var contentSlot = getPillTextContent(text);
             contentSlot.innerHTML = renderMarkdown(fullText);
             contentSlot.style.opacity = '0';
             contentSlot.style.transition = 'opacity 0.15s ease-out';
+
+            var animSlot = getPillAnimSlot(text);
+            animSlot.innerHTML = '';
+            animSlot.appendChild(canvas);
             text.dataset.settled = '1';
 
             scrollToBottom();
@@ -3597,14 +3607,30 @@
           }
 
           setTimeout(function () {
-            textEl.innerHTML = renderMarkdown(fullText);
-            textEl.dataset.settled = '1';
-            if (startPlaybackSticky && userScrollSticky) {
-              isProgrammaticScroll = true;
-              messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            // HYBRID: Fade canvas out, render DOM markdown underneath
+            if (canvas && typeof canvas._stopAnimation === 'function') {
+              canvas._stopAnimation();
             }
-            index++;
-            next();
+            canvas.style.transition = 'opacity 0.3s ease-out';
+            canvas.style.opacity = '0';
+            canvas.style.pointerEvents = 'none';
+            var markdown = renderMarkdown(fullText);
+            // Create content div to persist after canvas removal
+            var contentDiv = document.createElement('div');
+            contentDiv.className = 'pill-text-content';
+            contentDiv.innerHTML = markdown;
+            textEl.appendChild(contentDiv);
+            textEl.dataset.settled = '1';
+            // Remove canvas after fade
+            setTimeout(function () {
+              if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+              if (startPlaybackSticky && userScrollSticky) {
+                isProgrammaticScroll = true;
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+              }
+              index++;
+              next();
+            }, 350);
           }, duration + 50);
         } else {
           textEl.innerHTML = renderMarkdown(fullText);
