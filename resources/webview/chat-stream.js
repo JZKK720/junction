@@ -482,7 +482,7 @@
     }
 
     requestAnimationFrame(frame);
-    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); };
+    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); canvas.width = 0; canvas.height = 0; };
     return canvas;
   }
 
@@ -642,7 +642,7 @@
     }
 
     requestAnimationFrame(frame);
-    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); };
+    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); canvas.width = 0; canvas.height = 0; };
     return canvas;
   }
 
@@ -826,7 +826,7 @@
     }
 
     requestAnimationFrame(frame);
-    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); };
+    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); canvas.width = 0; canvas.height = 0; };
     return canvas;
   }
 
@@ -948,7 +948,7 @@
       }
     }
     animId = requestAnimationFrame(frame);
-    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); };
+    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); canvas.width = 0; canvas.height = 0; };
     return canvas;
   }
 
@@ -1138,7 +1138,7 @@
     }
 
     animId = requestAnimationFrame(frame);
-    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); };
+    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); canvas.width = 0; canvas.height = 0; };
     return canvas;
   }
 
@@ -1252,7 +1252,7 @@
     }
 
     animId = requestAnimationFrame(frame);
-    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); };
+    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); canvas.width = 0; canvas.height = 0; };
     return canvas;
   }
 
@@ -1366,7 +1366,7 @@
     }
     
     animId = requestAnimationFrame(frame);
-    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); canvas.remove(); };
+    canvas._stopAnimation = function () { done = true; if (animId) cancelAnimationFrame(animId); canvas.width = 0; canvas.height = 0; canvas.remove(); };
   }
 
   // ── Dispatcher ────────────────────────────────────────────────────────────
@@ -1475,7 +1475,7 @@
       animId = requestAnimationFrame(draw);
     }
     draw();
-    canvas._stopAnimation = function () { if (animId) cancelAnimationFrame(animId); };
+    canvas._stopAnimation = function () { if (animId) cancelAnimationFrame(animId); canvas.width = 0; canvas.height = 0; };
     return canvas;
   }
 
@@ -1970,14 +1970,27 @@
 
             scrollToBottom();
 
+            // HYBRID: After animation, fade canvas out to reveal rendered DOM markdown.
+            // Canvas is temporary visual layer; DOM is the permanent selectable layer.
+            var swapDelay = Math.round((getAnimVal('length', 2.0) || 2.0) * 1000);
             setTimeout(function () {
-              animSlot.innerHTML = '';
-              contentSlot.style.opacity = '1';
+              // Stop the animation loop
               if (canvas && typeof canvas._stopAnimation === 'function') {
                 canvas._stopAnimation();
               }
+              // Fade canvas out, reveal DOM markdown underneath
+              canvas.style.transition = 'opacity 0.3s ease-out';
+              canvas.style.opacity = '0';
+              canvas.style.pointerEvents = 'none';
+              contentSlot.style.opacity = '1';
+              // Remove canvas after fade completes
+              setTimeout(function () {
+                if (canvas.parentNode) {
+                  canvas.parentNode.removeChild(canvas);
+                }
+              }, 350);
               scrollToBottom();
-            }, 850);
+            }, swapDelay);
             
             ensureToolContainer(runId, row);
             scrollToBottom();
@@ -2845,6 +2858,38 @@
 
   // ── History / response ──────────────────────────────────────────────────────
   function clearMessages() {
+    // Stop all animation canvases and release GPU buffers before nuking DOM
+    var canvases = messagesDiv.querySelectorAll('canvas.pretext-canvas');
+    canvases.forEach(function (c) {
+      if (c._stopAnimation) {
+        try { c._stopAnimation(); } catch (e) {}
+      }
+      c.width = 0;
+      c.height = 0;
+    });
+    // Stop any full-screen animations lingering in the body
+    document.querySelectorAll('canvas.full-screen-anim').forEach(function (c) {
+      if (c._stopAnimation) {
+        try { c._stopAnimation(); } catch (e) {}
+      }
+      c.width = 0;
+      c.height = 0;
+      c.remove();
+    });
+    // Clean pinned throbber loader canvas
+    if (pinnedThrobber) {
+      if (pinnedThrobber._loaderCanvas) {
+        if (typeof pinnedThrobber._loaderCanvas._stopAnimation === 'function') {
+          pinnedThrobber._loaderCanvas._stopAnimation();
+        }
+        pinnedThrobber._loaderCanvas.width = 0;
+        pinnedThrobber._loaderCanvas.height = 0;
+        pinnedThrobber._loaderCanvas.remove();
+        pinnedThrobber._loaderCanvas = null;
+      }
+      pinnedThrobber.innerHTML = '';
+      pinnedThrobber.style.display = 'none';
+    }
     messagesDiv.innerHTML = '';
     activeRuns.clear();
     runSubagentInfo.clear();
@@ -2900,8 +2945,93 @@
       }
     }
     forceScrollToBottom();
+    showSeeMoreIfNeeded();
   }
   window.renderHistory = renderHistory;
+
+  // ── "See more" history button ───────────────────────────────────────────────
+  var _seeMoreBtn = null;
+  var _loadingMore = false;
+  var _hasMoreHistory = true; // assume yes until gateway says no
+  var _jsonlOffset = 0; // byte offset for JSONL pagination
+  var _useJsonlMode = false; // will be set from config
+
+  function ensureSeeMoreButton() {
+    if (_seeMoreBtn && _seeMoreBtn.parentNode) return _seeMoreBtn;
+    _seeMoreBtn = document.createElement('button');
+    _seeMoreBtn.id = 'see-more-history';
+    _seeMoreBtn.textContent = 'See more';
+    _seeMoreBtn.className = 'see-more-btn';
+    _seeMoreBtn.addEventListener('click', function () {
+      if (_loadingMore || !_hasMoreHistory) return;
+      _loadingMore = true;
+      _seeMoreBtn.textContent = 'Loading…';
+      _seeMoreBtn.classList.add('loading');
+      if (_useJsonlMode) {
+        vscode.postMessage({ type: 'loadMoreHistoryFromJsonl', offset: _jsonlOffset });
+      } else {
+        vscode.postMessage({ type: 'loadMoreHistory' });
+      }
+    });
+    messagesDiv.insertBefore(_seeMoreBtn, messagesDiv.firstChild);
+    return _seeMoreBtn;
+  }
+
+  function showSeeMoreIfNeeded() {
+    if (_hasMoreHistory && messagesDiv.children.length > 2) {
+      ensureSeeMoreButton();
+    }
+  }
+
+  function hideSeeMoreButton() {
+    if (_seeMoreBtn && _seeMoreBtn.parentNode) {
+      _seeMoreBtn.parentNode.removeChild(_seeMoreBtn);
+    }
+    _seeMoreBtn = null;
+  }
+
+  // Auto-load when user scrolls to top (infinite scroll)
+  messagesDiv.addEventListener('scroll', function () {
+    if (_loadingMore || !_hasMoreHistory) return;
+    if (messagesDiv.scrollTop < 60) {
+      showSeeMoreIfNeeded();
+      // Auto-load in JSONL mode
+      if (_useJsonlMode && !_loadingMore) {
+        _loadingMore = true;
+        ensureSeeMoreButton();
+        _seeMoreBtn.textContent = 'Loading…';
+        _seeMoreBtn.classList.add('loading');
+        vscode.postMessage({ type: 'loadMoreHistoryFromJsonl', offset: _jsonlOffset });
+      }
+    }
+  });
+
+  // Inject styles for the See more button
+  (function injectSeeMoreStyles() {
+    var s = document.createElement('style');
+    s.textContent =
+      '#see-more-history {' +
+      '  display: block;' +
+      '  margin: 8px auto 12px;' +
+      '  padding: 4px 16px;' +
+      '  border: 1px solid var(--vscode-widget-border, #444);' +
+      '  border-radius: 14px;' +
+      '  background: var(--vscode-sideBar-background, transparent);' +
+      '  color: var(--vscode-descriptionForeground, #999);' +
+      '  font-size: 11px;' +
+      '  cursor: pointer;' +
+      '  transition: background .15s, color .15s;' +
+      '}' +
+      '#see-more-history:hover {' +
+      '  background: var(--vscode-widget-background, #333);' +
+      '  color: var(--vscode-foreground, #ccc);' +
+      '}' +
+      '#see-more-history.loading {' +
+      '  opacity: .6;' +
+      '  cursor: default;' +
+      '}';
+    document.head.appendChild(s);
+  })();
 
   // ── Inbound dispatch ────────────────────────────────────────────────────────
   window.addEventListener('message', function (event) {
@@ -2931,12 +3061,47 @@
         if (msg.loaderColor) {
           window._junctionLoaderAnimColor = msg.loaderColor;
         }
+        if (msg.showFullHistory !== undefined) {
+          _useJsonlMode = !!msg.showFullHistory;
+        }
         try {
           overrideStartupAnimation();
         } catch (e) {}
         break;
       case 'history':
+        _loadingMore = false;
+        _hasMoreHistory = true; // reset; will be hidden if gateway says done
         renderHistory(msg.messages, msg.activeRunId);
+        break;
+      case 'moreHistory':
+        _loadingMore = false;
+        _hasMoreHistory = msg.hasMore;
+        _jsonlOffset = msg.nextOffset || 0;
+        // Prepend older messages to chat
+        if (msg.turns && msg.turns.length > 0) {
+          var scrollHeightBefore = messagesDiv.scrollHeight;
+          (msg.turns || []).forEach(function (turn, index) {
+            if (!turn) return;
+            if (isWorkspaceContext(turn.content)) return;
+            if (turn.role === 'assistant') {
+              if (!turn.content && !turn.thinking && !(turn.tools && turn.tools.length)) return;
+              addAssistantHistoryRow(turn, index);
+            } else {
+              if (!turn.content) return;
+              addUserRow(turn.content, turn.messageId, turn.hasCheckpoint);
+            }
+          });
+          // Maintain scroll position after prepending
+          messagesDiv.scrollTop = messagesDiv.scrollHeight - scrollHeightBefore;
+        }
+        if (!_hasMoreHistory) {
+          hideSeeMoreButton();
+        }
+        break;
+      case 'noMoreHistory':
+        _loadingMore = false;
+        _hasMoreHistory = false;
+        hideSeeMoreButton();
         break;
       case 'userEcho':
         if (!isWorkspaceContext(msg.text)) {
@@ -3197,41 +3362,19 @@
     });
   }
 
-  // Run on startup
-  if (document.body) {
-    convertDocumentToCanvas();
-  } else {
-    document.addEventListener('DOMContentLoaded', convertDocumentToCanvas);
-  }
-
-  // Intercept all future DOM mutations
-  var observer = new MutationObserver(function (mutations) {
-    mutations.forEach(function (mutation) {
-      mutation.addedNodes.forEach(function (node) {
-        if (node.nodeType === Node.TEXT_NODE) {
-          convertTextNodeToCanvas(node);
-        } else if (node.nodeType === Node.ELEMENT_NODE) {
-          if (node.tagName && node.tagName.toLowerCase() === 'textarea') {
-            bindTextareaToCanvas(node);
-          }
-          var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, null, false);
-          var childTextNode;
-          var childTextNodes = [];
-          while (childTextNode = walker.nextNode()) {
-            childTextNodes.push(childTextNode);
-          }
-          childTextNodes.forEach(function (n) {
-            convertTextNodeToCanvas(n);
-          });
-          node.querySelectorAll('textarea').forEach(function (t) {
-            bindTextareaToCanvas(t);
-          });
-        }
-      });
-    });
-  });
-
-  observer.observe(document.body, { childList: true, subtree: true });
+  // HYBRID: MutationObserver for static-text canvas conversion DISABLED.
+  // This was converting every text node in the document to canvas (~70MB GPU for 50 messages).
+  // Canvas is now only used for animation effects; text is rendered as native DOM.
+  // Textareas still get canvas overlays via bindTextareaToCanvas.
+  //
+  // if (document.body) {
+  //   convertDocumentToCanvas();
+  // } else {
+  //   document.addEventListener('DOMContentLoaded', convertDocumentToCanvas);
+  // }
+  //
+  // var observer = new MutationObserver(function (mutations) { ... });
+  // observer.observe(document.body, { childList: true, subtree: true });
 
   var activeReanimateToken = 0;
   function reanimateAllMessages() {
@@ -3247,26 +3390,33 @@
     existingFly.forEach(function (c) {
       if (c._stopAnimation) {
         try { c._stopAnimation(); } catch (e) {}
-      } else {
-        c.remove();
       }
+      c.width = 0; c.height = 0;
+      c.remove();
     });
 
-    // Stop active canvas animations
+    // Stop active canvas animations and release GPU buffers
     rows.forEach(function (row) {
       var textEl = row.querySelector('.msg-text');
       if (textEl) {
         var oldCanvas = textEl.querySelector('canvas.pretext-canvas');
-        if (oldCanvas && oldCanvas._stopAnimation) {
-          try { oldCanvas._stopAnimation(); } catch (e) {}
+        if (oldCanvas) {
+          if (oldCanvas._stopAnimation) {
+            try { oldCanvas._stopAnimation(); } catch (e) {}
+          }
+          oldCanvas.width = 0; oldCanvas.height = 0;
         }
+        delete textEl.dataset.settled;
       }
     });
 
     if (pinnedThrobber) {
       var oldCanvas = pinnedThrobber.querySelector('canvas.pretext-canvas');
-      if (oldCanvas && oldCanvas._stopAnimation) {
-        try { oldCanvas._stopAnimation(); } catch (e) {}
+      if (oldCanvas) {
+        if (oldCanvas._stopAnimation) {
+          try { oldCanvas._stopAnimation(); } catch (e) {}
+        }
+        oldCanvas.width = 0; oldCanvas.height = 0;
       }
       pinnedThrobber.innerHTML = '';
       pinnedThrobber.style.display = 'none';
