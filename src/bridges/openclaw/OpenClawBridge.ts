@@ -302,6 +302,7 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
             const runtime = this.runtimeNameForUrl(g.url);
             const port = this.portForUrl(g.url);
             const runtimeAgents = g.url === currentUrl ? agents : [];
+            const isConnected = g.url === currentUrl && this.gateway.isConnected();
             if (runtimeAgents.length === 0) {
                 // Runtime with no agent info — show as runtime:port
                 items.push({
@@ -309,7 +310,7 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
                     label: `${runtime}:${port}`,
                     description: g.url,
                     section: 'OpenClaw runtimes',
-                    icon: 'server-environment',
+                    icon: isConnected ? 'server-environment' : 'debug-disconnect',
                     checked: g.url === currentUrl,
                     url: g.url,
                     configPath: g.configPath,
@@ -323,7 +324,7 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
                         label: `${agentId}@${runtime}:${port}`,
                         description: agent.displayName || agentId,
                         section: 'OpenClaw runtimes',
-                        icon: 'hubot',
+                        icon: isConnected ? 'hubot' : 'debug-disconnect',
                         checked: agentId === this.selection.agentId && g.url === currentUrl,
                         agentId,
                         url: g.url,
@@ -334,12 +335,13 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         if (!items.some((item) => item.url === currentUrl)) {
             const runtime = this.runtimeNameForUrl(currentUrl);
             const port = this.portForUrl(currentUrl);
+            const isConnected = this.gateway.isConnected();
             items.unshift({
                 id: `openclaw:runtime:${currentUrl}`,
                 label: `${runtime}:${port}`,
                 description: currentUrl,
                 section: 'OpenClaw runtimes',
-                icon: 'server-environment',
+                icon: isConnected ? 'server-environment' : 'debug-disconnect',
                 checked: true,
                 url: currentUrl,
                 configPath: getOpenClawConfigPath(),

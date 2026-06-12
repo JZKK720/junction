@@ -276,7 +276,7 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
                 label: `hermling@hermes:${port}`,
                 description: available ? 'Detected dashboard runtime' : 'Configured dashboard runtime',
                 section: 'Hermes',
-                icon: 'hubot',
+                icon: available ? 'hubot' : 'debug-disconnect',
                 checked: true,
             },
             {

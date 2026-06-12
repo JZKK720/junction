@@ -238,7 +238,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
                 label: `souvieling@souveraine:${port}`,
                 description: available ? 'Detected Souveraine runtime' : 'Configured Souveraine runtime',
                 section: 'Souveraine',
-                icon: 'hubot',
+                icon: available ? 'hubot' : 'debug-disconnect',
                 checked: true,
             },
             {
