@@ -57,9 +57,9 @@ function showChatView() {
 
 // ── History delegate ───────────────────────────────────────────
 
-function renderRouterHistory(history) {
+function renderRouterHistory(history, activeRunId) {
   if (typeof window.renderHistory === 'function') {
-    window.renderHistory(history);
+    window.renderHistory(history, activeRunId);
   }
 }
 
@@ -86,7 +86,7 @@ window.addEventListener('message', function (event) {
       setChatTitle(msg.title);
       showChatView();
       if (msg.history) {
-        renderRouterHistory(msg.history);
+        renderRouterHistory(msg.history, msg.activeRunId);
       }
       break;
 

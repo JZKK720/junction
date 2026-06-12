@@ -293,6 +293,11 @@
           ],
           "default": "status",
           "description": "Status indicator style on activity rows."
+        },
+        "junction.showFullHistory": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show full chat history on load (locally installed OpenClaw instances only). When enabled, loads up to 1000 messages instead of the default 200. May be slower on large sessions."
         }
       }
     }

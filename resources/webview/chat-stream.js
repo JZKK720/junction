@@ -3087,20 +3087,23 @@
         _loadingMore = false;
         _hasMoreHistory = msg.hasMore;
         _jsonlOffset = msg.nextOffset || 0;
-        // Prepend older messages to chat
+        // Prepend older messages ABOVE existing chat rows
         if (msg.turns && msg.turns.length > 0) {
+          isRestoringHistory = true; // suppress rise-up animation and forceScroll
           var scrollHeightBefore = messagesDiv.scrollHeight;
+          var baseIndex = _jsonlOffset; // unique offset to avoid runId collisions across pages
           (msg.turns || []).forEach(function (turn, index) {
             if (!turn) return;
             if (isWorkspaceContext(turn.content)) return;
             if (turn.role === 'assistant') {
               if (!turn.content && !turn.thinking && !(turn.tools && turn.tools.length)) return;
-              addAssistantHistoryRow(turn, index);
+              addAssistantHistoryRow(turn, baseIndex + index);
             } else {
               if (!turn.content) return;
               addUserRow(turn.content, turn.messageId, turn.hasCheckpoint);
             }
           });
+          isRestoringHistory = false;
           // Maintain scroll position after prepending
           messagesDiv.scrollTop = messagesDiv.scrollHeight - scrollHeightBefore;
         }

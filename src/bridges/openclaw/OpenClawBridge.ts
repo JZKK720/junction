@@ -110,7 +110,7 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
     }
 
     getSettingsQuery(): string {
-        return 'junction.openclaw';
+        return 'junction.';
     }
 
     setPendingFileContext(context: string): void {
@@ -199,6 +199,10 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
 
     getSessionHistory(limit?: number, folderUri?: vscode.Uri): Promise<any> {
         return this.sessionManager.getSessionHistory(limit, folderUri);
+    }
+
+    getSessionHistoryFromJsonl(sessionKey: string, offset?: number, maxBytes?: number): Promise<any> {
+        return this.sessionManager.getSessionHistoryFromJsonl(sessionKey, offset, maxBytes);
     }
 
     sendChatMessage(message: string, context?: BridgeContext): Promise<any> {

@@ -137,7 +137,8 @@ export abstract class ChatBase {
             if (e.affectsConfiguration('junction.activityStream') ||
                 e.affectsConfiguration('junction.reasoningDisplay') ||
                 e.affectsConfiguration('junction.sendBehavior') ||
-                e.affectsConfiguration('junction.extraRichText')) {
+                e.affectsConfiguration('junction.extraRichText') ||
+                e.affectsConfiguration('junction.showFullHistory')) {
                 this.sendConfig();
                 this.renderTranscript();
             }
@@ -291,6 +292,8 @@ export abstract class ChatBase {
                     case 'removePill': this.handleRemovePill(data.filePath); break;
                     case 'toggleLivePill': this.handleToggleLivePill(!!data.enabled); break;
                     // header
+                    case 'loadMoreHistory': await this.handleLoadMoreHistory(); break;
+                    case 'loadMoreHistoryFromJsonl': await this.handleLoadMoreHistoryFromJsonl(data.offset); break;
                     case 'openSettings': await this.handleOpenSettings(); break;
                     case 'getUsage': await this.handleGetUsage(); break;
                     // message actions (Part B/C)
@@ -527,6 +530,7 @@ export abstract class ChatBase {
             activityLayout: config().get<string>('activityStream.layout', 'accordion'),
             activityRail: config().get<boolean>('activityStream.rail', true),
             activityDots: config().get<string>('activityStream.dots', 'status'),
+            showFullHistory: config().get<boolean>('showFullHistory', false),
         });
     }
 
@@ -1550,32 +1554,67 @@ export abstract class ChatBase {
     }
 
     protected async restoreHistory(): Promise<void> {
-        if (this.transcript.length > 0) {
-            this.renderTranscript();
-            return;
-        }
-        if (this.cachedHistory.length > 0) {
-            this.transcript = this.cachedHistory.map((i) => ({
-                id: this.makeMessageId(i.role.startsWith('assistant:') ? 'a' : 'm'),
-                role: i.role.startsWith('assistant:') ? 'assistant' : 'user',
-                content: i.content,
-            }));
-            this.renderTranscript();
-            return;
-        }
         try {
-            const history = await this.bridge.getSessionHistory(50);
+            const history = await this.bridge.getSessionHistory(200);
             const messages = Array.isArray(history?.messages) ? history.messages : history?.payload?.messages;
-            if (Array.isArray(messages)) {
-                const turns = this.rebuildTurnsFromGatewayHistory(messages);
-                if (turns.length > 0) {
-                    this.transcript = turns;
-                    this.cachedHistory = turns.map((turn) => ({ role: turn.role, content: turn.content }));
-                    this.renderTranscript();
-                    this.persistCurrentTranscript();
-                }
+            if (!Array.isArray(messages) || messages.length === 0) {
+                this.renderTranscript();
+                return;
             }
+            const turns = this.rebuildTurnsFromGatewayHistory(messages);
+            if (turns.length > this.transcript.length) {
+                this.transcript = turns;
+                this.cachedHistory = turns.map((turn) => ({ role: turn.role, content: turn.content }));
+            }
+            this.renderTranscript();
+            this.persistCurrentTranscript();
         } catch (error: any) { Logger.getInstance().warn('restoreHistory failed', error); }
+    }
+
+    /** Load full history (up to 1000 turns) when user clicks 'See more'. */
+    protected async handleLoadMoreHistory(): Promise<void> {
+        try {
+            const history = await this.bridge.getSessionHistory(1000);
+            const messages = Array.isArray(history?.messages) ? history.messages : history?.payload?.messages;
+            if (!Array.isArray(messages) || messages.length === 0) {
+                this.postToWebview({ type: 'noMoreHistory' });
+                return;
+            }
+            const turns = this.rebuildTurnsFromGatewayHistory(messages);
+            if (turns.length > this.transcript.length) {
+                this.transcript = turns;
+                this.cachedHistory = turns.map((turn) => ({ role: turn.role, content: turn.content }));
+            }
+            this.renderTranscript();
+            this.persistCurrentTranscript();
+            // 1000 is gateway max — no more after this
+            this.postToWebview({ type: 'noMoreHistory' });
+        } catch (error: any) { Logger.getInstance().warn('handleLoadMoreHistory failed', error); }
+    }
+
+    /** Load history from JSONL file for infinite scroll (when showFullHistory is enabled). */
+    protected async handleLoadMoreHistoryFromJsonl(offset: number = 0): Promise<void> {
+        try {
+            const sessionKey = this.bridge.getCurrentSessionKey();
+            if (!sessionKey || !this.bridge.getSessionHistoryFromJsonl) {
+                // No session or bridge doesn't support JSONL — fall back to gateway
+                await this.handleLoadMoreHistory();
+                return;
+            }
+            const result = await this.bridge.getSessionHistoryFromJsonl(sessionKey, offset, 256 * 1024);
+            if (!result || !result.messages || result.messages.length === 0) {
+                // Unavailable or empty — fall back to gateway history
+                await this.handleLoadMoreHistory();
+                return;
+            }
+            const turns = this.rebuildTurnsFromGatewayHistory(result.messages);
+            this.postToWebview({
+                type: 'moreHistory',
+                turns,
+                hasMore: result.hasMore,
+                nextOffset: result.nextOffset
+            });
+        } catch (error: any) { Logger.getInstance().warn('handleLoadMoreHistoryFromJsonl failed', error); }
     }
 
     /**

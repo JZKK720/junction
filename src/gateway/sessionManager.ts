@@ -1,5 +1,7 @@
 import { EventEmitter } from 'events';
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { GatewayConnection } from './connection';
 import { Logger } from '../utils/logger';
 import {
@@ -290,6 +292,134 @@ export class SessionManager extends EventEmitter {
   }
 
   // ── Utilities ──
+
+  /**
+   * Read session JSONL file directly for infinite scroll.
+   * Returns messages from the tail of the file, skipping non-message lines.
+   * @param sessionKey The session key to look up via sessions.list
+   * @param offset Byte offset from end of file to start reading (0 = most recent)
+   * @param maxBytes Maximum bytes to read
+   */
+  async getSessionHistoryFromJsonl(
+    sessionKey: string,
+    offset: number = 0,
+    maxBytes: number = 256 * 1024
+  ): Promise<{ messages: any[]; hasMore: boolean; nextOffset: number }> {
+    try {
+      // Resolve sessionKey → sessionId + agentId via sessions.list
+      const configPath = this.getConfigPath();
+      if (!configPath) {
+        return { messages: [], hasMore: false, nextOffset: 0 };
+      }
+
+      // Look up the session to get sessionId and agentId
+      let sessionId: string | undefined;
+      let agentId: string | undefined;
+      try {
+        const listResult = await this.gateway.sendRequest('sessions.list', {});
+        const sessions = Array.isArray(listResult?.sessions) ? listResult.sessions : [];
+        const match = sessions.find((s: any) => s.key === sessionKey);
+        if (match) {
+          sessionId = match.sessionId;
+          agentId = match.agentId;
+        }
+      } catch {
+        // sessions.list unavailable — fall through to unavailable
+      }
+
+      if (!sessionId) {
+        return { messages: [], hasMore: false, nextOffset: 0 };
+      }
+
+      // Derive profile directory from config path
+      const profileDir = path.dirname(path.resolve(configPath));
+      const resolvedAgentId = agentId || 'main';
+      const sessionsDir = path.join(profileDir, 'agents', resolvedAgentId, 'sessions');
+      const sessionFile = path.join(sessionsDir, `${sessionId}.jsonl`);
+
+      // Check if file exists
+      try {
+        await fs.promises.access(sessionFile);
+      } catch {
+        return { messages: [], hasMore: false, nextOffset: 0 };
+      }
+
+      // Read from end of file
+      const stat = await fs.promises.stat(sessionFile);
+      const fileSize = stat.size;
+
+      if (fileSize === 0) {
+        return { messages: [], hasMore: false, nextOffset: 0 };
+      }
+
+      // Calculate read window — window ends at (fileSize - offset), not at fileSize
+      const readEnd = Math.max(0, fileSize - offset);
+      const readStart = Math.max(0, readEnd - maxBytes);
+      let bytesRead = readEnd - readStart;
+
+      if (bytesRead <= 0) {
+        return { messages: [], hasMore: false, nextOffset: offset };
+      }
+
+      // Read the chunk
+      const buffer = Buffer.alloc(bytesRead);
+      const fd = await fs.promises.open(sessionFile, 'r');
+      try {
+        await fd.read(buffer, 0, bytesRead, readStart);
+      } finally {
+        await fd.close();
+      }
+
+      let text = buffer.toString('utf-8');
+
+      // When reading from a mid-file offset, skip the truncated first line
+      // (it was fully captured by the previous page read).
+      let nextOffset = offset + bytesRead;
+      if (readStart > 0) {
+        const firstNewline = text.indexOf('\n');
+        if (firstNewline >= 0) {
+          text = text.slice(firstNewline + 1);
+        } else {
+          // No newline found — entire chunk is one partial line; skip it
+          return { messages: [], hasMore: readStart > 0, nextOffset };
+        }
+      }
+
+      const lines = text.split('\n').filter(line => line.trim());
+
+      // Parse messages (only type: "message" entries) — already chronological
+      const messages: any[] = [];
+
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry.type === 'message' && entry.message) {
+            messages.push(entry.message);
+          }
+        } catch {
+          // Skip malformed lines
+        }
+      }
+
+      const hasMore = readStart > 0;
+
+      // Non-progress guard: if nextOffset hasn't advanced, signal done
+      if (nextOffset <= offset && hasMore) {
+        return { messages, hasMore: false, nextOffset };
+      }
+
+      return { messages, hasMore, nextOffset };
+    } catch (error) {
+      this.logger.warn('Failed to read session JSONL', error);
+      return { messages: [], hasMore: false, nextOffset: 0 };
+    }
+  }
+
+  private getConfigPath(): string | null {
+    // Get config path from VS Code settings
+    const config = vscode.workspace.getConfiguration('junction.openclaw');
+    return config.get<string>('configPath', '') || null;
+  }
 
   private generateId(): string {
     return `vscode-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;

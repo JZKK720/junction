@@ -127,6 +127,8 @@ export interface SessionEntry {
     agentId?: string;
     /** Parent session key (for child sessions) */
     parentSessionKey?: string;
+    /** Optional session identifier (e.g. JSONL filename stem) */
+    sessionId?: string;
     /** Key of the runtime that spawned this session */
     spawnedBy?: string;
     /** Unix timestamp of creation */
