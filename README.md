@@ -9,7 +9,6 @@ A VS Code chat sidebar that bridges your editor to local AI coding agents —
 - **Multi-bridge** — switch between OpenClaw, Hermes, and Souveraine runtimes
 - **Workspace context** — stages the active file/selection as context for the agent
 - **Model + reasoning picker** — pick a model and its reasoning effort per session
-- **Checkpoints** — snapshot the workspace each turn so you can rewind code to a message
 - **Markdown rendering** — assistant responses, tool cards, and diffs render inline
 - **Auto-reconnection** — reconnects to the runtime if the connection drops
 

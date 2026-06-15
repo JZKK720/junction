@@ -1,7 +1,7 @@
 {
   "name": "junction",
   "displayName": "Junction",
-  "description": "Junction — local AI coding agent bridge for OpenClaw, Hermes, and Souveraine",
+  "description": "Junction \u2014 local AI coding agent bridge for OpenClaw, Hermes, and Souveraine",
   "version": "0.0.1",
   "publisher": "Plaer1",
   "icon": "resources/icon.png",
@@ -92,7 +92,8 @@
           "enum": [
             "openclaw",
             "hermes",
-            "souveraine"
+            "souveraine",
+            "mimocode"
           ],
           "default": "openclaw",
           "description": "Active local agent bridge."
@@ -190,6 +191,11 @@
           "default": "default",
           "description": "Follow-up mode for OpenClaw. 'default' uses the global junction.followUpMode."
         },
+        "junction.hermes.repoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the hermes-agent repo for managed spawn (leave empty to disable managed spawn)."
+        },
         "junction.hermes.followUpMode": {
           "type": "string",
           "enum": [
@@ -200,6 +206,11 @@
           ],
           "default": "default",
           "description": "Follow-up mode for Hermes. 'default' uses the global junction.followUpMode."
+        },
+        "junction.souveraine.repoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Souveraine repo for managed spawn (leave empty to disable managed spawn)."
         },
         "junction.souveraine.followUpMode": {
           "type": "string",
@@ -220,7 +231,7 @@
           ],
           "enumDescriptions": [
             "Stream thinking expanded, then auto-collapse to a summary when it finishes",
-            "Show a compact 'Thinking… ~N tokens' line while reasoning, then reveal the full text and keep it expanded after finish"
+            "Show a compact 'Thinking\u2026 ~N tokens' line while reasoning, then reveal the full text and keep it expanded after finish"
           ],
           "default": "compact",
           "description": "How reasoning/thinking blocks are displayed in the chat."
@@ -303,6 +314,42 @@
           "type": "boolean",
           "default": false,
           "description": "Show full chat history on load (locally installed OpenClaw instances only). When enabled, loads up to 1000 messages instead of the default 200. May be slower on large sessions."
+        },
+        "junction.mimocode.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Connect to an already-running MiMoCode server (e.g. http://127.0.0.1:8080). Leave empty to let Junction spawn and manage its own instance.",
+          "order": 999
+        },
+        "junction.mimocode.binaryPath": {
+          "type": "string",
+          "default": "mimo",
+          "description": "Path to the mimo binary. Use \"mimo\" if it is on PATH, or set the full path (e.g. /home/user/bin/mimo).",
+          "order": 1000
+        },
+        "junction.mimocode.port": {
+          "type": "number",
+          "default": 0,
+          "description": "Port for the managed MiMoCode server (0 = auto-assign random port). Ignored when junction.mimocode.serverUrl is set.",
+          "order": 1001
+        },
+        "junction.mimocode.home": {
+          "type": "string",
+          "default": "~/.mimocode-junction",
+          "description": "Data directory for Junction-managed MiMoCode state",
+          "order": 1002
+        },
+        "junction.mimocode.followUpMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
+          "default": "default",
+          "description": "MiMoCode follow-up mode preference (overrides junction.followUpMode when active bridge is MiMoCode)",
+          "order": 1003
         }
       }
     }

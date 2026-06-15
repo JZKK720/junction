@@ -6,15 +6,23 @@ import { ChatBridge, ChoiceMenuItem } from './types';
 export class BridgeRegistry extends EventEmitter {
     private bridges = new Map<string, ChatBridge>();
     private activeId: string;
+    private readonly configuredId: string;
 
     constructor(readonly context: vscode.ExtensionContext) {
         super();
-        this.activeId = getActiveBridge();
+        this.configuredId = getActiveBridge();
+        this.activeId = this.configuredId;
     }
 
     register(bridge: ChatBridge): void {
         this.bridges.set(bridge.id, bridge);
-        if (!this.bridges.has(this.activeId)) this.activeId = bridge.id;
+        if (bridge.id === this.configuredId) {
+            // Configured bridge just became available — restore it.
+            this.activeId = this.configuredId;
+        } else if (!this.bridges.has(this.activeId)) {
+            // Configured bridge not registered yet — use this as fallback.
+            this.activeId = bridge.id;
+        }
     }
 
     get active(): ChatBridge {
@@ -48,7 +56,7 @@ export class BridgeRegistry extends EventEmitter {
     }
 
     async listEnvironmentChoices(): Promise<ChoiceMenuItem[]> {
-        const bridgeItems: ChoiceMenuItem[] = [];
+        const configured: ChoiceMenuItem[] = [];
         for (const bridge of this.getAll()) {
             const children = await bridge.listEnvironmentChoices().catch((): ChoiceMenuItem[] => [{
                 id: `${bridge.id}:configure`,
@@ -57,25 +65,32 @@ export class BridgeRegistry extends EventEmitter {
                 icon: 'gear',
                 bridgeId: bridge.id,
             }]);
-            bridgeItems.push({
+            const mappedChildren = children.map((item) => ({ ...item, bridgeId: item.bridgeId ?? bridge.id }));
+            const isActive = bridge.id === this.active.id;
+            const hasConfigured = children.some((c) => !c.setup);
+            const item: ChoiceMenuItem = {
                 id: `bridge:${bridge.id}`,
                 label: bridge.label,
-                description: bridge.id === this.active.id ? 'Active bridge' : 'Switch bridge',
+                description: isActive
+                    ? 'Active bridge'
+                    : (hasConfigured ? 'Switch bridge' : 'Disconnected; setup required'),
                 section: 'Bridges',
                 icon: bridge.id === 'openclaw' ? 'plug' : 'hubot',
-                checked: bridge.id === this.active.id,
+                checked: isActive,
                 bridgeId: bridge.id,
-                children: children.map((item) => ({ ...item, bridgeId: item.bridgeId ?? bridge.id })),
-            });
+                children: mappedChildren,
+            };
+            configured.push(item);
         }
-        return bridgeItems;
+        return configured;
     }
 
     async selectEnvironmentChoice(data: any): Promise<void> {
         const id = String(data.id ?? '');
         const bridgeId = String(data.bridgeId ?? '').trim();
         if (id.startsWith('bridge:')) {
-            await this.setActive(id.slice('bridge:'.length));
+            const bridgeName = id.slice('bridge:'.length);
+            if (bridgeName !== 'more') await this.setActive(bridgeName);
             return;
         }
         if (bridgeId && bridgeId !== this.active.id) {

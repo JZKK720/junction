@@ -120,11 +120,19 @@
         { id: 'back', label: 'Back to chats', icon: 'list-unordered' },
         { id: 'usage', label: 'Session usage', icon: 'graph' },
         { id: 'agentPicker', label: 'Agent picker', icon: 'hubot' },
+        { id: 'animationSettings', label: 'Animation settings', icon: 'symbol-color', action: function () {
+          if (typeof window.toggleChatPreviewPanel === 'function') window.toggleChatPreviewPanel();
+        }},
+        { id: 'playCurtain', label: 'Play chat curtain', icon: 'comment', action: function () {
+          if (typeof window.playChatCurtainPreview === 'function') window.playChatCurtainPreview();
+        }},
+        { id: 'playSplash', label: 'Play splash animation', icon: 'rocket', action: function () {
+          if (typeof window.playSplashAnimationPreview === 'function') window.playSplashAnimationPreview();
+        }},
         { id: 'fork', label: 'Fork conversation', icon: 'git-branch' },
-        { id: 'forkRewind', label: 'Fork and rewind', icon: 'discard' },
         { id: 'archive', label: 'Archive', icon: 'archive', key: _sessionKey, disabled: !_sessionKey },
         { id: 'share', label: 'Share / export chat', icon: 'clippy', action: function () {
-          window.dispatchEvent(new CustomEvent('junction-share-chat'));
+          window.dispatchEvent(new CustomEvent('junction-share-chat', { detail: { target: anchorEl } }));
         }},
         { id: 'settings', label: 'Settings', icon: 'gear' }
       ]
@@ -198,7 +206,6 @@
         var menuBtn = document.getElementById('btn-menu');
         if (window.choiceMenu && menuBtn) {
           window.choiceMenu.open(menuBtn, {
-            title: 'Agent',
             items: msg.items || [],
             emptyText: 'No agents available',
             selectMessage: 'selectAgentChoice'

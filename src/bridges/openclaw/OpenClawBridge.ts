@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { GatewayConnection } from '../../gateway/connection';
@@ -292,17 +293,49 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         await this.refreshRuntimeLabels();
         const currentUrl = getOpenClawGatewayUrl();
         const gateways = await discoverGateways().catch(() => []);
+        const connected = this.gateway.isConnected();
+
+        if (gateways.length === 0 && !connected) {
+            return [
+                {
+                    id: 'openclaw:autodetect',
+                    label: 'Auto-detect runtimes',
+                    description: 'Scan for running OpenClaw gateways',
+                    section: 'OpenClaw',
+                    icon: 'search',
+                    setup: true,
+                },
+                {
+                    id: 'openclaw:select-config',
+                    label: 'Set config path manually…',
+                    description: 'Browse for an openclaw.json',
+                    section: 'OpenClaw',
+                    icon: 'file',
+                    setup: true,
+                },
+                {
+                    id: 'openclaw:configure',
+                    label: 'Configure OpenClaw',
+                    description: currentUrl,
+                    section: 'OpenClaw',
+                    icon: 'gear',
+                    setup: true,
+                },
+            ];
+        }
+
         const agents = this.gateway.capabilities.canListAgents()
             ? await listAgents(this.gateway).catch(() => [])
             : [];
 
         // Flat list: each agent × runtime combo is one item.
         const items: ChoiceMenuItem[] = [];
+        const anyConnected = this.gateway.isConnected();
         for (const g of gateways) {
             const runtime = this.runtimeNameForUrl(g.url);
             const port = this.portForUrl(g.url);
             const runtimeAgents = g.url === currentUrl ? agents : [];
-            const isConnected = g.url === currentUrl && this.gateway.isConnected();
+            const isConnected = anyConnected;
             if (runtimeAgents.length === 0) {
                 // Runtime with no agent info — show as runtime:port
                 items.push({
@@ -362,6 +395,49 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         const id = String(data.id ?? '');
         if (id === 'openclaw:configure') {
             await this.configure();
+            return;
+        }
+        if (id === 'openclaw:autodetect') {
+            const gateways = await discoverGateways().catch(() => []);
+            if (gateways.length > 0) {
+                const g = gateways[0];
+                await updateOpenClawGateway(g.url, g.configPath ?? '');
+                await Promise.resolve(this.context.secrets.delete('junction.openclaw.deviceToken')).catch(() => {});
+                await Promise.resolve(this.context.secrets.delete('openclaw.deviceToken')).catch(() => {});
+                this.selection.agentId = undefined;
+                this.modelManager.invalidate();
+                this.gateway.disconnect();
+                await this.connect();
+            } else {
+                vscode.window.showInformationMessage('OpenClaw: no running gateways found.');
+            }
+            return;
+        }
+        if (id === 'openclaw:select-config') {
+            const result = await vscode.window.showOpenDialog({
+                canSelectFiles: true,
+                canSelectFolders: false,
+                canSelectMany: false,
+                filters: { 'OpenClaw config': ['json'] },
+                title: 'Select openclaw.json',
+            });
+            if (result?.[0]) {
+                const configPath = result[0].fsPath;
+                try {
+                    const raw = JSON.parse(await fs.promises.readFile(configPath, 'utf8'));
+                    const port = raw?.gateway?.port;
+                    const url = port ? `ws://127.0.0.1:${port}` : getOpenClawGatewayUrl();
+                    await updateOpenClawGateway(url, configPath);
+                } catch {
+                    await updateOpenClawGateway(getOpenClawGatewayUrl(), configPath);
+                }
+                await Promise.resolve(this.context.secrets.delete('junction.openclaw.deviceToken')).catch(() => {});
+                await Promise.resolve(this.context.secrets.delete('openclaw.deviceToken')).catch(() => {});
+                this.selection.agentId = undefined;
+                this.modelManager.invalidate();
+                this.gateway.disconnect();
+                await this.connect();
+            }
             return;
         }
         if (id.startsWith('openclaw:gateway:')) {

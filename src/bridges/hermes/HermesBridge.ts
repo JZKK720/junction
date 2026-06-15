@@ -3,10 +3,9 @@ import * as vscode from 'vscode';
 import WebSocket from 'ws';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
 import { spawn } from 'child_process';
 import { existsSync } from 'fs';
-import { getHermesApiBaseUrl, getHermesBaseUrl, getHermesHome, getHermesWsUrl, updateHermesRuntime } from '../../config/agentBridgeConfig';
+import { getHermesApiBaseUrl, getHermesBaseUrl, getHermesHome, getHermesWsUrl, hermesConfig, updateHermesRuntime } from '../../config/agentBridgeConfig';
 import { jsonRequest, textRequest } from '../http';
 import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, ModelChoice, OPENCLAW_THINKING_LEVELS, ToolStatusView } from '../types';
 import { Logger } from '../../utils/logger';
@@ -182,7 +181,33 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
     }
 
     async getSessionHistory(): Promise<any> {
-        return { messages: [] };
+        if (!this.activeSessionId || !this.isConnected()) return { messages: [] };
+        try {
+            const res = await this.request<{ count?: number; messages?: any[] }>(
+                'session.history',
+                { session_id: this.activeSessionId },
+                10000,
+            );
+            const rawMessages = Array.isArray(res?.messages) ? res.messages : [];
+            const messages: any[] = [];
+            for (const msg of rawMessages) {
+                if (!msg) continue;
+                const role = msg.role;
+                if (role === 'user') {
+                    messages.push({ role, content: msg.text || '' });
+                } else if (role === 'assistant') {
+                    // Convert {role, text} → {role, content: [{type: 'text', text}]}
+                    const content: any[] = [];
+                    if (msg.text) content.push({ type: 'text', text: msg.text });
+                    if (content.length > 0) messages.push({ role, content });
+                }
+                // Skip tool/system messages — rebuildTurnsFromGatewayHistory handles those differently
+            }
+            return { messages };
+        } catch (err) {
+            Logger.getInstance().warn('Failed to fetch Hermes session history', err);
+            return { messages: [] };
+        }
     }
 
     async sendChatMessage(message: string, context?: BridgeContext): Promise<any> {
@@ -288,20 +313,40 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
     }
 
     async listEnvironmentChoices(): Promise<ChoiceMenuItem[]> {
-        const available = await textRequest(getHermesBaseUrl(), { timeoutMs: 750 }).then(() => true).catch(() => false);
+        const available = await textRequest(getHermesBaseUrl(), { timeoutMs: 250 }).then((html) => html.includes('__HERMES_SESSION_TOKEN__')).catch(() => false);
         const port = portFromUrl(getHermesBaseUrl());
+        if (!available) {
+            return [
+                {
+                    id: 'hermes:autodetect',
+                    label: 'Set Hermes path…',
+                    description: 'Configure Hermes connection manually',
+                    section: 'Hermes',
+                    icon: 'gear',
+                    setup: true,
+                },
+                {
+                    id: 'hermes:settings',
+                    label: 'Configure Hermes…',
+                    description: 'Bridge settings',
+                    section: 'Hermes',
+                    icon: 'gear',
+                    setup: true,
+                },
+            ];
+        }
         return [
             {
                 id: 'hermes:managed',
                 label: `hermling@hermes:${port}`,
-                description: available ? 'Detected dashboard runtime' : 'Configured dashboard runtime',
+                description: 'Detected dashboard runtime',
                 section: 'Hermes',
-                icon: available ? 'hubot' : 'debug-disconnect',
+                icon: 'hubot',
                 checked: true,
             },
             {
                 id: 'hermes:settings',
-                label: 'Configure Hermes',
+                label: 'Configure Hermes…',
                 description: 'Bridge settings',
                 section: 'Hermes',
                 icon: 'gear',
@@ -310,7 +355,8 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
     }
 
     async selectEnvironmentChoice(data: any): Promise<void> {
-        if (String(data.id) === 'hermes:settings') await this.configure();
+        const id = String(data.id ?? '');
+        if (id === 'hermes:settings' || id === 'hermes:autodetect') { await this.configure(); return; }
     }
 
     getEnvironmentLabel(): string {
@@ -404,7 +450,6 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
     }
 
     private async ensureManagedRuntime(): Promise<void> {
-        await this.writeIdentityFiles();
         try {
             await textRequest(getHermesBaseUrl(), { timeoutMs: 1000 });
             return;
@@ -419,33 +464,9 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
         }
     }
 
-    private async writeIdentityFiles(): Promise<void> {
-        const home = getHermesHome();
-        const agentDir = path.join(home, 'agents', 'hermling');
-        await fs.promises.mkdir(agentDir, { recursive: true });
-        const files = [
-            ['/home/e/entities/ling/workspace-灵/AGENTS.md', 'AGENTS.md'],
-            ['/home/e/entities/ling/workspace-灵/SOUL_INCARNATION.md', 'SOUL.md'],
-        ];
-        for (const [src, dest] of files) {
-            try {
-                const raw = (await fs.promises.readFile(src, 'utf8')).replace(/\{harness\}/g, 'Hermes');
-                await fs.promises.writeFile(path.join(agentDir, dest), raw, 'utf8');
-            } catch {}
-        }
-        const marker = {
-            name: 'hermling',
-            createdBy: 'junction',
-            source: 'Ling incarnation identity for Hermes',
-        };
-        await fs.promises.writeFile(path.join(agentDir, 'junction.json'), JSON.stringify(marker, null, 2) + '\n', 'utf8');
-        const apiKey = await this.context.secrets.get('junction.hermes.apiKey') || crypto.randomBytes(32).toString('hex');
-        await this.context.secrets.store('junction.hermes.apiKey', apiKey);
-    }
-
     private spawnDashboard(): void {
-        const repo = '/home/e/sauce/ai/agents/hermes-agent';
-        if (!fs.existsSync(repo)) return;
+        const repo = hermesConfig().get<string>('repoPath', '');
+        if (!repo || !fs.existsSync(repo)) return;
         const home = getHermesHome();
         const logDir = path.join(home, 'logs');
         fs.mkdirSync(logDir, { recursive: true });
@@ -520,4 +541,18 @@ function reasoningEffortsFromRaw(raw: any): string[] {
     return source
         .map((e) => (typeof e === 'string' ? e : typeof e?.id === 'string' ? e.id : ''))
         .filter((e): e is string => !!e);
+}
+
+async function hermesAutoDetect(timeoutMs = 200): Promise<string | null> {
+    const ports = [9119, 9120, 9000, 8642, 8000];
+    const results = await Promise.all(ports.map(async (port) => {
+        const url = `http://127.0.0.1:${port}`;
+        try {
+            const html = await textRequest(url, { timeoutMs });
+            return html.includes('__HERMES_SESSION_TOKEN__') ? url : null;
+        } catch {
+            return null;
+        }
+    }));
+    return results.find((r) => r !== null) ?? null;
 }

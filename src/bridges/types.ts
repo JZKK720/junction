@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as vscode from 'vscode';
 
-export type BridgeId = 'openclaw' | 'hermes' | 'souveraine' | (string & {});
+export type BridgeId = 'openclaw' | 'hermes' | 'souveraine' | 'mimocode' | (string & {});
 export type ChatScope = 'folder' | 'all';
 
 /**
@@ -86,6 +86,53 @@ export interface BridgeSelectionState {
 
 export interface ToolStatusView {
     tools: Array<{ name: string; enabled: boolean }>;
+}
+
+// ── Event mapping (per-bridge adapter contract) ───────────────────────────
+
+/** A single event emitted by a bridge adapter into the Junction stream. */
+export interface MappedBridgeEvent {
+    type: string;
+    [key: string]: unknown;
+}
+
+/** Result returned by a bridge's event mapper function. */
+export interface EventMappingResult {
+    runId: string;
+    events: MappedBridgeEvent[];
+    /** Accumulated full text for text-based bridges (Souveraine, Hermes). */
+    nextText?: string;
+    /** MiMoCode: true when the server signals finish (stop/end). */
+    finished?: boolean;
+    /** Hermes: true when the buffer should be cleared on completion. */
+    clearBuffer?: boolean;
+    /** Token usage extracted from server response (MiMoCode). */
+    usage?: { inputTokens?: number; outputTokens?: number };
+}
+
+// ── History adapter (per-bridge contract) ────────────────────────────────
+
+/** Normalized message shape returned by getSessionHistory(). */
+export interface HistoryMessage {
+    role: 'user' | 'assistant';
+    /** Content parts — array for assistant (reasoning/text/toolCall), string for user. */
+    content: string | HistoryPart[];
+    isSteer?: boolean;
+}
+
+/** A single part in an assistant message's content array. */
+export interface HistoryPart {
+    type: 'text' | 'reasoning' | 'thinking' | 'toolCall' | 'tool_use' | 'tool-call';
+    text?: string;
+    thinking?: string;
+    name?: string;
+    toolName?: string;
+    toolCallId?: string;
+    id?: string;
+    arguments?: any;
+    input?: any;
+    args?: any;
+    [key: string]: unknown;
 }
 
 export interface ChatBridge extends EventEmitter {

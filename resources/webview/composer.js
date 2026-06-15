@@ -8,6 +8,9 @@
    - Drag-and-drop file paths into the composer
    Sends: sendMessage · stopRun · attachFile · slashComplete · requestModelChoices
    Listens: config · runActive · runComplete · slashSuggestions · modelDisplay · modelChoices
+
+   Thin coordinator — imports logic from settings/config-section.js,
+   settings/preview.js, and settings/splash-section.js.
    ========================================================================== */
 (function () {
   'use strict';
@@ -23,9 +26,10 @@
       length: 2.0,
       bgColor: 'theme',
       bgAlpha: 0.0,
-      widthMode: 'text',
+      widthMode: 'full',
       sizeOff: false,
       magic: false,
+      curtainFade: 0.3,
       diffusionHeight: 1.0,
       noiseRes: 4,
       textFade: 0.5,
@@ -66,22 +70,15 @@
   } catch (e) {}
 
   var ANIM_MODES = window.ANIM_MODES || ['matrix','zalgo','fire','bounce','spiral','galaxy','leak'];
+  window.ANIM_MODES = ANIM_MODES;
   var createAnimatedCanvas = window.createAnimatedCanvas || function () { return null; };
+  window.createAnimatedCanvas = createAnimatedCanvas;
   var animationMode = window._junctionAnimationMode || 'matrix';
-  // Re-sync when chat-stream.js loads later
-  Object.defineProperty(window, 'ANIM_MODES', {
-    get: function () { return ANIM_MODES; },
-    set: function (v) { ANIM_MODES = v; },
-    configurable: true
-  });
-  Object.defineProperty(window, 'createAnimatedCanvas', {
-    get: function () { return createAnimatedCanvas; },
-    set: function (v) { createAnimatedCanvas = v; },
-    configurable: true
-  });
+  var settingsSyncFunctions = [];
+  window.settingsSyncFunctions = settingsSyncFunctions;
 
   // ── Color helpers (hoisted — used by chat + bobber + splash settings) ──
-  function parseAnimColor(str) {
+  window.parseAnimColor = function (str) {
     if (!str || str === '') return { hex: '#cccccc', a: 1 };
     var m = str.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/);
     if (m) {
@@ -94,12 +91,12 @@
       return { hex: '#' + str[1]+str[1]+str[2]+str[2]+str[3]+str[3], a: 1 };
     }
     return { hex: '#cccccc', a: 1 };
-  }
-  function toRgba(hex, a) {
+  };
+  window.toRgba = function (hex, a) {
     var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
     if (a >= 0.99) return hex;
     return 'rgba(' + r + ',' + g + ',' + b + ',' + a.toFixed(2) + ')';
-  }
+  };
 
   var composerInput = document.getElementById('composer-input');
   var btnAttachFile = document.getElementById('btn-attach-file');
@@ -110,6 +107,7 @@
   var sandboxChip = document.getElementById('sandbox-display');
   var envChip = document.getElementById('env-switcher');
   var contextHints = document.getElementById('context-hints');
+  var queueList = document.getElementById('queued-followups');
 
   // ── Resizable composer input ─────────────────────────────────────────────
   (function () {
@@ -296,6 +294,96 @@
     // If gateway doesn't support lifecycle events, button stays enabled.
   }
 
+  function renderQueue(items) {
+    if (!queueList) return;
+    queueList.innerHTML = '';
+    var list = Array.isArray(items) ? items : [];
+    queueList.hidden = list.length === 0;
+    list.forEach(function (item, index) {
+      var row = document.createElement('div');
+      row.className = 'queued-followup' + (item.groupWithPrevious ? ' grouped' : '');
+      row.dataset.index = String(index);
+
+      var idx = document.createElement('span');
+      idx.className = 'queued-followup-index';
+      idx.textContent = String(index + 1);
+      row.appendChild(idx);
+
+      var text = document.createElement('div');
+      text.className = 'queued-followup-text';
+      text.textContent = item.text || '';
+      text.title = item.text || '';
+      row.appendChild(text);
+
+      var actions = document.createElement('div');
+      actions.className = 'queued-followup-actions';
+      function iconButton(icon, title, fn) {
+        var btn = document.createElement('button');
+        btn.className = 'codicon codicon-' + icon;
+        btn.title = title;
+        btn.addEventListener('click', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          fn(btn);
+        });
+        actions.appendChild(btn);
+        return btn;
+      }
+      var up = iconButton('chevron-up', 'Move up', function () {
+        post('moveQueuedFollowUp', { index: index, direction: 'up' });
+      });
+      up.disabled = index === 0;
+      var down = iconButton('chevron-down', 'Move down', function () {
+        post('moveQueuedFollowUp', { index: index, direction: 'down' });
+      });
+      down.disabled = index === list.length - 1;
+      var group = iconButton('link', 'Group with previous', function () {
+        post('toggleQueuedFollowUpGroup', { index: index });
+      });
+      group.disabled = index === 0;
+      if (item.groupWithPrevious) group.classList.add('active');
+      iconButton('edit', 'Edit queued text', function () {
+        startQueueEdit(row, index, item.text || '');
+      });
+      iconButton('trash', 'Remove queued text', function () {
+        post('removeQueuedFollowUp', { index: index });
+      });
+      row.appendChild(actions);
+      queueList.appendChild(row);
+    });
+  }
+
+  function startQueueEdit(row, index, value) {
+    if (!row || row.querySelector('.queued-followup-edit')) return;
+    var textarea = document.createElement('textarea');
+    textarea.className = 'queued-followup-edit';
+    textarea.value = value;
+    var save = document.createElement('button');
+    save.className = 'codicon codicon-check';
+    save.title = 'Save queued text';
+    var cancel = document.createElement('button');
+    cancel.className = 'codicon codicon-close';
+    cancel.title = 'Cancel edit';
+    var actions = row.querySelector('.queued-followup-actions');
+    function closeEdit() {
+      textarea.remove();
+      save.remove();
+      cancel.remove();
+    }
+    save.addEventListener('click', function () {
+      post('editQueuedFollowUp', { index: index, text: textarea.value });
+      closeEdit();
+    });
+    cancel.addEventListener('click', closeEdit);
+    row.appendChild(textarea);
+    if (actions) {
+      actions.appendChild(save);
+      actions.appendChild(cancel);
+    }
+    textarea.focus();
+    textarea.select();
+  }
+
   // ── Keydown: send-behavior modes ────────────────────────────────────────────
   composerInput.addEventListener('keydown', function (e) {
     if (slashMenu && !slashMenu.hidden && e.key === 'Escape') { hideSlashMenu(); return; }
@@ -335,741 +423,6 @@
       hideSlashMenu();
     }
   });
-
-  if (btnSend) btnSend.addEventListener('click', send);
-
-  // ── Re-animate all text messages ──────────────────────────────────────────
-  var btnReanimate = document.getElementById('btn-reanimate');
-  if (btnReanimate) {
-    btnReanimate.addEventListener('click', function (e) {
-      e.stopPropagation();
-      if (window.choiceMenu) {
-        window.choiceMenu.open(btnReanimate, {
-          title: 'Play Animation',
-          items: [
-            {
-              id: 'play_splash',
-              label: 'Play splash animation',
-              icon: 'rocket',
-              action: function () {
-                if (typeof window.playSplashAnimationPreview === 'function') {
-                  window.playSplashAnimationPreview();
-                }
-              }
-            },
-            {
-              id: 'play_chat',
-              label: 'Play chat animation',
-              icon: 'comment',
-              action: function () {
-                if (typeof window.reanimateAllMessages === 'function') {
-                  window.reanimateAllMessages();
-                }
-              }
-            }
-          ]
-        });
-      } else {
-        if (typeof window.reanimateAllMessages === 'function') {
-          window.reanimateAllMessages();
-        }
-      }
-    });
-  }
-
-  // ── Animation preview + controls ──────────────────────────────────────────
-  var btnPreviewAnim = document.getElementById('btn-preview-anim');
-
-  function toggleChatPreviewPanel() {
-    var existing = document.getElementById('anim-preview-box');
-    if (existing) {
-      var oldCanvas = existing.querySelector('canvas.pretext-canvas');
-      if (oldCanvas && typeof oldCanvas._stopAnimation === 'function') {
-        oldCanvas._stopAnimation();
-      }
-      existing.remove();
-      return;
-    }
-    var box = document.createElement('div');
-    box.id = 'anim-preview-box';
-    box.style.cssText = 'padding:8px;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:4px;margin:4px 0;';
-
-    // Preview area defined early so refreshPreview can reference it
-    var previewArea = document.createElement('div');
-    previewArea.style.cssText = 'display:flex;justify-content:center;padding:4px 0;min-height:60px;';
-
-    var activeTab = 'chat'; // 'chat' or 'bobber'
-
-    function refreshPreview() {
-      var oldCanvas = previewArea.querySelector('canvas.pretext-canvas');
-      if (oldCanvas) {
-        if (typeof oldCanvas._stopAnimation === 'function') {
-          oldCanvas._stopAnimation();
-        }
-        oldCanvas.remove();
-      }
-      var existingFullScreen = document.querySelectorAll('canvas.full-screen-anim');
-      existingFullScreen.forEach(function (c) {
-        if (c._stopAnimation) {
-          try { c._stopAnimation(); } catch (e) {}
-        } else {
-          c.remove();
-        }
-      });
-
-      if (activeTab === 'chat') {
-        var isMagic = !!(window.animConfig && window.animConfig.magic);
-        var cfg = window.animConfig || {};
-        var opts = {
-          duration: Math.round((cfg.length || 2.0) * 1000),
-          mode: cfg.mode || window._junctionAnimationMode || 'matrix',
-          loop: !!cfg.loop
-        };
-        if (isMagic) {
-          var rect = previewArea.getBoundingClientRect();
-          if (rect.width <= 0) {
-            rect = { left: window.innerWidth / 2 - 150, top: window.innerHeight - 150, width: 300, height: 60 };
-          }
-          opts.unbounded = true;
-          opts.rect = rect;
-        } else {
-          opts.width = 300;
-        }
-
-        var canvas = createAnimatedCanvas('Hello world, this is a test.', opts);
-        if (canvas) {
-          if (isMagic) {
-            document.body.appendChild(canvas);
-            setTimeout(function () {
-              if (canvas && typeof canvas._stopAnimation === 'function') {
-                canvas._stopAnimation();
-              }
-              canvas.remove();
-            }, 850);
-          } else {
-            canvas.style.maxWidth = '280px';
-            if (window.animConfig.opacity !== undefined) {
-              canvas.style.opacity = window.animConfig.opacity;
-            }
-            previewArea.appendChild(canvas);
-          }
-        }
-      } else {
-        // activeTab === 'bobber'
-        var cfg = window.animConfig || {};
-        var opts = {
-          loader: true,
-          isSplash: true,
-          width: 300,
-          height: 60,
-          loaderLoop: !!cfg.loaderLoop
-        };
-        var canvas = createAnimatedCanvas('Junction', opts);
-        if (canvas) {
-          canvas.style.maxWidth = '280px';
-          previewArea.appendChild(canvas);
-        }
-      }
-    }
-
-    // Tabs Row
-    var tabsRow = document.createElement('div');
-    tabsRow.style.cssText = 'display:flex;border-bottom:1px solid var(--vscode-panel-border);margin-bottom:8px;padding-bottom:4px;gap:12px;';
-
-    var tabChat = document.createElement('span');
-    tabChat.textContent = 'Chat Messages';
-    tabChat.style.cssText = 'cursor:pointer;font-size:11px;font-weight:bold;color:var(--vscode-button-foreground);border-bottom:2px solid var(--vscode-button-background);padding:2px 4px;';
-
-    var tabBobber = document.createElement('span');
-    tabBobber.textContent = 'Bobber Settings';
-    tabBobber.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
-
-    var tabSplash = document.createElement('span');
-    tabSplash.textContent = 'Splash';
-    tabSplash.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
-
-    tabsRow.appendChild(tabChat);
-    tabsRow.appendChild(tabBobber);
-    tabsRow.appendChild(tabSplash);
-    box.appendChild(tabsRow);
-
-    function buildConfigSection(isLoader) {
-      var section = document.createElement('div');
-
-      // Mode Selector
-      var modeRow = document.createElement('div');
-      modeRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;align-items:center;';
-      var modeLabel = document.createElement('span');
-      modeLabel.textContent = isLoader ? 'Style:' : 'Mode:';
-      modeLabel.style.cssText = 'font-size:10px;color:var(--vscode-editor-foreground);margin-right:4px;';
-      modeRow.appendChild(modeLabel);
-
-      var modesList = isLoader 
-        ? [{val:'default', label:'Same as Chat'}, {val:'matrix', label:'Matrix'}, {val:'zalgo', label:'Zalgo'}, {val:'fire', label:'Fire'}, {val:'bounce', label:'Bounce'}, {val:'spiral', label:'Spiral'}, {val:'galaxy', label:'Galaxy'}, {val:'leak', label:'Leak'}]
-        : ANIM_MODES.map(function(m) { return {val: m, label: m.charAt(0).toUpperCase() + m.slice(1)}; });
-
-      modesList.forEach(function (opt) {
-        var btn = document.createElement('button');
-        btn.textContent = opt.label;
-        var currentMode = isLoader 
-          ? (window.animConfig.loaderMode || 'default') 
-          : (window._junctionAnimationMode || 'matrix');
-        
-        btn.style.cssText = 'background:' + (currentMode === opt.val ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (currentMode === opt.val ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';border:1px solid var(--vscode-input-border);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;';
-        btn.addEventListener('click', function () {
-          if (isLoader) {
-            window.animConfig.loaderMode = opt.val;
-          } else {
-            animationMode = opt.val;
-            window._junctionAnimationMode = opt.val;
-          }
-          refreshPreview();
-          modeRow.querySelectorAll('button').forEach(function (b, idx) {
-            var activeVal = modesList[idx].val;
-            var isActive = isLoader 
-              ? (window.animConfig.loaderMode === activeVal)
-              : (window._junctionAnimationMode === activeVal);
-            b.style.background = isActive ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
-            b.style.color = isActive ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
-          });
-          if (typeof window.refreshWorking === 'function') window.refreshWorking();
-          if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-        });
-        modeRow.appendChild(btn);
-      });
-      section.appendChild(modeRow);
-
-      // Sliders Row
-      var ctrlRow = document.createElement('div');
-      ctrlRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px;align-items:center;';
-      
-      function makeSlider(label, key, min, max, step) {
-        var wrap = document.createElement('div');
-        wrap.style.cssText = 'display:flex;align-items:center;gap:3px;';
-        var lbl = document.createElement('span');
-        lbl.textContent = label;
-        lbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:32px;';
-        
-        var slider = document.createElement('input');
-        slider.type = 'range';
-        slider.min = min; slider.max = max; slider.step = step;
-        
-        var actualKey = isLoader ? ('loader' + key.charAt(0).toUpperCase() + key.slice(1)) : key;
-        var defaultVal = key === 'loop' ? (isLoader ? true : false) : 1.0;
-        if (key === 'length') defaultVal = 2.0;
-        if (key === 'bgAlpha') defaultVal = 0.0;
-        if (key === 'cooling') defaultVal = 0.65;
-        if (key === 'spread') defaultVal = 0.3;
-        if (key === 'textFade') defaultVal = 0.5;
-        
-        slider.value = window.animConfig[actualKey] !== undefined ? window.animConfig[actualKey] : defaultVal;
-        slider.style.cssText = 'width:60px;height:12px;accent-color:var(--vscode-button-background);';
-        
-        var val = document.createElement('span');
-        val.textContent = slider.value;
-        val.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:20px;text-align:right;';
-        
-        slider.addEventListener('input', function () {
-          var num = parseFloat(this.value);
-          window.animConfig[actualKey] = num;
-          val.textContent = this.value;
-          refreshPreview();
-          if (key === 'bgAlpha' && typeof window.updateAllCanvasBackgrounds === 'function') {
-            window.updateAllCanvasBackgrounds();
-          }
-          if (typeof window.refreshWorking === 'function') window.refreshWorking();
-          if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-        });
-        wrap.appendChild(lbl);
-        wrap.appendChild(slider);
-        wrap.appendChild(val);
-        return wrap;
-      }
-
-      ctrlRow.appendChild(makeSlider('Speed', 'speed', 0.25, 4, 0.25));
-      ctrlRow.appendChild(makeSlider('Size', 'fontSize', 0.5, 2, 0.1));
-      ctrlRow.appendChild(makeSlider('Dens', 'density', 0.25, 2, 0.25));
-      ctrlRow.appendChild(makeSlider('Int', 'intensity', 0.25, 2, 0.25));
-      ctrlRow.appendChild(makeSlider('Len', 'length', 0.5, 5, 0.1));
-      ctrlRow.appendChild(makeSlider('Diff Area', 'diffusionHeight', 1.0, 6.0, 0.2));
-      ctrlRow.appendChild(makeSlider('Noise Res', 'noiseRes', 1, 12, 1));
-      ctrlRow.appendChild(makeSlider('Text Fade', 'textFade', 0, 1.0, 0.1));
-      ctrlRow.appendChild(makeSlider('Cooling', 'cooling', 0.4, 0.95, 0.05));
-      ctrlRow.appendChild(makeSlider('Spread', 'spread', 0.05, 0.45, 0.05));
-      ctrlRow.appendChild(makeSlider('Splash', 'splashLength', 1.0, 10.0, 0.5));
-      section.appendChild(ctrlRow);
-
-      // Toggles Row
-      var togglesRow = document.createElement('div');
-      togglesRow.style.cssText = 'display:flex;gap:8px;margin-bottom:6px;align-items:center;flex-wrap:wrap;';
-
-      // Loop button
-      var loopKey = isLoader ? 'loaderLoop' : 'loop';
-      var loopBtn = document.createElement('button');
-      var isLoop = window.animConfig[loopKey] !== undefined ? window.animConfig[loopKey] : (isLoader ? true : false);
-      loopBtn.textContent = 'Loop: ' + (isLoop ? 'ON' : 'OFF');
-      loopBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (isLoop ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (isLoop ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
-      loopBtn.addEventListener('click', function () {
-        window.animConfig[loopKey] = !window.animConfig[loopKey];
-        var updatedVal = window.animConfig[loopKey];
-        loopBtn.textContent = 'Loop: ' + (updatedVal ? 'ON' : 'OFF');
-        loopBtn.style.background = updatedVal ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
-        loopBtn.style.color = updatedVal ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
-        refreshPreview();
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-      });
-      togglesRow.appendChild(loopBtn);
-
-      // Color picker with alpha
-      var colorKey = isLoader ? 'loaderColor' : 'chatColor';
-      var colorWrap = document.createElement('div');
-      colorWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;';
-      var colorLbl = document.createElement('span');
-      colorLbl.textContent = 'Color:';
-      colorLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
-      colorWrap.appendChild(colorLbl);
-
-      var colorInput = document.createElement('input');
-      colorInput.type = 'color';
-      colorInput.style.cssText = 'width:24px;height:18px;border:1px solid var(--vscode-input-border);border-radius:3px;padding:0;cursor:pointer;background:transparent;';
-      var alphaInput = document.createElement('input');
-      alphaInput.type = 'range';
-      alphaInput.min = '0'; alphaInput.max = '1'; alphaInput.step = '0.05';
-      alphaInput.style.cssText = 'width:40px;height:12px;accent-color:var(--vscode-button-background);';
-      var alphaVal = document.createElement('span');
-      alphaVal.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:22px;text-align:right;';
-
-      function syncColorFromConfig() {
-        var raw = isLoader ? window._junctionLoaderAnimColor : window._junctionAnimColor;
-        var def = getComputedStyle(document.body).color || '#cccccc';
-        var parsed = parseAnimColor(raw || def);
-        colorInput.value = parsed.hex;
-        alphaInput.value = parsed.a;
-        alphaVal.textContent = Math.round(parsed.a * 100) + '%';
-      }
-      colorInput.addEventListener('input', function () {
-        var a = parseFloat(alphaInput.value);
-        var val = toRgba(colorInput.value, a);
-        if (isLoader) window._junctionLoaderAnimColor = val;
-        else window._junctionAnimColor = val;
-        refreshPreview();
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-      });
-      alphaInput.addEventListener('input', function () {
-        var a = parseFloat(this.value);
-        alphaVal.textContent = Math.round(a * 100) + '%';
-        var val = toRgba(colorInput.value, a);
-        if (isLoader) window._junctionLoaderAnimColor = val;
-        else window._junctionAnimColor = val;
-        refreshPreview();
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-      });
-      syncColorFromConfig();
-      colorWrap.appendChild(colorInput);
-      colorWrap.appendChild(alphaInput);
-      colorWrap.appendChild(alphaVal);
-      togglesRow.appendChild(colorWrap);
-
-      // BG Color Selector
-      var bgKey = isLoader ? 'loaderBgColor' : 'bgColor';
-      var bgAlphaKey = isLoader ? 'loaderBgAlpha' : 'bgAlpha';
-
-      var bgWrap = document.createElement('div');
-      bgWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;';
-      var bgLabel = document.createElement('span');
-      bgLabel.textContent = 'BG:';
-      bgLabel.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
-      bgWrap.appendChild(bgLabel);
-
-      var bgSelect = document.createElement('select');
-      bgSelect.style.cssText = 'font-size:10px;background:var(--vscode-input-background);color:var(--vscode-editor-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;padding:1px 2px;cursor:pointer;';
-      var optTheme = document.createElement('option');
-      optTheme.value = 'theme';
-      optTheme.textContent = 'Theme';
-      var optCustom = document.createElement('option');
-      optCustom.value = 'custom';
-      optCustom.textContent = 'Custom';
-      bgSelect.appendChild(optTheme);
-      bgSelect.appendChild(optCustom);
-      bgWrap.appendChild(bgSelect);
-
-      var bgColorInput = document.createElement('input');
-      bgColorInput.type = 'color';
-      bgColorInput.style.cssText = 'width:24px;height:18px;border:1px solid var(--vscode-input-border);border-radius:3px;padding:0;cursor:pointer;background:transparent;display:none;';
-      
-      var bgAlphaInput = document.createElement('input');
-      bgAlphaInput.type = 'range';
-      bgAlphaInput.min = '0'; bgAlphaInput.max = '1'; bgAlphaInput.step = '0.05';
-      bgAlphaInput.style.cssText = 'width:40px;height:12px;accent-color:var(--vscode-button-background);';
-      
-      var bgAlphaVal = document.createElement('span');
-      bgAlphaVal.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:22px;text-align:right;';
-
-      function syncBgFromConfig() {
-        var currentBg = window.animConfig[bgKey] || 'theme';
-        var currentBgAlpha = window.animConfig[bgAlphaKey] !== undefined ? window.animConfig[bgAlphaKey] : (window.animConfig.bgAlpha !== undefined ? window.animConfig.bgAlpha : 0.05);
-        if (currentBg === 'theme') {
-          bgSelect.value = 'theme';
-          bgColorInput.style.display = 'none';
-          bgColorInput.value = '#000000';
-        } else {
-          bgSelect.value = 'custom';
-          bgColorInput.style.display = 'inline-block';
-          bgColorInput.value = currentBg;
-        }
-        bgAlphaInput.value = currentBgAlpha;
-        bgAlphaVal.textContent = Math.round(currentBgAlpha * 100) + '%';
-      }
-
-      function updateBgConfig() {
-        if (bgSelect.value === 'theme') {
-          window.animConfig[bgKey] = 'theme';
-          bgColorInput.style.display = 'none';
-        } else {
-          window.animConfig[bgKey] = bgColorInput.value;
-          bgColorInput.style.display = 'inline-block';
-        }
-        var alphaValNum = parseFloat(bgAlphaInput.value);
-        window.animConfig[bgAlphaKey] = alphaValNum;
-        if (!isLoader) window.animConfig.bgAlpha = alphaValNum;
-        else window.animConfig.loaderBgAlpha = alphaValNum;
-
-        refreshPreview();
-        if (typeof window.updateAllCanvasBackgrounds === 'function') {
-          window.updateAllCanvasBackgrounds();
-        }
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-      }
-
-      bgSelect.addEventListener('change', function () {
-        updateBgConfig();
-        syncBgFromConfig();
-      });
-      bgColorInput.addEventListener('input', updateBgConfig);
-      bgAlphaInput.addEventListener('input', function () {
-        bgAlphaVal.textContent = Math.round(parseFloat(this.value) * 100) + '%';
-        updateBgConfig();
-      });
-
-      syncBgFromConfig();
-      bgWrap.appendChild(bgColorInput);
-      bgWrap.appendChild(bgAlphaInput);
-      bgWrap.appendChild(bgAlphaVal);
-      togglesRow.appendChild(bgWrap);
-
-      // Width button
-      var widthBtn = document.createElement('button');
-      widthBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:var(--vscode-input-background);color:var(--vscode-editor-foreground);margin-left:4px;';
-      var widthKey = isLoader ? 'loaderWidthMode' : 'widthMode';
-      function updateWidthButton() {
-        var mode = window.animConfig[widthKey] || 'text';
-        if (mode === 'full') {
-          widthBtn.textContent = 'Width: Full';
-        } else {
-          widthBtn.textContent = 'Width: Element';
-        }
-      }
-      widthBtn.addEventListener('click', function () {
-        var current = window.animConfig[widthKey] || 'text';
-        window.animConfig[widthKey] = (current === 'full') ? 'text' : 'full';
-        updateWidthButton();
-        refreshPreview();
-        if (typeof window.reanimateAllMessages === 'function') {
-          window.reanimateAllMessages();
-        }
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-      });
-      updateWidthButton();
-      togglesRow.appendChild(widthBtn);
-
-      // Burst button
-      var sizeOffBtn = document.createElement('button');
-      sizeOffBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);margin-left:4px;';
-      var sizeOffKey = isLoader ? 'loaderSizeOff' : 'sizeOff';
-      function updateSizeOffButton() {
-        var active = !!(window.animConfig && window.animConfig[sizeOffKey]);
-        sizeOffBtn.textContent = 'Burst: ' + (active ? 'ON' : 'OFF');
-        if (active) {
-          sizeOffBtn.style.background = 'var(--vscode-button-background)';
-          sizeOffBtn.style.color = 'var(--vscode-button-foreground)';
-        } else {
-          sizeOffBtn.style.background = 'var(--vscode-input-background)';
-          sizeOffBtn.style.color = 'var(--vscode-editor-foreground)';
-        }
-      }
-      sizeOffBtn.addEventListener('click', function () {
-        window.animConfig[sizeOffKey] = !window.animConfig[sizeOffKey];
-        updateSizeOffButton();
-        refreshPreview();
-        if (typeof window.reanimateAllMessages === 'function') {
-          window.reanimateAllMessages();
-        }
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-      });
-      updateSizeOffButton();
-      togglesRow.appendChild(sizeOffBtn);
-
-      // TV Magic button
-      var magicBtn = document.createElement('button');
-      magicBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);margin-left:4px;';
-      var magicKey = isLoader ? 'loaderMagic' : 'magic';
-      function updateMagicButton() {
-        var active = !!(window.animConfig && window.animConfig[magicKey]);
-        magicBtn.textContent = 'TV Magic: ' + (active ? 'ON' : 'OFF');
-        if (active) {
-          magicBtn.style.background = 'var(--vscode-button-background)';
-          magicBtn.style.color = 'var(--vscode-button-foreground)';
-        } else {
-          magicBtn.style.background = 'var(--vscode-input-background)';
-          magicBtn.style.color = 'var(--vscode-editor-foreground)';
-        }
-      }
-      magicBtn.addEventListener('click', function () {
-        window.animConfig[magicKey] = !window.animConfig[magicKey];
-        updateMagicButton();
-        refreshPreview();
-        if (typeof window.reanimateAllMessages === 'function') {
-          window.reanimateAllMessages();
-        }
-        if (typeof window.refreshWorking === 'function') window.refreshWorking();
-        if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-      });
-      updateMagicButton();
-      togglesRow.appendChild(magicBtn);
-
-      if (!isLoader) {
-        var reactionWrap = document.createElement('div');
-        reactionWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;';
-        
-        var reactionLbl = document.createElement('span');
-        reactionLbl.textContent = 'Reactions:';
-        reactionLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
-        
-        var reactionSelect = document.createElement('select');
-        reactionSelect.style.cssText = 'font-size:9px;background:var(--vscode-input-background);color:var(--vscode-editor-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;padding:1px 2px;cursor:pointer;';
-        
-        var optionsList = [
-          { val: 'thumbs', text: '👍/👎' },
-          { val: 'faces', text: '😊/😠' },
-          { val: 'words', text: 'good/bad' },
-          { val: 'hearts', text: '❤️/💔' },
-          { val: 'arrows', text: '⬆️/⬇️' },
-          { val: 'wacky', text: 'Wacky' }
-        ];
-        
-        optionsList.forEach(function (opt) {
-          var o = document.createElement('option');
-          o.value = opt.val;
-          o.textContent = opt.text;
-          reactionSelect.appendChild(o);
-        });
-        
-        reactionSelect.value = window.animConfig.reactionPair || 'thumbs';
-        reactionSelect.addEventListener('change', function () {
-          window.animConfig.reactionPair = this.value;
-          
-          var rows = document.querySelectorAll('.chat-row.assistant:not(.running)');
-          rows.forEach(function (row) {
-            var msgActions = row.querySelector('.msg-actions');
-            if (msgActions) {
-              var mid = row.getAttribute('data-message-id') || row.getAttribute('data-run-id');
-              if (mid) {
-                msgActions.remove();
-                row.appendChild(buildMsgActions(mid, true));
-              }
-            }
-          });
-          
-          if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-        });
-        
-        reactionWrap.appendChild(reactionLbl);
-        reactionWrap.appendChild(reactionSelect);
-        togglesRow.appendChild(reactionWrap);
-      }
-
-      section.appendChild(togglesRow);
-      return { dom: section };
-    }
-
-    var chatCtrl = buildConfigSection(false);
-    var bobberCtrl = buildConfigSection(true);
-
-    chatCtrl.dom.style.display = 'block';
-    bobberCtrl.dom.style.display = 'none';
-
-    box.appendChild(chatCtrl.dom);
-    box.appendChild(bobberCtrl.dom);
-
-    // Splash section
-    var splashSection = document.createElement('div');
-    splashSection.style.display = 'none';
-    var splashRow = document.createElement('div');
-    splashRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;';
-
-    // Splash color picker
-    var splashColorWrap = document.createElement('div');
-    splashColorWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
-    var splashColorLbl = document.createElement('span');
-    splashColorLbl.textContent = 'Splash Color:';
-    splashColorLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
-    splashColorWrap.appendChild(splashColorLbl);
-
-    var splashColorInput = document.createElement('input');
-    splashColorInput.type = 'color';
-    splashColorInput.style.cssText = 'width:24px;height:18px;border:1px solid var(--vscode-input-border);border-radius:3px;padding:0;cursor:pointer;background:transparent;';
-    var splashAlphaInput = document.createElement('input');
-    splashAlphaInput.type = 'range';
-    splashAlphaInput.min = '0'; splashAlphaInput.max = '1'; splashAlphaInput.step = '0.05';
-    splashAlphaInput.style.cssText = 'width:40px;height:12px;accent-color:var(--vscode-button-background);';
-    var splashAlphaVal = document.createElement('span');
-    splashAlphaVal.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:22px;text-align:right;';
-
-    function syncSplashColor() {
-      var raw = window._junctionSplashColor || '';
-      var def = getComputedStyle(document.body).color || '#cccccc';
-      var parsed = parseAnimColor(raw || def);
-      splashColorInput.value = parsed.hex;
-      splashAlphaInput.value = parsed.a;
-      splashAlphaVal.textContent = Math.round(parsed.a * 100) + '%';
-    }
-    splashColorInput.addEventListener('input', function () {
-      var a = parseFloat(splashAlphaInput.value);
-      window._junctionSplashColor = toRgba(splashColorInput.value, a);
-      if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-    });
-    splashAlphaInput.addEventListener('input', function () {
-      var a = parseFloat(this.value);
-      splashAlphaVal.textContent = Math.round(a * 100) + '%';
-      window._junctionSplashColor = toRgba(splashColorInput.value, a);
-      if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-    });
-    syncSplashColor();
-    splashColorWrap.appendChild(splashColorInput);
-    splashColorWrap.appendChild(splashAlphaInput);
-    splashColorWrap.appendChild(splashAlphaVal);
-    splashRow.appendChild(splashColorWrap);
-
-    // Splash length slider
-    var splashLenWrap = document.createElement('div');
-    splashLenWrap.style.cssText = 'display:flex;align-items:center;gap:3px;';
-    var splashLenLbl = document.createElement('span');
-    splashLenLbl.textContent = 'Length (s):';
-    splashLenLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:48px;';
-    var splashLenInput = document.createElement('input');
-    splashLenInput.type = 'range';
-    splashLenInput.min = '1'; splashLenInput.max = '10'; splashLenInput.step = '0.5';
-    splashLenInput.style.cssText = 'width:60px;height:12px;accent-color:var(--vscode-button-background);';
-    var splashLenVal = document.createElement('span');
-    splashLenVal.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:20px;text-align:right;';
-    splashLenInput.value = window.animConfig.splashLength !== undefined ? window.animConfig.splashLength : 1.0;
-    splashLenVal.textContent = splashLenInput.value;
-    splashLenInput.addEventListener('input', function () {
-      window.animConfig.splashLength = parseFloat(this.value);
-      splashLenVal.textContent = this.value;
-      if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-    });
-    splashLenWrap.appendChild(splashLenLbl);
-    splashLenWrap.appendChild(splashLenInput);
-    splashLenWrap.appendChild(splashLenVal);
-    splashRow.appendChild(splashLenWrap);
-
-    // Splash fade slider
-    var splashFadeWrap = document.createElement('div');
-    splashFadeWrap.style.cssText = 'display:flex;align-items:center;gap:3px;';
-    var splashFadeLbl = document.createElement('span');
-    splashFadeLbl.textContent = 'Fade (s):';
-    splashFadeLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:40px;';
-    var splashFadeInput = document.createElement('input');
-    splashFadeInput.type = 'range';
-    splashFadeInput.min = '0.1'; splashFadeInput.max = '3'; splashFadeInput.step = '0.1';
-    splashFadeInput.style.cssText = 'width:60px;height:12px;accent-color:var(--vscode-button-background);';
-    var splashFadeVal = document.createElement('span');
-    splashFadeVal.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:20px;text-align:right;';
-    splashFadeInput.value = window.animConfig.splashFade !== undefined ? window.animConfig.splashFade : 0.3;
-    splashFadeVal.textContent = splashFadeInput.value;
-    splashFadeInput.addEventListener('input', function () {
-      window.animConfig.splashFade = parseFloat(this.value);
-      splashFadeVal.textContent = this.value;
-      if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-    });
-    splashFadeWrap.appendChild(splashFadeLbl);
-    splashFadeWrap.appendChild(splashFadeInput);
-    splashFadeWrap.appendChild(splashFadeVal);
-    splashRow.appendChild(splashFadeWrap);
-
-    // Disable toggle
-    var splashDisableBtn = document.createElement('button');
-    var isSplashDisabled = !!window.animConfig.splashDisabled;
-    splashDisableBtn.textContent = 'Splash: ' + (isSplashDisabled ? 'OFF' : 'ON');
-    splashDisableBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (isSplashDisabled ? 'var(--vscode-input-background)' : 'var(--vscode-button-background)') + ';color:' + (isSplashDisabled ? 'var(--vscode-editor-foreground)' : 'var(--vscode-button-foreground)') + ';';
-    splashDisableBtn.addEventListener('click', function () {
-      window.animConfig.splashDisabled = !window.animConfig.splashDisabled;
-      var updatedVal = window.animConfig.splashDisabled;
-      splashDisableBtn.textContent = 'Splash: ' + (updatedVal ? 'OFF' : 'ON');
-      splashDisableBtn.style.background = updatedVal ? 'var(--vscode-input-background)' : 'var(--vscode-button-background)';
-      splashDisableBtn.style.color = updatedVal ? 'var(--vscode-editor-foreground)' : 'var(--vscode-button-foreground)';
-      if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
-    });
-    splashRow.appendChild(splashDisableBtn);
-
-    splashSection.appendChild(splashRow);
-    box.appendChild(splashSection);
-
-    // Click handlers for switching tabs
-    tabChat.addEventListener('click', function () {
-      activeTab = 'chat';
-      tabChat.style.cssText = 'cursor:pointer;font-size:11px;font-weight:bold;color:var(--vscode-button-foreground);border-bottom:2px solid var(--vscode-button-background);padding:2px 4px;';
-      tabBobber.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
-      tabSplash.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
-      chatCtrl.dom.style.display = 'block';
-      bobberCtrl.dom.style.display = 'none';
-      splashSection.style.display = 'none';
-      refreshPreview();
-    });
-
-    tabBobber.addEventListener('click', function () {
-      activeTab = 'bobber';
-      tabBobber.style.cssText = 'cursor:pointer;font-size:11px;font-weight:bold;color:var(--vscode-button-foreground);border-bottom:2px solid var(--vscode-button-background);padding:2px 4px;';
-      tabChat.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
-      tabSplash.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
-      chatCtrl.dom.style.display = 'none';
-      bobberCtrl.dom.style.display = 'block';
-      splashSection.style.display = 'none';
-      refreshPreview();
-    });
-
-    tabSplash.addEventListener('click', function () {
-      activeTab = 'splash';
-      tabSplash.style.cssText = 'cursor:pointer;font-size:11px;font-weight:bold;color:var(--vscode-button-foreground);border-bottom:2px solid var(--vscode-button-background);padding:2px 4px;';
-      tabChat.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
-      tabBobber.style.cssText = 'cursor:pointer;font-size:11px;color:var(--vscode-descriptionForeground);padding:2px 4px;';
-      chatCtrl.dom.style.display = 'none';
-      bobberCtrl.dom.style.display = 'none';
-      splashSection.style.display = 'block';
-    });
-
-    box.appendChild(previewArea);
-    refreshPreview();
-
-    var inputArea = document.querySelector('#composer-shell');
-    if (inputArea) inputArea.parentNode.insertBefore(box, inputArea);
-  }
-
-  if (btnPreviewAnim) {
-    btnPreviewAnim.addEventListener('click', function () {
-      toggleChatPreviewPanel();
-    });
-  }
-
-
-
 
   if (btnStop) btnStop.addEventListener('click', function () { post('stopRun'); });
   if (btnAttachFile) btnAttachFile.addEventListener('click', function () { post('attachFile'); });
@@ -1133,7 +486,6 @@
   if (envChip) envChip.addEventListener('click', function () {
     if (window.choiceMenu) {
       window.choiceMenu.open(envChip, {
-        title: 'Bridge / agent',
         loading: true,
         selectMessage: 'selectEnvironmentChoice',
       });
@@ -1178,6 +530,13 @@
         if (msg.loaderColor) {
           window._junctionLoaderAnimColor = msg.loaderColor;
         }
+        if (msg.splashColor) {
+          window._junctionSplashColor = msg.splashColor;
+        }
+        // Run all registered sync functions (updates mode buttons, sliders, colors, etc.)
+        settingsSyncFunctions.forEach(function (fn) {
+          try { fn(); } catch (e) {}
+        });
         break;
       case 'runActive':
         setSending(!!msg.active);
@@ -1229,12 +588,14 @@
       case 'environmentChoices':
         if (window.choiceMenu && envChip) {
           window.choiceMenu.open(envChip, {
-            title: 'Bridge / agent',
             items: msg.items || [],
             emptyText: 'No gateways or agents available',
             selectMessage: 'selectEnvironmentChoice',
           });
         }
+        break;
+      case 'queueState':
+        renderQueue(msg.items || []);
         break;
     }
   });

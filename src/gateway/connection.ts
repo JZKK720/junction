@@ -316,6 +316,7 @@ export class GatewayConnection extends EventEmitter {
     try {
       const rawMessage = data.toString();
       const message = JSON.parse(rawMessage);
+      this.logger.captureDebugStream('gateway-raw', message);
       
       // // Special debug for agent events (where tool calls live)
       // if (message.type === 'event' && message.event === 'agent') {
@@ -351,6 +352,11 @@ export class GatewayConnection extends EventEmitter {
 
       // Process the message using MessageProcessor
       const processedMessage = this.messageProcessor.processIncomingMessage(message);
+      this.logger.captureDebugStream('gateway-processed', {
+        sourceEvent: message?.event,
+        sourceType: message?.type,
+        processed: processedMessage,
+      });
       
       // Skip further processing if the message processor returns null
       if (processedMessage === null) {

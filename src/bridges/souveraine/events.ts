@@ -1,15 +1,6 @@
-export interface MappedBridgeEvent {
-    type: string;
-    [key: string]: unknown;
-}
+import { MappedBridgeEvent, EventMappingResult } from '../types';
 
-export interface SouveraineEventMapping {
-    runId: string;
-    events: MappedBridgeEvent[];
-    nextText?: string;
-}
-
-export function mapSouveraineSseEvent(runId: string, eventName: string, data: string, previousText = ''): SouveraineEventMapping {
+export function mapSouveraineSseEvent(runId: string, eventName: string, data: string, previousText = ''): EventMappingResult {
     let payload: any = {};
     try { payload = JSON.parse(data); } catch {}
 

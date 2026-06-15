@@ -86,11 +86,23 @@ export function getHermesHome(): string {
     return expandHome(hermesConfig().get<string>('home', '~/.hermes-hermling'));
 }
 
+export function mimocodeConfig(): vscode.WorkspaceConfiguration {
+    return vscode.workspace.getConfiguration('junction.mimocode');
+}
+
 export function getSouveraineBaseUrl(): string {
     return souveraineConfig().get<string>('baseUrl', 'http://127.0.0.1:8484');
 }
 
 export function getSouveraineHome(): string {
     return expandHome(souveraineConfig().get<string>('home', '~/.souveraine-souvieling-home'));
+}
+
+export function getMiMoCodeBinaryPath(): string {
+    return mimocodeConfig().get<string>('binaryPath', 'mimo');
+}
+
+export function getMiMoCodeHome(): string {
+    return expandHome(mimocodeConfig().get<string>('home', '~/.mimocode-junction'));
 }
 

@@ -4,6 +4,7 @@ import { BridgeRegistry } from '../bridges/registry';
 import { OpenClawBridge } from '../bridges/openclaw/OpenClawBridge';
 import { HermesBridge } from '../bridges/hermes/HermesBridge';
 import { SouveraineBridge } from '../bridges/souveraine/SouveraineBridge';
+import { MiMoCodeBridge } from '../bridges/mimocode/MiMoCodeBridge';
 import { ChatBase } from './chatBase';
 
 /**
@@ -24,6 +25,7 @@ export class ChatViewProvider extends ChatBase implements vscode.WebviewViewProv
         registry.register(new OpenClawBridge(context, instanceId));
         registry.register(new HermesBridge(context));
         registry.register(new SouveraineBridge(context));
+        registry.register(new MiMoCodeBridge(context));
         super(context.extensionUri, registry);
     }
 

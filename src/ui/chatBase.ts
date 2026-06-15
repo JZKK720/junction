@@ -1,90 +1,40 @@
 import * as vscode from 'vscode';
-import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { Logger } from '../utils/logger';
 import { ToolEventHandler } from './toolEventHandler';
 import { CheckpointManager } from '../checkpoints/checkpointManager';
 import { BridgeRegistry } from '../bridges/registry';
-import { BridgeSession, ChatBridge, ChoiceMenuItem, SessionGroup, VSCODE_WORKSPACE_CONTEXT_PREFIX, WORKSPACE_LINE_PREFIX_RE } from '../bridges/types';
+import { ChatBridge, ChoiceMenuItem, VSCODE_WORKSPACE_CONTEXT_PREFIX, WORKSPACE_LINE_PREFIX_RE } from '../bridges/types';
 import { config } from '../config/agentBridgeConfig';
-import { SelectionData } from '../context/selection-tracker';
-
-interface AttachedPill {
-    filePath: string;
-    displayText: string;
-    isLive: boolean;
-    startLine?: number;
-    endLine?: number;
-    language?: string;
-    selectedText?: string;
-}
-
-interface TranscriptTurn {
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    runId?: string;
-    messageId?: string;
-    hasCheckpoint?: boolean;
-    thinking?: string;
-    thinkingComplete?: boolean;
-    thinkingDurationMs?: number;
-    tools?: TranscriptTool[];
-    reaction?: 'up' | 'down' | null;
-    isSteer?: boolean;
-}
-
-interface TranscriptTool {
-    toolCallId: string;
-    toolName?: string;
-    args?: string;
-    updates?: string;
-    result?: string;
-    isError?: boolean;
-    phase?: 'start' | 'update' | 'result';
-}
-
-const LEGACY_VSCODE_WORKSPACE_CONTEXT_PREFIX = 'This session is driven from the VS Code extension.';
+import { getCurrentSelection, SelectionData } from '../context/selection-tracker';
+import {
+    AttachedPill,
+    TranscriptTurn,
+    TranscriptTool,
+    LEGACY_VSCODE_WORKSPACE_CONTEXT_PREFIX,
+} from './chatTypes';
+import { buildWebviewHtml } from './webview-base';
+import { ConfigManager } from './config-manager';
+import { HistoryManager } from './history-manager';
+import { EventRouter, ChatBaseHandlers } from './event-router';
 
 /**
  * Shared logic for ChatViewProvider (sidebar) and ChatPanel (editor column).
  * Subclasses implement postToWebview() to route messages to their specific
- * webview surface, and buildHtml() to get the webview URI object.
+ * webview surface.
  *
- * The webview UI is the modular shell under resources/webview/ (template.html
- * + tokens.css + per-component JS/CSS modules). buildHtml() assembles it; the
- * extension side here is pure transport (stream events ↔ postMessage).
+ * The webview UI is the modular shell under resources/webview/. The extension
+ * side here is pure transport (stream events ↔ postMessage), composed from
+ * smaller modules.
  */
 export abstract class ChatBase {
     /** Unique ID for this view instance — prevents cross-window bleed. */
     protected readonly viewId = `view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,6)}`;
     /** Session key this view is currently displaying — used to filter events. */
     protected viewSessionKey: string | null = null;
-    /** True while a send is in flight on a view that has no session yet —
-     *  lets handleStreamEvent adopt the session the bridge just created. */
+    /** True while a send is in flight on a view that has no session yet. */
     protected pendingSessionAdoption = false;
 
-    /**
-     * Single entry point for changing the displayed session: updates the
-     * view filter AND the transport-level watch set (shared-gateway bridges
-     * drop conversation events for unwatched sessions at the connection).
-     */
-    protected adoptViewSession(key: string | null): void {
-        const next = key ? String(key).trim() || null : null;
-        if (this.viewSessionKey === next) {
-            if (next) this.bridge.watchSession?.(next);
-            return;
-        }
-        if (this.viewSessionKey) this.bridge.unwatchSession?.(this.viewSessionKey);
-        this.viewSessionKey = next;
-        if (next) this.bridge.watchSession?.(next);
-        // Non-chat UX is window+displayed-session state: entering a different
-        // chat must show ITS run state (stop/send button, working indicator),
-        // not the previous chat's.
-        const running = !!(next && this.activeRunIdsBySession.get(next));
-        this.activeRunId = next ? (this.activeRunIdsBySession.get(next) ?? null) : null;
-        this.postToWebview({ type: 'runActive', active: running, sessionKey: next ?? undefined });
-    }
     protected activeRuns = new Map<string, string>();
     protected cachedHistory: Array<{ role: string; content: string; isSteer?: boolean }> = [];
     protected transcript: TranscriptTurn[] = [];
@@ -99,7 +49,9 @@ export abstract class ChatBase {
     protected currentThinking: string | undefined;
     protected currentAgentId: string | undefined;
     protected followUpMode: 'queue' | 'steer' | 'interrupt' = 'queue';
-    protected pendingFollowUp: string | null = null;
+    protected pendingFollowUp: string[] = [];
+    protected pendingFollowUpMessageIds: string[] = [];
+    protected pendingFollowUpGroupWithPrevious: boolean[] = [];
     protected archivedKeys = new Set<string>();
     protected chatScope: 'folder' | 'all' = 'folder';
     protected attachedPills = new Map<string, AttachedPill>();
@@ -107,11 +59,28 @@ export abstract class ChatBase {
     protected currentModelId: string | undefined;
     protected pendingNewChat = false;
 
+    /** Composed modules. */
+    protected readonly configManager: ConfigManager;
+    protected readonly historyManager: HistoryManager;
+    protected readonly eventRouter: EventRouter;
+
     constructor(
         protected readonly extensionUri: vscode.Uri,
         protected readonly bridgeRegistry: BridgeRegistry
     ) {
         this.checkpoints = new CheckpointManager(bridgeRegistry.context);
+
+        // Composed modules
+        this.configManager = new ConfigManager(bridgeRegistry.context);
+        this.historyManager = new HistoryManager(
+            (prefix?: string) => this.makeMessageId(prefix),
+            (role: string, content: string) => this.visibleTurnContent(role, content),
+            (msg: any) => this.extractHistoryText(msg),
+            (message: any) => this.postToWebview(message),
+        );
+        this.eventRouter = new EventRouter(this.buildHandlerInterface());
+        this.eventRouter.configManager = this.configManager;
+
         this.attachBridgeStreamListener(this.bridgeRegistry.active);
         this.bridgeRegistry.on('changed', (newBridge) => {
             this.detachBridgeStreamListener();
@@ -124,28 +93,74 @@ export abstract class ChatBase {
             this.currentModelDisplay = '';
             this.currentModelId = undefined;
             this.currentThinking = undefined;
+            this.clearFollowUpQueue();
             this.postToWebview({ type: 'clearChat' });
             void this.handleInitRequest();
         });
-        // Safety net: if webview posted initRequest before the ready handler
-        // fired, ensure we retry once after a short delay.
+
+        // Safety net: if webview posted initRequest before the ready handler fired
         setTimeout(() => {
             void this.handleInitRequest();
         }, 500);
 
-        // Live look-and-feel: re-push config and repaint when stream-display
-        // settings change so layout switches apply without a reload.
+        // Live look-and-feel: re-push config and repaint when stream-display settings change
         vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('junction.activityStream') ||
-                e.affectsConfiguration('junction.reasoningDisplay') ||
-                e.affectsConfiguration('junction.sendBehavior') ||
-                e.affectsConfiguration('junction.extraRichText') ||
-                e.affectsConfiguration('junction.showFullHistory') ||
-                e.affectsConfiguration('junction.steerKeybinding')) {
+            if (ConfigManager.affectsChatConfig(e)) {
                 this.sendConfig();
                 this.renderTranscript();
             }
         });
+        vscode.window.onDidChangeActiveColorTheme(() => {
+            this.sendConfig();
+        });
+    }
+
+    /**
+     * Build the handler interface for the EventRouter — maps each event type
+     * to the corresponding ChatBase method reference.
+     */
+    private buildHandlerInterface(): ChatBaseHandlers {
+        return {
+            handleInitRequest: () => this.handleInitRequest(),
+            handleUserMessage: (text, dispatchOverride) => this.handleUserMessage(text, dispatchOverride),
+            handleStopRun: () => this.handleStopRun(),
+            handleAttachFile: () => this.handleAttachFile(),
+            handleSlashComplete: (prefix) => this.handleSlashComplete(prefix),
+            handleCreateChat: (text) => this.handleCreateChat(text),
+            handleNewChatThenSend: (text) => this.handleNewChatThenSend(text),
+            handleResumeSession: (key) => this.handleResumeSession(key),
+            handleViewSessionList: () => this.handleViewSessionList(),
+            handleRenameSession: (key, label) => this.handleRenameSession(key, label),
+            handleArchiveSession: (key) => this.handleArchiveSession(key),
+            handleShowArchived: (show) => this.handleShowArchived(show),
+            handleSetChatScope: (scope) => this.handleSetChatScope(scope),
+            handleRequestModelChoices: () => this.handleRequestModelChoices(),
+            handleSelectModelChoice: (data) => this.handleSelectModelChoice(data),
+            handleRequestReasoningChoices: () => this.handleRequestReasoningChoices(),
+            handleSelectReasoningChoice: (data) => this.handleSelectReasoningChoice(data),
+            handleRequestEnvironmentChoices: () => this.handleRequestEnvironmentChoices(),
+            handleSelectEnvironmentChoice: (data) => this.handleSelectEnvironmentChoice(data),
+            handleRequestSandboxChoices: () => this.handleRequestSandboxChoices(),
+            handleSelectSandboxChoice: (data) => this.handleSelectSandboxChoice(data),
+            handleHeaderAction: (data) => this.handleHeaderAction(data),
+            handleListWorkspaceFiles: (prefix) => this.handleListWorkspaceFiles(prefix),
+            addFilePill: (uri) => this.addFilePill(uri),
+            handleAddPill: (data) => this.handleAddPill(data),
+            handleRemovePill: (filePath) => this.handleRemovePill(filePath),
+            handleToggleLivePill: (enabled) => this.handleToggleLivePill(enabled),
+            handleEditQueuedFollowUp: (index, text) => this.handleEditQueuedFollowUp(index, text),
+            handleMoveQueuedFollowUp: (index, direction) => this.handleMoveQueuedFollowUp(index, direction),
+            handleToggleQueuedFollowUpGroup: (index) => this.handleToggleQueuedFollowUpGroup(index),
+            handleRemoveQueuedFollowUp: (index) => this.handleRemoveQueuedFollowUp(index),
+            handleLoadMoreHistory: () => this.handleLoadMoreHistory(),
+            handleLoadMoreHistoryFromJsonl: (offset) => this.handleLoadMoreHistoryFromJsonl(offset),
+            handleOpenSettings: () => this.handleOpenSettings(),
+            handleGetUsage: () => this.handleGetUsage(),
+            handleForkConversation: (messageId) => this.handleForkConversation(messageId),
+            handleOpenFile: (filePath) => this.handleOpenFile(filePath),
+            handleSetReaction: (messageId, value) => this.handleSetReaction(messageId, value),
+            postToWebview: (message) => this.postToWebview(message),
+        };
     }
 
     protected get bridge() {
@@ -156,15 +171,10 @@ export abstract class ChatBase {
     private _streamHandler?: (event: any) => void;
     private _streamBridge?: ChatBridge;
 
-    /** Listen to stream events from the given bridge. */
     private attachBridgeStreamListener(bridge?: ChatBridge): void {
         const target = bridge || this.bridgeRegistry.active;
         this._streamHandler = (event: any) => {
-            // Tag event with bridge ID for stale-event guard
             event._bridgeId = target.id;
-            // Single-session bridges (Souveraine/Hermes) emit events without a
-            // sessionKey; stamp their current session so the cross-window
-            // filter can match instead of dropping them.
             if (!event.sessionKey) {
                 const key = target.getCurrentSessionKey?.();
                 if (key) event.sessionKey = key;
@@ -175,7 +185,6 @@ export abstract class ChatBase {
         target.on('stream', this._streamHandler);
     }
 
-    /** Remove stream listener from the tracked bridge. */
     private detachBridgeStreamListener(): void {
         if (this._streamHandler && this._streamBridge) {
             this._streamBridge.removeListener('stream', this._streamHandler);
@@ -188,139 +197,39 @@ export abstract class ChatBase {
     protected abstract postToWebview(message: any): void;
 
     /**
-     * Assemble the modular webview HTML from resources/webview/.
-     * Reads template.html, replaces CSP/nonce/asset placeholders, links every
-     * component stylesheet, and injects the JS module scripts (markdown-it +
-     * component modules, central dispatcher last) before </body>.
+     * Assemble the modular webview HTML. Delegates to webview-base.
      */
     protected buildHtml(webview: vscode.Webview): string {
-        const nonce = crypto.randomBytes(16).toString('hex');
-        const webviewDir = vscode.Uri.joinPath(this.extensionUri, 'resources', 'webview');
-        const assetUri = (file: string) =>
-            webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, file)).toString();
-        const mdUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.extensionUri, 'node_modules', 'markdown-it', 'dist', 'markdown-it.min.js')
-        ).toString();
-
-        let html: string;
-        try {
-            html = fs.readFileSync(vscode.Uri.joinPath(webviewDir, 'template.html').fsPath, 'utf8');
-        } catch (e) {
-            Logger.getInstance().error('Failed to read webview template', e);
-            return '<!DOCTYPE html><html><body style="font-family:sans-serif;padding:1rem">Failed to load Junction chat UI.</body></html>';
-        }
-
-        // Component stylesheets beyond tokens/codicon (those have own placeholders).
-        const cssFiles = [
-            'view-router.css', 'choice-menu.css', 'chat-header.css', 'session-list.css',
-            'attached-files-bar.css', 'composer.css', 'chat-stream.css',
-        ];
-        // Module scripts: define-globals modules first, central dispatcher
-        // (view-router.js) last. markdown-it before chat-stream (which uses it).
-        const jsFiles = [
-            'choice-menu.js', 'chat-header.js', 'session-list.js', 'attached-files-bar.js',
-            'composer.js', 'chat-stream.js', 'view-router.js',
-        ];
-
-        const cssLinks = cssFiles
-            .map((f) => `  <link rel="stylesheet" href="${assetUri(f)}">`)
-            .join('\n');
-        const moduleScripts = [
-            `  <script nonce="${nonce}" src="${mdUri}"></script>`,
-            `  <script nonce="${nonce}" src="${assetUri('pretext.bundle.js')}"></script>`,
-            ...jsFiles.map((f) => `  <script nonce="${nonce}" src="${assetUri(f)}"></script>`),
-        ].join('\n');
-
-        html = html
-            .replace(/\$\{NONCE_PLACEHOLDER\}/g, nonce)
-            .replace(/\$\{CSP_SOURCE_PLACEHOLDER\}/g, webview.cspSource)
-            .replace(/\$\{TOKENS_CSS_URI\}/g, assetUri('tokens.css'))
-            .replace(/\$\{CODICON_CSS_URI\}/g, assetUri('codicon.css'));
-
-        // The template has a single ${CHAT_CSS_URI} <link>; expand it into the
-        // full component stylesheet chain.
-        html = html.replace(
-            /[ \t]*<link rel="stylesheet" href="\$\{CHAT_CSS_URI\}">/,
-            cssLinks
-        );
-
-        // Inject module scripts AFTER the template's inline <script> so composer.js
-        // can clone-and-rewire the inline listeners and view-router.js can override
-        // the inline nav stubs.
-        html = html.replace('</body>', moduleScripts + '\n</body>');
-
-        return html;
+        return buildWebviewHtml(this.extensionUri, webview);
     }
 
-    /** Wire up message handler for the given webview. Call from subclass after creating webview. */
+    /** Wire up message handler for the given webview. Delegates to EventRouter. */
     protected wireMessageHandler(webview: vscode.Webview): void {
         webview.onDidReceiveMessage(async (data) => {
-            try {
-                switch (data.type) {
-                    // boot
-                    case 'ready': await this.handleInitRequest(); break;
-                    case 'initRequest': await this.handleInitRequest(); break;
-                    // composer
-                    case 'sendMessage': await this.handleUserMessage(data.text, data.dispatchOverride); break;
-                    case 'stopRun': await this.handleStopRun(); break;
-                    case 'consoleError': Logger.getInstance().error('[webview]', data.text); break;
-                    case 'attachFile': await this.handleAttachFile(); break;
-                    case 'slashComplete': await this.handleSlashComplete(data.prefix); break;
-                    // chats list / header (module vocabulary)
-                    case 'createChat': await this.handleCreateChat(data.text); break;
-                    case 'newChat': await this.handleCreateChat(undefined); break;
-                    case 'newChatThenSend': await this.handleNewChatThenSend(data.text); break;
-                    case 'resumeSession': await this.handleResumeSession(data.key); break;
-                    case 'backToSessions': await this.handleViewSessionList(); break;
-                    case 'viewSessionList': await this.handleViewSessionList(); break;
-                    case 'renameSession': await this.handleRenameSession(data.key, data.label); break;
-                    case 'archiveSession': await this.handleArchiveSession(data.key); break;
-                    case 'showArchivedSessions': await this.handleShowArchived(!!data.show); break;
-                    case 'setChatScope': await this.handleSetChatScope(data.scope); break;
-                    // footer/header choice menus
-                    case 'requestModelChoices': await this.handleRequestModelChoices(); break;
-                    case 'selectModelChoice': await this.handleSelectModelChoice(data); break;
-                    case 'requestReasoningChoices': await this.handleRequestReasoningChoices(); break;
-                    case 'selectReasoningChoice': await this.handleSelectReasoningChoice(data); break;
-                    case 'requestEnvironmentChoices': await this.handleRequestEnvironmentChoices(); break;
-                    case 'selectEnvironmentChoice': await this.handleSelectEnvironmentChoice(data); break;
-                    case 'selectAgentChoice': await this.handleSelectEnvironmentChoice(data); break;
-                    case 'requestSandboxChoices': await this.handleRequestSandboxChoices(); break;
-                    case 'selectSandboxChoice': await this.handleSelectSandboxChoice(data); break;
-                    case 'selectHeaderAction': await this.handleHeaderAction(data); break;
-                    // attached file/context pills
-                    case 'listWorkspaceFiles': await this.handleListWorkspaceFiles(data.prefix); break;
-                    case 'attachCurrentFile': this.addFilePill(); break;
-                    case 'addPill': this.handleAddPill(data); break;
-                    case 'removePill': this.handleRemovePill(data.filePath); break;
-                    case 'toggleLivePill': this.handleToggleLivePill(!!data.enabled); break;
-                    // header
-                    case 'loadMoreHistory': await this.handleLoadMoreHistory(); break;
-                    case 'loadMoreHistoryFromJsonl': await this.handleLoadMoreHistoryFromJsonl(data.offset); break;
-                    case 'openSettings': await this.handleOpenSettings(); break;
-                    case 'getUsage': await this.handleGetUsage(); break;
-                    // message actions (Part B/C)
-                    case 'forkConversation': await this.handleForkConversation(data.messageId); break;
-                    case 'rewindCode': await this.handleRewindCode(data.messageId, !!data.fork); break;
-                    case 'openFile': await this.handleOpenFile(data.filePath); break;
-                    case 'copyToClipboard': await vscode.env.clipboard.writeText(data.text || ''); break;
-                    case 'setReaction': await this.handleSetReaction(data.messageId, data.value); break;
-                }
-            } catch (error: any) {
-                const message = error?.message || String(error);
-                Logger.getInstance().error('webview message handler failed', error);
-                this.postToWebview({ type: 'response', text: 'Error: ' + message });
-                this.postToWebview({ type: 'runComplete' });
-            }
+            await this.eventRouter.handleMessage(data);
         });
     }
 
-    // ─── handlers ───────────────────────────────────────────────────────────
+    // ── session adoption ────────────────────────────────────────────────
 
-    /** Resolve the composer send-behavior mode from settings (default `enter`). */
+    protected adoptViewSession(key: string | null): void {
+        const next = key ? String(key).trim() || null : null;
+        if (this.viewSessionKey === next) {
+            if (next) this.bridge.watchSession?.(next);
+            return;
+        }
+        if (this.viewSessionKey) this.bridge.unwatchSession?.(this.viewSessionKey);
+        this.viewSessionKey = next;
+        if (next) this.bridge.watchSession?.(next);
+        const running = !!(next && this.activeRunIdsBySession.get(next));
+        this.activeRunId = next ? (this.activeRunIdsBySession.get(next) ?? null) : null;
+        this.postToWebview({ type: 'runActive', active: running, sessionKey: next ?? undefined });
+    }
+
+    // ─── helpers ───────────────────────────────────────────────────────────
+
     protected getSendBehavior(): 'enter' | 'ctrlEnter' | 'smartEnter' {
-        const v = config().get<string>('sendBehavior', 'enter');
-        return (v === 'ctrlEnter' || v === 'smartEnter') ? v : 'enter';
+        return this.configManager.getSendBehavior();
     }
 
     protected defaultChatTitle(): string {
@@ -331,10 +240,8 @@ export abstract class ChatBase {
         return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
     }
 
-    /** Derive a short chat title from the first user message (auto-naming). */
     protected deriveChatTitle(text: string): string {
         const lines = String(text || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-        // Skip the routePrefixedMessage instruction preamble lines.
         const line = lines.find((l) => !/^Treat this as/i.test(l)) || lines[0] || '';
         const clean = line.replace(/\s+/g, ' ').trim();
         if (!clean) return '';
@@ -344,7 +251,6 @@ export abstract class ChatBase {
     protected visibleTurnContent(role: string, content: string): string | null {
         const text = String(content || '');
         const trimmed = text.trim();
-        // Filter workspace context messages at ALL levels
         if (
             trimmed.startsWith(VSCODE_WORKSPACE_CONTEXT_PREFIX) ||
             trimmed.startsWith(LEGACY_VSCODE_WORKSPACE_CONTEXT_PREFIX) ||
@@ -362,30 +268,30 @@ export abstract class ChatBase {
     }
 
     protected cloneTranscript(turns: TranscriptTurn[]): TranscriptTurn[] {
-        return turns.map((turn) => ({
-            ...turn,
-            tools: turn.tools?.map((tool) => ({ ...tool })),
-        }));
+        return this.historyManager.cloneTranscript(turns);
     }
 
     protected persistCurrentTranscript(): void {
-        const key = this.bridge.getCurrentSessionKey();
-        if (!key || this.transcript.length === 0) return;
-        this.sessionTranscripts.set(key, this.cloneTranscript(this.transcript));
+        this.historyManager.persistCurrentTranscript(
+            this.sessionTranscripts,
+            this.bridge,
+            this.transcript
+        );
     }
 
     protected restoreTranscriptFromCache(key: string): boolean {
-        const saved = this.sessionTranscripts.get(key);
-        if (!saved?.length) return false;
-        this.transcript = this.cloneTranscript(saved);
-        this.runTurnIds.clear();
-        this.activeRuns.clear();
-        for (const turn of this.transcript) {
-            if (turn.runId) {
-                this.runTurnIds.set(turn.runId, turn.id);
-                if (turn.role === 'assistant') this.activeRuns.set(turn.runId, turn.content);
-            }
-        }
+        const result = this.historyManager.restoreTranscriptFromCache(
+            key,
+            this.sessionTranscripts,
+            this.transcript,
+            this.runTurnIds,
+            this.activeRuns,
+            () => this.renderTranscript()
+        );
+        if (!result) return false;
+        this.transcript = result.transcript;
+        this.runTurnIds = result.runTurnIds;
+        this.activeRuns = result.activeRuns;
         this.renderTranscript();
         return true;
     }
@@ -412,29 +318,21 @@ export abstract class ChatBase {
     }
 
     protected historyMessages(): Array<{ role: string; content: string; messageId?: string; hasCheckpoint?: boolean; reaction?: 'up' | 'down' | null }> {
-        return this.transcript
-            .map((turn) => {
-                const content = this.visibleTurnContent(turn.role, turn.content);
-                const hasDebug = !!turn.thinking || !!turn.tools?.length;
-                if (content === null && !hasDebug) return null;
-                return {
-                    role: turn.role,
-                    content: content ?? '',
-                    runId: turn.runId,
-                    messageId: turn.messageId,
-                    hasCheckpoint: turn.hasCheckpoint,
-                    thinking: turn.thinking,
-                    thinkingComplete: turn.thinkingComplete,
-                    thinkingDurationMs: turn.thinkingDurationMs,
-                    tools: turn.tools,
-                    reaction: turn.reaction,
-                };
-            })
-            .filter((item): item is any => item !== null);
+        const messages = this.historyManager.historyMessages(this.transcript);
+        if (!this.hidesRawThinking()) return messages;
+        return messages.map((message) => {
+            if (message.role !== 'assistant' || !message.thinking) return message;
+            return {
+                ...message,
+                thinking: undefined,
+                thinkingComplete: undefined,
+                thinkingDurationMs: undefined,
+            };
+        });
     }
 
     protected renderTranscript(): void {
-        this.postToWebview({ type: 'history', messages: this.historyMessages() });
+        this.historyManager.renderTranscript(this.transcript);
     }
 
     public repaintTranscript(): void {
@@ -453,29 +351,21 @@ export abstract class ChatBase {
     }
 
     /**
-     * Terminal agent-lifecycle phases across all bridges. OpenClaw's gateway
-     * emits a successful run as phase `"end"` (terminalLifecyclePhase ?? "end"),
-     * Hermes emits `"completed"`, and other providers use assorted synonyms. If
-     * a terminal phase is not recognized here, `activeRunId` never clears and
-     * every subsequent message is parked in the follow-up queue forever.
+     * Send a message to the gateway without showing it in the chat UX.
+     * Records in transcript/history for persistence but skips the userEcho webview event.
+     * Reusable for any bridge command that should be invisible to the user (e.g. "/stop").
      */
-    protected static readonly TERMINAL_LIFECYCLE_PHASES = new Set([
-        'end', 'finishing', 'completed', 'complete', 'done', 'finished',
-        'cancelled', 'canceled', 'aborted', 'failed', 'stopped', 'error',
-    ]);
-
-    protected isTerminalLifecyclePhase(phase: unknown): boolean {
-        return typeof phase === 'string'
-            && ChatBase.TERMINAL_LIFECYCLE_PHASES.has(phase.toLowerCase());
+    protected async sendSilentCommand(text: string): Promise<void> {
+        const messageId = this.makeMessageId('m');
+        this.transcript.push({ id: messageId, role: 'user', content: text, messageId, hasCheckpoint: false });
+        this.cachedHistory.push({ role: 'user', content: text });
+        this.persistCurrentTranscript();
+        await this.dispatchUserMessage(text);
     }
 
-    /**
-     * Bare tool-result echoes that some gateways store as assistant turns
-     * ("Successfully replaced 1 block(s) in /path."). They duplicate the tool
-     * cards, so they are dropped when restoring history.
-     */
-    protected static readonly TOOL_ECHO_RE =
-        /^(Successfully replaced \d+ block|Successfully (?:wrote|created|edited) |No changes made to |File (?:created|written|saved) )/i;
+    protected isTerminalLifecyclePhase(phase: unknown): boolean {
+        return this.historyManager.isTerminalLifecyclePhase(phase);
+    }
 
     /** Active run IDs scoped by session — prevents cross-chat bleed. */
     private activeRunIdsBySession = new Map<string, string>();
@@ -484,11 +374,9 @@ export abstract class ChatBase {
         const direct = String(event?.runId ?? '').trim();
         if (direct) return direct;
         const session = String(event?.sessionKey ?? this.bridge.getCurrentSessionKey() ?? '').trim();
-        // Check session-scoped active run first
         if (session && this.activeRunIdsBySession.has(session)) {
             return this.activeRunIdsBySession.get(session)!;
         }
-        // Fall back to global activeRunId
         if (this.activeRunId) return this.activeRunId;
         if (session) return `${prefix}:${session}`;
         return `${prefix}:fallback:${++this.fallbackRunCounter}`;
@@ -526,24 +414,11 @@ export abstract class ChatBase {
     }
 
     protected sendConfig(): void {
-        const reasoningDisplay = config().get<string>('reasoningDisplay', 'compact');
-        this.postToWebview({
-            type: 'config',
-            sendBehavior: this.getSendBehavior(),
-            reasoningDisplay,
-            extraRichText: config().get<boolean>('extraRichText', true),
-            activityLayout: config().get<string>('activityStream.layout', 'accordion'),
-            activityRail: config().get<boolean>('activityStream.rail', true),
-            activityDots: config().get<string>('activityStream.dots', 'status'),
-            showFullHistory: config().get<boolean>('showFullHistory', false),
-            steerKeybinding: config().get<string>('steerKeybinding', ''),
-        });
+        this.postToWebview(this.configManager.buildConfigPayload());
     }
 
-    /**
-     * Webview boot (view-router posts `initRequest`). Smart reopen: go straight
-     * to the chat view and restore history. Session-list population arrives later.
-     */
+    // ── handlers ───────────────────────────────────────────────────────────
+
     protected async handleInitRequest(): Promise<void> {
         this.sendConfig();
         this.pushModelDisplay();
@@ -552,14 +427,21 @@ export abstract class ChatBase {
         this.pushEnvLabel();
         this.pushScopeLabel();
         this.pushAttachedPills();
-        // Ensure bridge is connected before restoring history
-        try { await this.bridge.connect(); } catch (e) { /* already connected or not available */ }
+        this.pushFollowUpQueue();
+        try { await this.bridge.connect(); } catch (e) { /* already connected */ }
         const lastKey = this.bridge.getCurrentSessionKey();
         if (lastKey) this.adoptViewSession(lastKey);
         const title = this.defaultChatTitle();
         this.postToWebview({ type: 'switchToChat', title, history: this.historyMessages() });
         this.postToWebview({ type: 'history', messages: this.historyMessages() });
-        await this.restoreHistory();
+        await this.historyManager.restoreHistory(
+            this.bridge,
+            this.transcript,
+            (turns, historyItems) => {
+                this.transcript = turns;
+                this.cachedHistory = historyItems;
+            }
+        );
         const sessionKey = this.bridge.getCurrentSessionKey();
         if (sessionKey) {
             const activeRunId = this.activeRunIdsBySession.get(sessionKey) || (this.activeRunId ? this.activeRunId : null);
@@ -575,7 +457,18 @@ export abstract class ChatBase {
         this.postToWebview({ type: 'switchToHome' });
     }
 
-    /** Create a new chat; optionally send an initial message; show the chat view. */
+    /** Public-facing wrapper for ChatViewProvider compatibility. */
+    protected async restoreHistory(): Promise<void> {
+        await this.historyManager.restoreHistory(
+            this.bridge,
+            this.transcript,
+            (turns, historyItems) => {
+                this.transcript = turns;
+                this.cachedHistory = historyItems;
+            }
+        );
+    }
+
     protected async handleCreateChat(text?: string): Promise<void> {
         await this.handleNewChat();
         this.postToWebview({ type: 'switchToChat', title: this.defaultChatTitle(), history: [] });
@@ -589,7 +482,6 @@ export abstract class ChatBase {
         await this.handleCreateChat(text);
     }
 
-    /** Resume an existing chat by session key. */
     protected async handleResumeSession(key: string): Promise<void> {
         if (!key) return;
         this.persistCurrentTranscript();
@@ -605,21 +497,24 @@ export abstract class ChatBase {
         this.postToWebview({ type: 'switchToChat', title: this.defaultChatTitle(), history: [] });
         this.postToWebview({ type: 'updateTitle', key, title: this.defaultChatTitle() });
         if (this.restoreTranscriptFromCache(key)) return;
-        await this.restoreHistory();
+        await this.historyManager.restoreHistory(
+            this.bridge,
+            this.transcript,
+            (turns, historyItems) => {
+                this.transcript = turns;
+                this.cachedHistory = historyItems;
+            }
+        );
     }
 
     protected async handleRenameSession(key: string, label: string): Promise<void> {
         if (!key || !label) return;
-        try {
-            await this.bridge.renameSession(key, label);
-        } catch (err) {
-            Logger.getInstance().warn('rename session failed', err);
-        }
+        try { await this.bridge.renameSession(key, label); }
+        catch (err) { Logger.getInstance().warn('rename session failed', err); }
         this.postToWebview({ type: 'updateTitle', key, title: label });
         await this.pushSessions();
     }
 
-    /** Archive is UI-only (hide), per ux-decisions — never sessions.delete. */
     protected async handleArchiveSession(key: string): Promise<void> {
         if (!key) return;
         this.archivedKeys.add(key);
@@ -637,7 +532,6 @@ export abstract class ChatBase {
         await this.pushSessions();
     }
 
-    /** Dynamic scope label — never the words "task"/"workspace". */
     protected pushScopeLabel(): void {
         let label: string;
         if (this.chatScope === 'all') {
@@ -649,47 +543,8 @@ export abstract class ChatBase {
         this.postToWebview({ type: 'chatScopeLabel', label, scope: this.chatScope });
     }
 
-    /** Populate the Chats list, scoped to the current binding or all bridge chats. */
     protected async pushSessions(includeArchived = false): Promise<void> {
-        try {
-            if (!this.bridge.capabilities.sessions) return;
-            const activeKey = this.bridge.getCurrentSessionKey() ?? undefined;
-            const sessions = await this.bridge.listSessions(this.chatScope, includeArchived, this.archivedKeys);
-            const groups = this.buildSessionGroups(sessions);
-            this.postToWebview({ type: 'renderSessions', groups, activeKey });
-        } catch (err) {
-            Logger.getInstance().warn('pushSessions failed', err);
-        }
-    }
-
-    /**
-     * Partition flat sessions into collapsible groups (Codex-style): the current
-     * workspace folder first + expanded, other folders collapsed, each sorted by
-     * recency. Folderless bridges return a single "Recent" group.
-     */
-    protected buildSessionGroups(sessions: BridgeSession[]): SessionGroup[] {
-        const byId = new Map<string, SessionGroup>();
-        for (const s of sessions) {
-            const id = s.groupId || 'recent';
-            let g = byId.get(id);
-            if (!g) {
-                g = { id, label: s.groupLabel || id, collapsed: !s.isCurrentGroup, sessions: [] };
-                byId.set(id, g);
-            }
-            g.sessions.push(s);
-        }
-        const groups = [...byId.values()];
-        for (const g of groups) {
-            g.sessions.sort((a, b) => (b.lastActiveTs || 0) - (a.lastActiveTs || 0));
-        }
-        const recencyOf = (g: SessionGroup) => Math.max(0, ...g.sessions.map((s) => s.lastActiveTs || 0));
-        const isCurrent = (g: SessionGroup) => g.sessions.some((s) => s.isCurrentGroup);
-        groups.sort((a, b) => {
-            const ac = isCurrent(a) ? 1 : 0, bc = isCurrent(b) ? 1 : 0;
-            if (ac !== bc) return bc - ac;
-            return recencyOf(b) - recencyOf(a);
-        });
-        return groups;
+        await this.historyManager.pushSessions(this.bridge, this.chatScope, this.archivedKeys, includeArchived);
     }
 
     protected async handleOpenSettings(): Promise<void> {
@@ -721,20 +576,10 @@ export abstract class ChatBase {
             case 'fork':
                 await this.handleForkConversation();
                 break;
-            case 'forkRewind':
-                {
-                    const checkpoint = [...this.transcript].reverse().find((turn) => turn.hasCheckpoint && turn.messageId);
-                    if (checkpoint?.messageId) await this.handleRewindCode(checkpoint.messageId, true);
-                    else vscode.window.showInformationMessage('No checkpointed message is available to rewind.');
-                }
-                break;
         }
     }
 
     protected async handleRequestReasoningChoices(): Promise<void> {
-        // Derive reasoning levels from the CURRENT model's own advertised
-        // vocabulary (the children the model picker built) — never a generic
-        // union. Empty if the active model advertises no reasoning efforts.
         let items: ChoiceMenuItem[] = [];
         try {
             if (this.bridge.capabilities.models) {
@@ -765,15 +610,106 @@ export abstract class ChatBase {
         this.pushModelDisplay();
     }
 
-    /** Read follow-up behavior: per-bridge setting first, then global default. */
     protected refreshFollowUpMode(): void {
-        const bridgeId = this.bridge?.id || '';
-        const perBridgeKey = bridgeId ? `junction.${bridgeId}.followUpMode` : '';
-        let mode = perBridgeKey ? config().get<string>(perBridgeKey, 'default') : 'default';
-        if (!mode || mode === 'default') {
-            mode = config().get<string>('followUpMode', 'queue');
+        this.followUpMode = this.configManager.getFollowUpMode(this.bridge?.id || '');
+    }
+
+    protected pushFollowUpQueue(): void {
+        if (this.pendingFollowUpGroupWithPrevious.length > 0) {
+            this.pendingFollowUpGroupWithPrevious[0] = false;
         }
-        this.followUpMode = (mode === 'steer' || mode === 'interrupt') ? mode : 'queue';
+        this.postToWebview({
+            type: 'queueState',
+            items: this.pendingFollowUp.map((text, index) => ({
+                id: this.pendingFollowUpMessageIds[index] || String(index),
+                index,
+                text,
+                groupWithPrevious: !!this.pendingFollowUpGroupWithPrevious[index],
+            })),
+        });
+    }
+
+    protected enqueueFollowUp(text: string, messageId: string): void {
+        this.pendingFollowUp.push(text);
+        this.pendingFollowUpMessageIds.push(messageId);
+        this.pendingFollowUpGroupWithPrevious.push(false);
+        this.pushFollowUpQueue();
+    }
+
+    protected clearFollowUpQueue(): void {
+        this.pendingFollowUp = [];
+        this.pendingFollowUpMessageIds = [];
+        this.pendingFollowUpGroupWithPrevious = [];
+        this.pushFollowUpQueue();
+    }
+
+    protected dequeueFollowUp(): string | null {
+        if (this.pendingFollowUp.length === 0) return null;
+        const parts = [this.pendingFollowUp.shift() || ''];
+        this.pendingFollowUpMessageIds.shift();
+        this.pendingFollowUpGroupWithPrevious.shift();
+        while (this.pendingFollowUp.length > 0 && this.pendingFollowUpGroupWithPrevious[0]) {
+            parts.push(this.pendingFollowUp.shift() || '');
+            this.pendingFollowUpMessageIds.shift();
+            this.pendingFollowUpGroupWithPrevious.shift();
+        }
+        if (this.pendingFollowUpGroupWithPrevious.length > 0) {
+            this.pendingFollowUpGroupWithPrevious[0] = false;
+        }
+        this.pushFollowUpQueue();
+        return parts.filter(Boolean).join('\n\n') || null;
+    }
+
+    protected handleEditQueuedFollowUp(index: number, text: string): void {
+        if (!Number.isInteger(index) || index < 0 || index >= this.pendingFollowUp.length) return;
+        const next = text.trim();
+        if (!next) return;
+        this.pendingFollowUp[index] = next;
+        const messageId = this.pendingFollowUpMessageIds[index];
+        const turn = this.transcript.find((item) => item.messageId === messageId);
+        if (turn) turn.content = next;
+        this.postToWebview({ type: 'queuedUserUpdated', messageId, text: next });
+        this.persistCurrentTranscript();
+        this.pushFollowUpQueue();
+    }
+
+    protected handleMoveQueuedFollowUp(index: number, direction: 'up' | 'down'): void {
+        if (!Number.isInteger(index) || index < 0 || index >= this.pendingFollowUp.length) return;
+        const nextIndex = direction === 'up' ? index - 1 : index + 1;
+        if (nextIndex < 0 || nextIndex >= this.pendingFollowUp.length) return;
+        const swap = <T>(arr: T[]) => {
+            const tmp = arr[index];
+            arr[index] = arr[nextIndex];
+            arr[nextIndex] = tmp;
+        };
+        swap(this.pendingFollowUp);
+        swap(this.pendingFollowUpMessageIds);
+        swap(this.pendingFollowUpGroupWithPrevious);
+        if (this.pendingFollowUpGroupWithPrevious.length > 0) {
+            this.pendingFollowUpGroupWithPrevious[0] = false;
+        }
+        this.pushFollowUpQueue();
+    }
+
+    protected handleToggleQueuedFollowUpGroup(index: number): void {
+        if (!Number.isInteger(index) || index <= 0 || index >= this.pendingFollowUp.length) return;
+        this.pendingFollowUpGroupWithPrevious[index] = !this.pendingFollowUpGroupWithPrevious[index];
+        this.pushFollowUpQueue();
+    }
+
+    protected handleRemoveQueuedFollowUp(index: number): void {
+        if (!Number.isInteger(index) || index < 0 || index >= this.pendingFollowUp.length) return;
+        const messageId = this.pendingFollowUpMessageIds[index];
+        this.pendingFollowUp.splice(index, 1);
+        this.pendingFollowUpMessageIds.splice(index, 1);
+        this.pendingFollowUpGroupWithPrevious.splice(index, 1);
+        if (this.pendingFollowUpGroupWithPrevious.length > 0) {
+            this.pendingFollowUpGroupWithPrevious[0] = false;
+        }
+        this.transcript = this.transcript.filter((item) => item.messageId !== messageId);
+        this.postToWebview({ type: 'queuedUserRemoved', messageId });
+        this.persistCurrentTranscript();
+        this.pushFollowUpQueue();
     }
 
     protected async handleRequestEnvironmentChoices(): Promise<void> {
@@ -784,7 +720,6 @@ export abstract class ChatBase {
     protected async handleSelectEnvironmentChoice(data: any): Promise<void> {
         await this.bridgeRegistry.selectEnvironmentChoice(data);
         this.currentAgentId = String(data.agentId ?? '') || undefined;
-        // Bridge switch is handled by registry 'changed' event — clears state + reloads.
         this.pushEnvLabel();
         this.pushModelDisplay();
         await this.pushSessions();
@@ -806,8 +741,8 @@ export abstract class ChatBase {
     }
 
     protected pushSandboxDisplay(): void {
-        const sandbox = config().get<string>('sandboxMode', 'default');
-        const approval = config().get<string>('approvalMode', 'default');
+        const sandbox = this.configManager.readSandboxMode();
+        const approval = this.configManager.readApprovalMode();
         this.postToWebview({
             type: 'sandboxDisplay',
             label: `${sandbox}/${approval}`,
@@ -816,26 +751,16 @@ export abstract class ChatBase {
     }
 
     protected async handleRequestSandboxChoices(): Promise<void> {
-        const sandbox = config().get<string>('sandboxMode', 'default');
-        const approval = config().get<string>('approvalMode', 'default');
-        const items: ChoiceMenuItem[] = [
-            { id: 'sandbox:default', label: 'Sandbox default', section: 'Sandbox', icon: 'settings', checked: sandbox === 'default', sandboxMode: 'default' },
-            { id: 'sandbox:readonly', label: 'Read only', section: 'Sandbox', icon: 'lock', checked: sandbox === 'readonly', sandboxMode: 'readonly' },
-            { id: 'sandbox:workspace-write', label: 'Workspace write', section: 'Sandbox', icon: 'edit', checked: sandbox === 'workspace-write', sandboxMode: 'workspace-write' },
-            { id: 'sandbox:full-access', label: 'Full access', section: 'Sandbox', icon: 'unlock', checked: sandbox === 'full-access', sandboxMode: 'full-access' },
-            { id: 'approval:default', label: 'Approval default', section: 'Approvals', icon: 'settings', checked: approval === 'default', approvalMode: 'default' },
-            { id: 'approval:ask', label: 'Ask', section: 'Approvals', icon: 'question', checked: approval === 'ask', approvalMode: 'ask' },
-            { id: 'approval:never', label: 'Never', section: 'Approvals', icon: 'check', checked: approval === 'never', approvalMode: 'never' },
-        ];
+        const items = this.configManager.buildSandboxChoices();
         this.postToWebview({ type: 'sandboxChoices', items });
     }
 
     protected async handleSelectSandboxChoice(data: any): Promise<void> {
         if (typeof data.sandboxMode === 'string') {
-            await config().update('sandboxMode', data.sandboxMode, vscode.ConfigurationTarget.Global);
+            await this.configManager.updateSandboxMode(data.sandboxMode);
         }
         if (typeof data.approvalMode === 'string') {
-            await config().update('approvalMode', data.approvalMode, vscode.ConfigurationTarget.Global);
+            await this.configManager.updateApprovalMode(data.approvalMode);
         }
         this.pushSandboxDisplay();
     }
@@ -896,6 +821,8 @@ export abstract class ChatBase {
     // ── message actions (Part B/C) ─────────────────────────────────────────────
 
     protected async handleForkConversation(messageId?: string): Promise<void> {
+        this.postToWebview({ type: 'forkStarted' });
+
         const targetIndex = messageId
             ? this.transcript.findIndex((turn) => turn.messageId === messageId)
             : -1;
@@ -903,45 +830,46 @@ export abstract class ChatBase {
         const context = sourceTurns
             .map((turn) => `${turn.role.toUpperCase()}: ${turn.content}`)
             .join('\n\n');
-        await this.handleNewChat();
+
         const folderUri = vscode.workspace.workspaceFolders?.[0]?.uri;
         const key = await this.bridge.createChat(folderUri);
         if (folderUri) this.bridge.setActiveSession(folderUri, key);
-        this.pendingNewChat = false;
-        this.postToWebview({ type: 'switchToChat', title: this.defaultChatTitle(), history: [] });
-        this.postToWebview({ type: 'updateTitle', key, title: this.defaultChatTitle() });
+
         if (context) {
             await this.bridge.injectMessage(key, '[Forked conversation context]\n' + context).catch(() => false);
         }
+
+        this.persistCurrentTranscript();
+        this.pendingNewChat = false;
+        this.adoptViewSession(key);
+        this.cachedHistory = [];
+        this.transcript = [];
+        this.runTurnIds.clear();
+        this.activeRuns.clear();
+        this.activeRunId = null;
+
+        try {
+            const history = await this.bridge.getSessionHistory(200);
+            const messages = Array.isArray(history?.messages) ? history.messages : history?.payload?.messages;
+            if (Array.isArray(messages) && messages.length > 0) {
+                const turns = this.historyManager.rebuildTurnsFromGatewayHistory(messages);
+                this.transcript = turns;
+                this.cachedHistory = turns.map((turn) => ({ role: turn.role, content: turn.content, isSteer: turn.isSteer }));
+            }
+        } catch (error: any) {
+            Logger.getInstance().warn('restoreHistory during fork failed', error);
+        }
+
+        this.postToWebview({ type: 'switchToChat', title: this.defaultChatTitle(), history: this.historyMessages() });
+        this.postToWebview({ type: 'updateTitle', key, title: this.defaultChatTitle() });
         vscode.window.showInformationMessage('Conversation forked with local transcript context.');
     }
 
-    /** Rewind workspace code to a message's checkpoint; `fork` adds the (stubbed) fork. */
-    protected async handleRewindCode(messageId?: string, fork?: boolean): Promise<void> {
-        if (!messageId) return;
-        if (!this.checkpoints.isEnabled()) {
-            vscode.window.showInformationMessage('Checkpoints are disabled (junction.checkpoints.enabled).');
-            return;
-        }
-        if (fork) await this.handleForkConversation(messageId);
-        const choice = await vscode.window.showWarningMessage(
-            'Rewind will overwrite current workspace files to the state at this message. Continue?',
-            { modal: true },
-            'Rewind'
-        );
-        if (choice !== 'Rewind') return;
-        const ok = await this.checkpoints.rewindTo(messageId);
-        if (ok) vscode.window.showInformationMessage('Workspace rewound to checkpoint.');
-    }
-
-    /** Open a file from a clickable file link in the chat. */
     protected async handleOpenFile(filePath: string): Promise<void> {
         if (!filePath) return;
         try {
             let line: number | undefined;
             let col: number | undefined;
-            
-            // Extract :line:col or :line from path
             const parts = filePath.split(':');
             let cleanPath = filePath;
             if (parts.length > 1) {
@@ -964,7 +892,6 @@ export abstract class ChatBase {
                 cleanPath = cleanPath.replace(/^~\//, home + '/');
             }
 
-            // Resolve relative to workspace
             const workspace = vscode.workspace.workspaceFolders?.[0];
             let uri: vscode.Uri;
             if (cleanPath.startsWith('/') || cleanPath.startsWith('file:')) {
@@ -989,7 +916,6 @@ export abstract class ChatBase {
         }
     }
 
-    /** Set a reaction on a turn and persist it. */
     protected async handleSetReaction(messageId: string, value: 'up' | 'down' | null): Promise<void> {
         if (!messageId) return;
         const turn = this.transcript.find((item) => item.messageId === messageId || item.id === messageId);
@@ -999,7 +925,6 @@ export abstract class ChatBase {
         }
     }
 
-    /** Send a slash command and capture the assistant output until the run ends. */
     protected runSlashCapture(command: string, timeoutMs: number): Promise<string> {
         return new Promise<string>((resolve) => {
             let buf = '';
@@ -1023,13 +948,12 @@ export abstract class ChatBase {
         });
     }
 
-    /** Heuristically extract model ids from free-form /models output. */
     protected parseModelsFromText(text: string): string[] {
         const out = new Set<string>();
         for (const line of (text || '').split(/\r?\n/)) {
-            const m = line.match(/([a-z0-9][\w.\-]*\/[\w.\-:]+)/i); // provider/model
+            const m = line.match(/([a-z0-9][\w.\-]*\/[\w.\-:]+)/i);
             if (m) { out.add(m[1]); continue; }
-            const bare = line.match(/\b([a-z][\w.\-]{2,}(?:-[\w.]+)+)\b/i); // dashed model id
+            const bare = line.match(/\b([a-z][\w.\-]{2,}(?:-[\w.]+)+)\b/i);
             if (bare) out.add(bare[1]);
         }
         return [...out];
@@ -1072,17 +996,28 @@ export abstract class ChatBase {
         this.runTurnIds.clear();
         this.activeRuns.clear();
         this.activeRunId = null;
+        this.clearFollowUpQueue();
         this.postToWebview({ type: 'history', messages: [] });
     }
 
     protected async handleStopRun(): Promise<void> {
         const sessionKey = this.viewSessionKey;
         if (!sessionKey || !this.activeRunId) return;
-        try { await this.bridge.stopRun(sessionKey, this.activeRunId); }
-        catch (err) { Logger.getInstance().error('Stop run failed', err); }
+        try {
+            // OpenClaw: send "/stop" as a message (gateway interprets it), hide from UX
+            if (this.bridge.id === 'openclaw') {
+                await this.sendSilentCommand('/stop');
+            } else {
+                await this.bridge.stopRun(sessionKey, this.activeRunId);
+            }
+        } catch (err) { Logger.getInstance().error('Stop run failed', err); }
     }
 
     protected async handleGetUsage(): Promise<void> {
+        if (!this.bridge.capabilities.usage) {
+            vscode.window.showInformationMessage(`${this.bridge.label} does not report session usage.`);
+            return;
+        }
         const sessionKey = this.bridge.getCurrentSessionKey();
         if (!sessionKey) return;
         try {
@@ -1109,7 +1044,7 @@ export abstract class ChatBase {
     }
 
     public addFilePill(uri?: vscode.Uri): void {
-        const target = uri ?? vscode.window.activeTextEditor?.document.uri;
+        const target = uri ?? this.resolveCurrentFileEditor()?.document.uri;
         if (!target || target.scheme !== 'file') {
             vscode.window.showWarningMessage('No file selected for agent thread context.');
             return;
@@ -1253,8 +1188,22 @@ export abstract class ChatBase {
         this.addAttachedPill(pill);
     }
 
+    protected resolveCurrentFileEditor(): vscode.TextEditor | null {
+        const active = vscode.window.activeTextEditor;
+        if (active?.document.uri.scheme === 'file') return active;
+
+        const current = getCurrentSelection();
+        if (current?.filePath) {
+            const tracked = vscode.window.visibleTextEditors.find((editor) => editor.document.fileName === current.filePath);
+            if (tracked?.document.uri.scheme === 'file') return tracked;
+        }
+
+        const visible = vscode.window.visibleTextEditors.find((editor) => editor.document.uri.scheme === 'file');
+        return visible ?? null;
+    }
+
     protected createEditorPill(isLive: boolean): AttachedPill | null {
-        const editor = vscode.window.activeTextEditor;
+        const editor = this.resolveCurrentFileEditor();
         if (!editor || editor.document.uri.scheme !== 'file') return null;
         const filePath = this.relativePathFor(editor.document.uri);
         const selection = editor.selection;
@@ -1336,7 +1285,6 @@ export abstract class ChatBase {
         const checkpointed = await this.snapshotCheckpoint(messageId, text);
         this.markCheckpoint(messageId, checkpointed);
 
-        // Mid-run dispatch: if a run is active, honor junction.followUpMode.
         if (this.activeRunId) {
             this.refreshFollowUpMode();
             const savedMode = this.followUpMode;
@@ -1362,10 +1310,8 @@ export abstract class ChatBase {
             if (this.followUpMode === 'interrupt' && sessionKey) {
                 try { await this.bridge.stopRun(sessionKey, this.activeRunId); }
                 catch (err) { Logger.getInstance().warn('interrupt abort failed', err); }
-                // fall through to send
             } else {
-                // queue (default / steer fallback): hold until the run finishes
-                this.pendingFollowUp = this.pendingFollowUp ? this.pendingFollowUp + '\n\n' + text : text;
+                this.enqueueFollowUp(text, messageId);
                 this.followUpMode = savedMode;
                 return;
             }
@@ -1375,10 +1321,8 @@ export abstract class ChatBase {
         await this.dispatchUserMessage(text);
     }
 
-    /** Actually send a user message (after dispatch handling). */
     protected async dispatchUserMessage(text: string): Promise<void> {
         try {
-            // Signal run active so composer disables the send button
             this.postToWebview({ type: 'runActive', active: true });
             if (this.pendingNewChat) {
                 const folderUri = vscode.workspace.workspaceFolders?.[0]?.uri;
@@ -1386,10 +1330,9 @@ export abstract class ChatBase {
                 if (folderUri) this.bridge.setActiveSession(folderUri, key);
                 this.adoptViewSession(key);
                 this.pendingNewChat = false;
-                // Auto-name the new chat from its first message (Codex-style).
                 const autoTitle = this.deriveChatTitle(text) || this.defaultChatTitle();
                 this.postToWebview({ type: 'updateTitle', key, title: autoTitle });
-                this.bridge.renameSession(key, autoTitle).catch(() => { /* label clash / unsupported — keep default */ });
+                this.bridge.renameSession(key, autoTitle).catch(() => {});
             }
             const sessionKey = this.bridge.getCurrentSessionKey();
             const fileContext = [
@@ -1408,10 +1351,6 @@ export abstract class ChatBase {
                     text = fileContext + '\n\n' + text;
                 }
             }
-            // Bind this view to the session it sends on — the strict
-            // cross-window filter drops every event for unadopted sessions.
-            // Bridges may create the session inside sendChatMessage, so allow
-            // lazy adoption at event time while this send is in flight.
             if (!this.viewSessionKey) {
                 const preKey = this.bridge.getCurrentSessionKey();
                 if (preKey) this.adoptViewSession(preKey);
@@ -1423,8 +1362,6 @@ export abstract class ChatBase {
                 if (postKey) this.adoptViewSession(postKey);
             }
             this.pendingSessionAdoption = false;
-            // If bridge doesn't support lifecycle events, re-enable the send button.
-            // If it does, finalizeRun will handle it via runActive:false.
             if (!this.bridge.canSteer() && !this.activeRunId) {
                 this.postToWebview({ type: 'runComplete' });
             }
@@ -1436,21 +1373,31 @@ export abstract class ChatBase {
         }
     }
 
-    /** Snapshot the workspace at a user-turn boundary (best-effort, non-blocking). */
     protected async snapshotCheckpoint(messageId: string, label: string): Promise<boolean> {
         try { return !!(await this.checkpoints.snapshot(messageId, label)); }
         catch (err) { Logger.getInstance().warn('snapshotCheckpoint failed', err); return false; }
     }
 
     protected isDuplicateAssistantText(text: string): boolean {
-        const normalized = String(text || '').trim();
-        if (!normalized) return false;
+        return !!this.findRecentAssistantDuplicate(text);
+    }
+
+    protected findRecentAssistantDuplicate(text: string): TranscriptTurn | null {
+        const normalized = HistoryManager.normalizeAssistantText(text);
+        if (!normalized) return null;
         for (let i = this.transcript.length - 1; i >= 0; i--) {
             const turn = this.transcript[i];
+            if (turn.role === 'user') {
+                const visible = this.visibleTurnContent('user', turn.content);
+                if (visible !== null) break;
+                continue;
+            }
             if (turn.role !== 'assistant') continue;
-            return String(turn.content || '').trim() === normalized;
+            if (HistoryManager.normalizeAssistantText(turn.content) === normalized) {
+                return turn;
+            }
         }
-        return false;
+        return null;
     }
 
     protected updateThinkingTurn(runId: string, text: string, complete = false, durationMs?: number): void {
@@ -1459,6 +1406,10 @@ export abstract class ChatBase {
         turn.thinkingComplete = complete;
         if (durationMs !== undefined) turn.thinkingDurationMs = durationMs;
         this.persistCurrentTranscript();
+    }
+
+    protected hidesRawThinking(): boolean {
+        return this.bridgeRegistry.active.id === 'openclaw';
     }
 
     protected upsertToolTurn(runId: string, event: any, formattedArgs?: string, formattedResult?: string): TranscriptTool {
@@ -1483,16 +1434,9 @@ export abstract class ChatBase {
     }
 
     protected handleStreamEvent(event: any): void {
-        // Ignore events from non-active bridges (stale after bridge switch)
         if (event._bridgeId && event._bridgeId !== this.bridgeRegistry.active.id) return;
-        // Cross-window filter: ONLY process events for this view's session.
-        // No fallbacks, no exceptions — a view with no adopted session renders
-        // nothing (a fresh window must not mirror another window's run).
         const eventSession = String(event?.sessionKey ?? '').trim();
-        if (!eventSession) return; // Events WITHOUT sessionKey are always blocked
-        // Lazy adoption: this view sent a message before its bridge had a
-        // session; adopt the one the bridge created for that send — and only
-        // that one. Idle views never adopt, so they never mirror other windows.
+        if (!eventSession) return;
         if (!this.viewSessionKey && this.pendingSessionAdoption) {
             const current = String(this.bridge.getCurrentSessionKey() ?? '').trim();
             if (current && eventSession === current) {
@@ -1501,15 +1445,12 @@ export abstract class ChatBase {
             }
         }
         if (!this.viewSessionKey || eventSession !== this.viewSessionKey) return;
+
         if (event.type === 'agent_lifecycle' && event.phase === 'start') {
-            // Stale-run guard: if a prior run never delivered a recognized
-            // terminal phase, close it out now so its queued follow-up flushes
-            // and the new run starts clean.
             if (this.activeRunId && this.activeRunId !== (event.runId || null)) {
                 this.finalizeRun(this.activeRunId);
             }
             this.activeRunId = event.runId || null;
-            // Track per-session for cross-chat isolation
             const session = String(event?.sessionKey ?? this.bridge.getCurrentSessionKey() ?? '').trim();
             if (session && this.activeRunId) {
                 this.activeRunIdsBySession.set(session, this.activeRunId);
@@ -1520,28 +1461,70 @@ export abstract class ChatBase {
         if (event.type === 'thinking_chunk') {
             const runId = this.resolveRunId(event, 'thinking');
             if (!this.thinkingStart.has(runId)) this.thinkingStart.set(runId, Date.now());
-            const buf = (this.thinkingBuffers.get(runId) || '') + (event.text || '');
+            const hideRawThinking = this.hidesRawThinking();
+            const prev = this.thinkingBuffers.get(runId) || '';
+            const buf = hideRawThinking
+                ? (prev || ' ')
+                : (prev + (event.text || ''));
             this.thinkingBuffers.set(runId, buf);
-            this.updateThinkingTurn(runId, buf);
-            this.postToWebview({ type: 'thinking_chunk', runId, text: event.text || '', fullText: buf });
+            this.updateThinkingTurn(runId, hideRawThinking ? ' ' : buf);
+            this.postToWebview({
+                type: 'thinking_chunk',
+                runId,
+                text: hideRawThinking ? '' : (event.text || ''),
+                fullText: hideRawThinking ? '' : buf,
+            });
+            Logger.getInstance().captureDebugStream('chat-stream-filtered', {
+                bridgeId: this.bridgeRegistry.active.id,
+                branch: 'thinking_chunk',
+                runId,
+                rawEvent: event,
+                hideRawThinking,
+                emitted: {
+                    type: 'thinking_chunk',
+                    text: hideRawThinking ? '' : (event.text || ''),
+                    fullText: hideRawThinking ? '' : buf,
+                },
+            });
             return;
         }
 
         if (event.type === 'agent_message') {
             const runId = this.resolveRunId(event, 'agent');
             const lastText = this.activeRuns.get(runId) || '';
-            const nextText = this.stripReplyMarker(event.text || lastText);
-            // Dedup: if this text is already displayed (from a chat_message event), skip.
-            if (this.isDuplicateAssistantText(nextText)) return;
+            const nextText = this.extractVisibleAssistantText(runId, event.text || lastText);
+            Logger.getInstance().captureDebugStream('chat-stream-filtered', {
+                bridgeId: this.bridgeRegistry.active.id,
+                branch: 'agent_message',
+                runId,
+                rawEvent: event,
+                lastText,
+                nextText,
+                dropped: nextText === null ? 'hidden-before-reply-marker' : null,
+            });
+            if (nextText === null) return;
+            const duplicate = this.findRecentAssistantDuplicate(nextText);
+            if (duplicate && duplicate.runId !== runId) return;
             this.updateAssistantTurn(runId, nextText);
             return;
         }
 
         if (event.type === 'chat_message' && event.role === 'assistant') {
-            if (!this.activeRunId && this.isDuplicateAssistantText(event.content || '')) return;
             const runId = this.resolveRunId(event, 'chat');
             const lastText = this.activeRuns.get(runId) || '';
-            const nextText = this.stripReplyMarker(event.content || lastText);
+            const nextText = this.extractVisibleAssistantText(runId, event.content || lastText, event.state === 'final');
+            Logger.getInstance().captureDebugStream('chat-stream-filtered', {
+                bridgeId: this.bridgeRegistry.active.id,
+                branch: 'chat_message_assistant',
+                runId,
+                rawEvent: event,
+                lastText,
+                nextText,
+                dropped: nextText === null ? 'hidden-before-reply-marker' : null,
+            });
+            if (nextText === null) return;
+            const duplicate = this.findRecentAssistantDuplicate(nextText);
+            if (duplicate && duplicate.runId !== runId) return;
             this.updateAssistantTurn(runId, nextText);
             if (event.state === 'final') {
                 const turnId = this.runTurnIds.get(runId);
@@ -1580,23 +1563,24 @@ export abstract class ChatBase {
         if ((event.type === 'agent' || event.type === 'chat') && (event.payload || event).sessionKey) {
             const payload = event.payload || event;
             if (payload.sessionKey.includes(':subagent:') || payload.spawnedBy) {
-                this.postToWebview({ type: 'subagentInfo', runId: event.runId, sessionKey: payload.sessionKey, spawnedBy: payload.spawnedBy, subagentRole: payload.subagentRole, spawnDepth: payload.spawnDepth });
+                this.postToWebview({
+                    type: 'subagentInfo',
+                    runId: event.runId,
+                    sessionKey: payload.sessionKey,
+                    spawnedBy: payload.spawnedBy,
+                    subagentRole: payload.subagentRole,
+                    spawnDepth: payload.spawnDepth,
+                });
             }
         }
     }
 
-    /**
-     * Close out a run: end its assistant stream, clear active state, flush the
-     * thinking buffer, report usage, and dispatch any queued follow-up. Safe to
-     * call from the terminal-phase branch or the stale-run guard.
-     */
     protected finalizeRun(runId: string, usage?: { inputTokens?: number; outputTokens?: number }): void {
         const turnId = this.runTurnIds.get(runId);
         const turn = turnId ? this.transcript.find(t => t.id === turnId) : undefined;
         const messageId = turn?.messageId || turnId;
         this.postToWebview({ type: 'assistant_stream_end', runId, messageId });
         this.activeRuns.delete(runId);
-        // Clear per-session tracking for this runId
         for (const [session, rid] of this.activeRunIdsBySession) {
             if (rid === runId) this.activeRunIdsBySession.delete(session);
         }
@@ -1605,22 +1589,30 @@ export abstract class ChatBase {
             this.postToWebview({ type: 'runActive', active: false });
         }
         const thinkingBuf = this.thinkingBuffers.get(runId);
-        if (thinkingBuf) {
+        if (thinkingBuf !== undefined) {
             const startedAt = this.thinkingStart.get(runId);
             const durationMs = startedAt ? Date.now() - startedAt : 0;
-            this.updateThinkingTurn(runId, thinkingBuf, true, durationMs);
-            this.postToWebview({ type: 'thinking_end', runId, tokenCount: thinkingBuf.length, durationMs });
+            this.updateThinkingTurn(runId, this.hidesRawThinking() ? '' : thinkingBuf, true, durationMs);
+            this.postToWebview({
+                type: 'thinking_end',
+                runId,
+                tokenCount: this.hidesRawThinking() ? 0 : thinkingBuf.length,
+                durationMs,
+            });
             this.thinkingBuffers.delete(runId);
             this.thinkingStart.delete(runId);
         }
         if (usage) {
-            this.postToWebview({ type: 'tokenUsage', runId, inputTokens: usage.inputTokens || 0, outputTokens: usage.outputTokens || 0 });
+            this.postToWebview({
+                type: 'tokenUsage',
+                runId,
+                inputTokens: usage.inputTokens || 0,
+                outputTokens: usage.outputTokens || 0,
+            });
         }
 
-        // Flush any queued follow-up message now that the run has finished.
-        if (this.pendingFollowUp) {
-            const queued = this.pendingFollowUp;
-            this.pendingFollowUp = null;
+        const queued = this.dequeueFollowUp();
+        if (queued) {
             void this.dispatchUserMessage(queued);
         }
     }
@@ -1633,199 +1625,80 @@ export abstract class ChatBase {
             workspaceFolder: workspace?.uri.fsPath,
             activeFile: editor?.document.fileName,
             language: editor?.document.languageId,
-            selection: editor?.selection ? { start: editor.selection.start.line, end: editor.selection.end.line } : null
+            selection: editor?.selection ? { start: editor.selection.start.line, end: editor.selection.end.line } : null,
         };
     }
 
-    protected async restoreHistory(): Promise<void> {
-        try {
-            const history = await this.bridge.getSessionHistory(200);
-            const messages = Array.isArray(history?.messages) ? history.messages : history?.payload?.messages;
-            if (!Array.isArray(messages) || messages.length === 0) {
-                this.renderTranscript();
-                return;
-            }
-            const turns = this.rebuildTurnsFromGatewayHistory(messages);
-            if (turns.length > this.transcript.length) {
-                this.transcript = turns;
-                this.cachedHistory = turns.map((turn) => ({ role: turn.role, content: turn.content, isSteer: turn.isSteer }));
-            }
-            this.renderTranscript();
-            this.persistCurrentTranscript();
-        } catch (error: any) { Logger.getInstance().warn('restoreHistory failed', error); }
+    protected stripReplyMarker(text: string): string {
+        const idx = text.indexOf('[[reply_to_current]]');
+        return idx === -1 ? text : text.slice(idx + '[[reply_to_current]]'.length).trimStart();
+    }
+
+    protected extractVisibleAssistantText(runId: string, text: string, isFinal = false): string | null {
+        const raw = String(text || '');
+        if (!raw) return raw;
+        if (raw.includes('[[reply_to_current]]')) {
+            const stripped = this.stripReplyMarker(raw);
+            const sanitized = HistoryManager.sanitizeAssistantDisplayText(stripped);
+            return sanitized || null;
+        }
+
+        const turnId = this.runTurnIds.get(runId);
+        const turn = turnId ? this.transcript.find((item) => item.id === turnId) : undefined;
+        const hasThinkingStream = this.thinkingBuffers.has(runId) || !!turn?.thinking;
+        const isOpenClaw = this.bridgeRegistry.active.id === 'openclaw';
+
+        if (!isFinal && isOpenClaw && hasThinkingStream) {
+            return null;
+        }
+
+        const sanitized = HistoryManager.sanitizeAssistantDisplayText(raw);
+        return sanitized || null;
     }
 
     protected async handleLoadMoreHistory(): Promise<void> {
-        try {
-            const history = await this.bridge.getSessionHistory(1000);
-            const messages = Array.isArray(history?.messages) ? history.messages : history?.payload?.messages;
-            if (!Array.isArray(messages) || messages.length === 0) {
-                this.postToWebview({ type: 'noMoreHistory' });
-                return;
-            }
-            const turns = this.rebuildTurnsFromGatewayHistory(messages);
-            if (turns.length > this.transcript.length) {
+        await this.historyManager.handleLoadMoreHistory(
+            this.bridge,
+            this.transcript,
+            (turns, historyItems) => {
                 this.transcript = turns;
-                this.cachedHistory = turns.map((turn) => ({ role: turn.role, content: turn.content, isSteer: turn.isSteer }));
+                this.cachedHistory = historyItems;
             }
-            this.renderTranscript();
-            this.persistCurrentTranscript();
-            // 1000 is gateway max — no more after this
-            this.postToWebview({ type: 'noMoreHistory' });
-        } catch (error: any) { Logger.getInstance().warn('handleLoadMoreHistory failed', error); }
+        );
     }
 
-    /** Load history from JSONL file for infinite scroll (when showFullHistory is enabled). */
     protected async handleLoadMoreHistoryFromJsonl(offset: number = 0): Promise<void> {
         try {
             const sessionKey = this.bridge.getCurrentSessionKey();
-            if (!sessionKey || !this.bridge.getSessionHistoryFromJsonl) {
-                // No session or bridge doesn't support JSONL — fall back to gateway
+            if (!sessionKey || !(this.bridge as any).getSessionHistoryFromJsonl) {
                 await this.handleLoadMoreHistory();
                 return;
             }
-            const result = await this.bridge.getSessionHistoryFromJsonl(sessionKey, offset, 256 * 1024);
+            const result = await (this.bridge as any).getSessionHistoryFromJsonl(sessionKey, offset, 256 * 1024);
             if (!result || !result.messages || result.messages.length === 0) {
-                // Unavailable or empty — fall back to gateway history
                 await this.handleLoadMoreHistory();
                 return;
             }
-            const turns = this.rebuildTurnsFromGatewayHistory(result.messages);
+            const turns = this.historyManager.rebuildTurnsFromGatewayHistory(result.messages);
             this.postToWebview({
                 type: 'moreHistory',
                 turns,
                 hasMore: result.hasMore,
-                nextOffset: result.nextOffset
+                nextOffset: result.nextOffset,
             });
-        } catch (error: any) { Logger.getInstance().warn('handleLoadMoreHistoryFromJsonl failed', error); }
-    }
-
-    /**
-     * Some models route their reasoning through plain text and separate the
-     * user-visible reply with this marker (OpenClaw convention). Everything
-     * before it is thinking; everything after is the actual message.
-     */
-    protected static readonly REPLY_MARKER = '[[reply_to_current]]';
-
-    /** Drop any reasoning prefix ahead of the reply marker (live stream safety). */
-    protected stripReplyMarker(text: string): string {
-        const idx = text.indexOf(ChatBase.REPLY_MARKER);
-        return idx === -1 ? text : text.slice(idx + ChatBase.REPLY_MARKER.length).trimStart();
-    }
-
-    /**
-     * Rebuild full transcript turns from gateway history, shaped like a Codex
-     * transcript: one assistant turn per user→reply cycle. OpenClaw stores a
-     * run as MANY assistant messages (thinking parts, narration, toolCall
-     * parts) interleaved with `role:'toolResult'` records keyed by
-     * `toolCallId`. Merging the run keeps the webview compact — reasoning goes
-     * to the collapsed thinking disclosure, tool calls to the activity
-     * accordion, and only real prose stays as message text.
-     */
-    protected rebuildTurnsFromGatewayHistory(messages: any[]): TranscriptTurn[] {
-        const turns: TranscriptTurn[] = [];
-        const toolIndex = new Map<string, TranscriptTool>();
-        let current: TranscriptTurn | null = null;
-        let thinkingBuf: string[] = [];
-        let contentBuf: string[] = [];
-
-        const flush = () => {
-            if (!current) return;
-            current.content = contentBuf.join('\n\n');
-            const thinking = thinkingBuf.join('\n\n');
-            if (thinking) {
-                current.thinking = thinking;
-                current.thinkingComplete = true;
-            }
-            if (current.tools && current.tools.length === 0) current.tools = undefined;
-            if (current.content || current.thinking || current.tools?.length) turns.push(current);
-            current = null;
-            thinkingBuf = [];
-            contentBuf = [];
-        };
-
-        // Route a text chunk: reasoning before the reply marker goes to the
-        // thinking buffer, the rest to visible content.
-        const route = (raw: string, defaultToThinking: boolean) => {
-            const t = String(raw ?? '').trim();
-            if (!t) return;
-            const idx = t.indexOf(ChatBase.REPLY_MARKER);
-            if (idx >= 0) {
-                const before = t.slice(0, idx).trim();
-                const after = t.slice(idx + ChatBase.REPLY_MARKER.length).trim();
-                if (before) thinkingBuf.push(before);
-                if (after) contentBuf.push(after);
-                return;
-            }
-            (defaultToThinking ? thinkingBuf : contentBuf).push(t);
-        };
-
-        for (const msg of messages) {
-            const m = msg?.message ?? msg;
-            const role = msg?.role || m?.role;
-            if (role === 'user') {
-                flush();
-                const content = this.extractHistoryText(msg);
-                const visible = content ? this.visibleTurnContent('user', content) : null;
-                if (visible) {
-                    turns.push({ id: this.makeMessageId('m'), role: 'user', content: visible, isSteer: !!(msg.isSteer || m?.isSteer) });
-                }
-                continue;
-            }
-            if (role === 'assistant') {
-                if (!current) {
-                    current = { id: this.makeMessageId('a'), role: 'assistant', content: '', tools: [] };
-                }
-                const parts = Array.isArray(m?.content)
-                    ? m.content
-                    : (typeof m?.content === 'string' ? [{ type: 'text', text: m.content }] : []);
-                for (const part of parts) {
-                    if (!part || typeof part !== 'object') continue;
-                    if (part.type === 'thinking' || part.type === 'reasoning') {
-                        route(String(part.thinking ?? part.text ?? ''), true);
-                        continue;
-                    }
-                    if (part.type === 'toolCall' || part.type === 'tool_use' || part.type === 'tool-call') {
-                        const tool: TranscriptTool = {
-                            toolCallId: String(part.id ?? part.toolCallId ?? `restored:${toolIndex.size}`),
-                            toolName: String(part.name ?? part.toolName ?? ''),
-                            args: ToolEventHandler.formatToolArgs(part.arguments ?? part.input ?? part.args ?? {}),
-                            phase: 'start',
-                        };
-                        current.tools!.push(tool);
-                        toolIndex.set(tool.toolCallId, tool);
-                        continue;
-                    }
-                    if (typeof part.text === 'string') {
-                        const visible = this.visibleTurnContent('assistant', part.text);
-                        if (visible && !ChatBase.TOOL_ECHO_RE.test(visible.trim())) route(visible, false);
-                    }
-                }
-                continue;
-            }
-            if (role === 'toolResult' || role === 'tool' || role === 'tool_result') {
-                const id = String(m?.toolCallId ?? m?.tool_call_id ?? '');
-                const tool = id ? toolIndex.get(id) : undefined;
-                if (tool) {
-                    const resultText = this.extractHistoryText(msg);
-                    tool.result = ToolEventHandler.formatToolResult(resultText || m?.content || '', !!m?.isError);
-                    tool.isError = !!m?.isError;
-                    tool.phase = 'result';
-                    if (m?.toolName && !tool.toolName) tool.toolName = String(m.toolName);
-                }
-                continue;
-            }
-            // Session meta / model-change records: neither chat turns nor run
-            // boundaries — keep the current assistant run open.
+        } catch (error: any) {
+            Logger.getInstance().warn('handleLoadMoreHistoryFromJsonl failed', error);
         }
-        flush();
-        return turns;
     }
 
     protected pushToolStatus(): void {
         const status = this.bridge.getToolStatus();
         if (status) {
-            this.postToWebview({ type: 'toolStatus', activeTools: status.tools.filter(t => t.enabled).map(t => t.name), totalTools: status.tools.length });
+            this.postToWebview({
+                type: 'toolStatus',
+                activeTools: status.tools.filter(t => t.enabled).map(t => t.name),
+                totalTools: status.tools.length,
+            });
         }
     }
 }

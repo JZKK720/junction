@@ -368,7 +368,7 @@ export class ModelManager {
 
     private readConfigThinkingSources(): Map<string, AgentThinkingSource> {
         const out = new Map<string, AgentThinkingSource>();
-        const paths = [getOpenClawConfigPath(), '/home/e/entities/ling/openclaw.json'].filter(Boolean);
+        const paths = [getOpenClawConfigPath()].filter(Boolean);
         for (const filePath of paths) {
             try {
                 if (!fs.existsSync(filePath)) continue;

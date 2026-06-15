@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
-import { getSouveraineBaseUrl, getSouveraineHome, updateSouveraineRuntime } from '../../config/agentBridgeConfig';
+import { getSouveraineBaseUrl, getSouveraineHome, souveraineConfig, updateSouveraineRuntime } from '../../config/agentBridgeConfig';
 import { jsonRequest, streamSse } from '../http';
 import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, ModelChoice, OPENCLAW_THINKING_LEVELS, ToolStatusView } from '../types';
 import { Logger } from '../../utils/logger';
@@ -328,15 +328,35 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
     }
 
     async listEnvironmentChoices(): Promise<ChoiceMenuItem[]> {
-        const available = await jsonRequest(`${getSouveraineBaseUrl()}/health`, { timeoutMs: 750 }).then(() => true).catch(() => false);
+        const available = await jsonRequest<any>(`${getSouveraineBaseUrl()}/v1/agents`, { timeoutMs: 250 }).then((r) => Array.isArray(r)).catch(() => false);
         const port = portFromUrl(getSouveraineBaseUrl());
+        if (!available) {
+            return [
+                {
+                    id: 'souveraine:autodetect',
+                    label: 'Auto-detect Souveraine',
+                    description: 'Scan common ports for a running Souveraine instance',
+                    section: 'Souveraine',
+                    icon: 'search',
+                    setup: true,
+                },
+                {
+                    id: 'souveraine:settings',
+                    label: 'Configure Souveraine',
+                    description: 'Bridge settings',
+                    section: 'Souveraine',
+                    icon: 'gear',
+                    setup: true,
+                },
+            ];
+        }
         return [
             {
                 id: 'souveraine:managed',
                 label: `souvieling@souveraine:${port}`,
-                description: available ? 'Detected Souveraine runtime' : 'Configured Souveraine runtime',
+                description: 'Detected Souveraine runtime',
                 section: 'Souveraine',
-                icon: available ? 'hubot' : 'debug-disconnect',
+                icon: 'hubot',
                 checked: true,
             },
             {
@@ -350,7 +370,17 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
     }
 
     async selectEnvironmentChoice(data: any): Promise<void> {
-        if (String(data.id) === 'souveraine:settings') await this.configure();
+        const id = String(data.id ?? '');
+        if (id === 'souveraine:settings') { await this.configure(); return; }
+        if (id === 'souveraine:autodetect') {
+            const found = await souverainAutoDetect();
+            if (found) {
+                await updateSouveraineRuntime({ baseUrl: found });
+                await this.connect();
+            } else {
+                vscode.window.showInformationMessage('Souveraine: no running instance found on common ports.');
+            }
+        }
     }
 
     getEnvironmentLabel(): string {
@@ -424,10 +454,12 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
     }
 
     private async readIdentity(): Promise<{ agents: string; soul: string }> {
+        const home = process.env.HOME || '~';
         const read = async (file: string) => fs.promises.readFile(file, 'utf8').catch(() => '');
+        const base = path.join(home, 'entities', 'ling', 'workspace-灵');
         return {
-            agents: await read('/home/e/entities/ling/workspace-灵/AGENTS.md'),
-            soul: (await read('/home/e/entities/ling/workspace-灵/SOUL_INCARNATION.md')).replace(/\{harness\}/g, 'Souveraine'),
+            agents: await read(path.join(base, 'AGENTS.md')),
+            soul: (await read(path.join(base, 'SOUL_INCARNATION.md'))).replace(/\{harness\}/g, 'Souveraine'),
         };
     }
 
@@ -461,18 +493,13 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
             ].join('\n');
             await fs.promises.writeFile(configPath, config, 'utf8');
         }
-        const identity = await this.readIdentity();
-        const markerDir = path.join(state, 'junction', 'souvieling');
-        await fs.promises.mkdir(markerDir, { recursive: true });
-        await fs.promises.writeFile(path.join(markerDir, 'AGENTS.md'), identity.agents, 'utf8');
-        await fs.promises.writeFile(path.join(markerDir, 'SOUL_INCARNATION.md'), identity.soul, 'utf8');
     }
 
     private spawnServer(): void {
-        const repo = '/home/e/sauce/ai/agents/Souveraine';
-        if (!fs.existsSync(repo)) return;
+        const repo = souveraineConfig().get<string>('repoPath', '');
+        if (!repo || !fs.existsSync(repo)) return;
         const home = getSouveraineHome();
-        const realHome = process.env.HOME || '/home/e';
+        const realHome = process.env.HOME || home;
         const logDir = path.join(home, '.souveraine', 'logs');
         fs.mkdirSync(logDir, { recursive: true });
         const out = fs.openSync(path.join(logDir, 'server.log'), 'a');
@@ -507,4 +534,18 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
 
 function portFromUrl(value: string): string {
     try { return new URL(value).port || ''; } catch { return ''; }
+}
+
+async function souverainAutoDetect(timeoutMs = 200): Promise<string | null> {
+    const ports = [8484, 8080, 8000, 9000];
+    const results = await Promise.all(ports.map(async (port) => {
+        const url = `http://127.0.0.1:${port}`;
+        try {
+            const agents = await jsonRequest<any>(`${url}/v1/agents`, { timeoutMs });
+            return Array.isArray(agents) ? url : null;
+        } catch {
+            return null;
+        }
+    }));
+    return results.find((r) => r !== null) ?? null;
 }

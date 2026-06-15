@@ -21,6 +21,7 @@ async function activate(context: vscode.ExtensionContext) {
     // naturally per-window.
     chatViewProvider = new ChatViewProvider(context);
     const bridgeRegistry = chatViewProvider.registry;
+    logger.info('Registered bridges: ' + bridgeRegistry.getAll().map(b => b.id).join(', '));
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatViewProvider, {

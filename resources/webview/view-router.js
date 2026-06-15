@@ -16,15 +16,31 @@
 
 // ── Startup loader dismissal (first real view wins) ────────────
 
-function dismissStartupLoader() {
+var splashStartTime = Date.now();
+var splashDismissed = false;
+
+function dismissStartupLoader(triggeredByChatLoad) {
   var loader = document.getElementById('startup-loader');
-  if (!loader || loader.classList.contains('dismissed')) return;
+  if (!loader || loader.classList.contains('dismissed') || splashDismissed) return;
 
   var animConfig = window.animConfig || {};
   var isDisabled = !!animConfig.splashDisabled;
+  var fadeOnChatLoad = !!animConfig.splashFadeOnChatLoad;
 
-  var splashLength = isDisabled ? 0.01 : (animConfig.splashLength !== undefined ? animConfig.splashLength : 1.0);
-  var splashFade = isDisabled ? 0.01 : (animConfig.splashFade !== undefined ? animConfig.splashFade : 0.3);
+  if (fadeOnChatLoad && !triggeredByChatLoad) {
+    return;
+  }
+
+  splashDismissed = true;
+
+  var splashLength = isDisabled ? 0.01 : (animConfig.splashLength !== undefined ? parseFloat(animConfig.splashLength) : 1.0);
+  var splashFade = isDisabled ? 0.01 : (animConfig.splashFade !== undefined ? parseFloat(animConfig.splashFade) : 0.3);
+
+  // Length floor is splashLength, with a hard minimum floor of 500ms
+  var floorMs = isDisabled ? 10 : Math.max(500, splashLength * 1000);
+
+  var elapsed = Date.now() - splashStartTime;
+  var remaining = Math.max(0, floorMs - elapsed);
 
   setTimeout(function () {
     loader.style.transition = 'opacity ' + splashFade + 's ease-out';
@@ -32,8 +48,9 @@ function dismissStartupLoader() {
     setTimeout(function () {
       loader.remove();
     }, splashFade * 1000 + 50);
-  }, splashLength * 1000);
+  }, remaining);
 }
+window.dismissStartupLoader = dismissStartupLoader;
 
 // ── View navigation (override template.html inline stubs) ──────
 
@@ -86,7 +103,7 @@ window.addEventListener('message', function (event) {
     // ── Navigation ──────────────────────────────────────────────
 
     case 'switchToHome':
-      dismissStartupLoader();
+      dismissStartupLoader(true);
       showSessionList();
       if (msg.groups && typeof window.renderGroups === 'function') {
         window.renderGroups(msg.groups, msg.activeKey);
@@ -95,7 +112,7 @@ window.addEventListener('message', function (event) {
 
     case 'switchToChat':
       dismissStartupLoader();
-      setChatTitle(msg.title);
+      window.setChatTitle?.(msg.title);
       showChatView();
       if (msg.history) {
         renderRouterHistory(msg.history, msg.activeRunId);
@@ -111,7 +128,7 @@ window.addEventListener('message', function (event) {
       break;
 
     case 'updateTitle':
-      setChatTitle(msg.title);
+      window.setChatTitle?.(msg.title);
       break;
   }
 });

@@ -6,6 +6,9 @@ dist
 .cursor
 .agents
 .vscode
+.reference-addons/*
+!.reference-addons/.gitkeep
+!.reference-addons/README.md
 
 # Private runtime/agent state — never commit (may contain tokens/session state)
 .openclaw/

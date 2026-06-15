@@ -1,16 +1,6 @@
-export interface MappedBridgeEvent {
-    type: string;
-    [key: string]: unknown;
-}
+import { MappedBridgeEvent, EventMappingResult } from '../types';
 
-export interface HermesEventMapping {
-    runId: string;
-    events: MappedBridgeEvent[];
-    nextText?: string;
-    clearBuffer?: boolean;
-}
-
-export function mapHermesWsEvent(ev: any, activeSessionId: string | null, previousText = ''): HermesEventMapping {
+export function mapHermesWsEvent(ev: any, activeSessionId: string | null, previousText = ''): EventMappingResult {
     const sessionId = ev?.session_id || activeSessionId || 'hermes';
     const payload = ev?.payload || {};
     const events: MappedBridgeEvent[] = [];

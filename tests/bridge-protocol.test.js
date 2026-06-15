@@ -10,7 +10,7 @@ function read(relativePath) {
   return fs.readFileSync(path.join(root, relativePath), 'utf8');
 }
 
-function loadTs(relativePath) {
+function loadTs(relativePath, requireOverrides = {}) {
   const file = path.join(root, relativePath);
   const js = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: {
@@ -20,10 +20,16 @@ function loadTs(relativePath) {
     },
   }).outputText;
   const module = { exports: {} };
+  const localRequire = (specifier) => {
+    if (Object.prototype.hasOwnProperty.call(requireOverrides, specifier)) {
+      return requireOverrides[specifier];
+    }
+    return require(specifier);
+  };
   const context = {
     module,
     exports: module.exports,
-    require,
+    require: localRequire,
     __dirname: path.dirname(file),
     __filename: file,
   };
@@ -110,11 +116,11 @@ function testContributionGuards() {
   assert.equal(JSON.stringify(pkg.contributes).includes('openclaw.chatView'), false);
   assert.ok(pkg.contributes.commands.every((command) => command.command.startsWith('junction.')));
 
-  const chatBase = read('src/ui/chatBase.ts');
-  assert.equal(/showQuickPick/.test(chatBase), false);
-  assert.equal(/pickModel|pickReasoning|pickDispatch|pickEnvironment/.test(chatBase), false);
-  assert.match(chatBase, /requestModelChoices/);
-  assert.match(chatBase, /requestEnvironmentChoices/);
+  const chatBaseUi = read('src/ui/chatBase.ts') + '\n' + read('src/ui/event-router.ts');
+  assert.equal(/showQuickPick/.test(chatBaseUi), false);
+  assert.equal(/pickModel|pickReasoning|pickDispatch|pickEnvironment/.test(chatBaseUi), false);
+  assert.match(chatBaseUi, /requestModelChoices/);
+  assert.match(chatBaseUi, /requestEnvironmentChoices/);
 
   const openclaw = read('src/bridges/openclaw/OpenClawBridge.ts');
   assert.match(openclaw, /class OpenClawBridge/);
@@ -138,12 +144,12 @@ function testTerminalLifecyclePhases() {
   // phase as "end" (terminalLifecyclePhase ?? "end"). If chatBase only treats
   // completed/error/cancelled as terminal, activeRunId never clears and every
   // message after the first is parked in the follow-up queue forever.
-  const chatBase = read('src/ui/chatBase.ts');
-  assert.match(chatBase, /TERMINAL_LIFECYCLE_PHASES/);
-  assert.match(chatBase, /'end'/);
-  assert.match(chatBase, /isTerminalLifecyclePhase\(event\.phase\)/);
+  const historyManager = read('src/ui/history-manager.ts');
+  assert.match(historyManager, /TERMINAL_LIFECYCLE_PHASES/);
+  assert.match(historyManager, /'end'/);
+  assert.match(historyManager, /isTerminalLifecyclePhase\(/);
   // The old hardcoded list (which omitted "end") must not come back.
-  assert.equal(/\['completed',\s*'error',\s*'cancelled'\]\.includes\(event\.phase\)/.test(chatBase), false);
+  assert.equal(/\['completed',\s*'error',\s*'cancelled'\]\.includes\(event\.phase\)/.test(historyManager), false);
 }
 
 function testGatewayCapabilities() {
@@ -174,10 +180,117 @@ function testGatewayCapabilities() {
   assert.equal(readOnly.canSteer(), false);
 }
 
+function testHistoryDedupesAssistantEchoes() {
+  const { HistoryManager } = loadTs('src/ui/history-manager.ts', {
+    vscode: {},
+    '../utils/logger': { Logger: { getInstance: () => ({ warn() {}, info() {}, error() {} }) } },
+    './toolEventHandler': { ToolEventHandler: { formatToolArgs: (v) => JSON.stringify(v), formatToolResult: (v) => String(v) } },
+  });
+
+  const manager = new HistoryManager(
+    () => 'id',
+    (role, content) => {
+      if (role === 'user' && String(content).startsWith('[Workspace File Context]')) return null;
+      return content;
+    },
+    (msg) => msg?.content ?? msg?.message?.content ?? '',
+    () => {},
+  );
+
+  const turns = manager.rebuildTurnsFromGatewayHistory([
+    { role: 'assistant', message: { role: 'assistant', content: [
+      { type: 'thinking', thinking: 'internal' },
+      { type: 'text', text: 'Done. Saved to project.' },
+    ] } },
+    { role: 'user', message: { role: 'user', content: '[Workspace File Context]\nCurrent file: Untitled-1' } },
+    { role: 'assistant', message: { role: 'assistant', content: [
+      { type: 'text', text: "What's up?" },
+    ] } },
+    { role: 'assistant', message: { role: 'assistant', content: [
+      { type: 'text', text: 'Done. Saved to project.' },
+    ] } },
+  ]);
+
+  assert.deepEqual(
+    plain(turns.map((turn) => ({ role: turn.role, content: turn.content }))),
+    [
+      { role: 'assistant', content: 'Done. Saved to project.' },
+      { role: 'assistant', content: "What's up?" },
+    ]
+  );
+}
+
+function testOpenClawReplyMarkerGating() {
+  const chatBase = read('src/ui/chatBase.ts');
+  assert.match(chatBase, /extractVisibleAssistantText\(runId: string, text: string, isFinal = false\): string \| null/);
+  assert.match(chatBase, /if \(!isFinal && isOpenClaw && hasThinkingStream\) \{\s*return null;\s*\}/);
+  assert.match(chatBase, /const nextText = this\.extractVisibleAssistantText\(runId, event\.text \|\| lastText\);/);
+  assert.match(chatBase, /const nextText = this\.extractVisibleAssistantText\(runId, event\.content \|\| lastText, event\.state === 'final'\);/);
+  assert.match(chatBase, /protected hidesRawThinking\(\): boolean \{\s*return this\.bridgeRegistry\.active\.id === 'openclaw';\s*\}/);
+  assert.match(chatBase, /fullText: hideRawThinking \? '' : buf/);
+}
+
+function testHistoryFiltersAssistantPartEchoes() {
+  const historyManager = read('src/ui/history-manager.ts');
+  assert.match(historyManager, /&& !seenAssistantTextsSinceVisibleUser\.has\(normalizedPart\)/);
+}
+
+function testAssistantCrumbSanitizer() {
+  const { HistoryManager } = loadTs('src/ui/history-manager.ts', {
+    vscode: {},
+    '../utils/logger': { Logger: { getInstance: () => ({ warn() {}, info() {}, error() {} }) } },
+    './toolEventHandler': { ToolEventHandler: { formatToolArgs: (v) => JSON.stringify(v), formatToolResult: (v) => String(v) } },
+  });
+
+  assert.equal(
+    HistoryManager.sanitizeAssistantDisplayText('The user wants\n\n">\n\nReal answer here.'),
+    'Real answer here.'
+  );
+  assert.equal(
+    HistoryManager.sanitizeAssistantDisplayText('OK so\n\nWait\n\nUseful line\n\nTyp'),
+    'Useful line'
+  );
+}
+
+function testHistoryBuildsActivityTimeline() {
+  const historyManager = read('src/ui/history-manager.ts');
+  assert.match(historyManager, /activityTimeline: turn\.activityTimeline/);
+  assert.match(historyManager, /activityTimeline\.push\(\{ type: 'tool', toolCallId: tool\.toolCallId \}\)/);
+  assert.match(historyManager, /const isToolUseStep = stopReason === 'tooluse'/);
+  assert.match(historyManager, /if \(!tool\) \{\s*tool = \{\s*toolCallId: id \|\| `restored:\$\{toolIndex\.size\}`,/);
+
+  const messagesJs = read('resources/webview/render/messages.js');
+  assert.match(messagesJs, /renderActivityTimelineHistory/);
+
+  const reasoningJs = read('resources/webview/render/reasoning.js');
+  assert.match(reasoningJs, /activityUsesUnifiedTimeline/);
+}
+
+function testToolUiErrorAndChevrons() {
+  const toolsJs = read('resources/webview/render/tools.js');
+  assert.match(toolsJs, /deriveResultMeta/);
+  assert.match(toolsJs, /errorBadge\.textContent = 'Error'/);
+  assert.match(toolsJs, /appendChevron\(beforeSummary\)/);
+  assert.match(toolsJs, /appendChevron\(afterSummary\)/);
+  assert.match(toolsJs, /meta\.fileText/);
+  assert.match(toolsJs, /buildDetailSection\('File text'/);
+  assert.match(toolsJs, /if \(!resultMeta\.isError && \(meta\.plus \|\| meta\.minus\)\)/);
+
+  const css = read('resources/webview/chat-stream.css');
+  assert.match(css, /\.tool-summary-badge/);
+  assert.match(css, /\.tool-edit-subsection-summary:hover \.tool-chevron/);
+}
+
 testHermesMapping();
 testSouveraineMapping();
 testContributionGuards();
 testTerminalLifecyclePhases();
 testGatewayCapabilities();
+testHistoryDedupesAssistantEchoes();
+testOpenClawReplyMarkerGating();
+testHistoryFiltersAssistantPartEchoes();
+testAssistantCrumbSanitizer();
+testHistoryBuildsActivityTimeline();
+testToolUiErrorAndChevrons();
 
 console.log('Bridge protocol tests passed');
