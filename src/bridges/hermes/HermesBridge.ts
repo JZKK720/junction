@@ -454,11 +454,19 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
     }
 
     private async ensureManagedRuntime(): Promise<void> {
+        // Always sync apiBaseUrl from config (API server port may differ from dashboard port)
+        const apiCfg = await readHermesApiConfig();
+        if (apiCfg.apiPort) {
+            const apiUrl = `http://${apiCfg.apiHost ?? '127.0.0.1'}:${apiCfg.apiPort}`;
+            if (apiUrl !== getHermesApiBaseUrl()) {
+                await updateHermesRuntime({ apiBaseUrl: apiUrl });
+            }
+        }
         try {
             await textRequest(getHermesBaseUrl(), { timeoutMs: 1000 });
             return;
         } catch {}
-        // Configured URL unreachable — auto-detect on other ports before spawning
+        // Configured dashboard URL unreachable — scan known dashboard ports before spawning
         const detected = await hermesAutoDetect(300);
         if (detected) {
             const u = new URL(detected);
@@ -557,24 +565,36 @@ function reasoningEffortsFromRaw(raw: any): string[] {
         .filter((e): e is string => !!e);
 }
 
-async function readHermesConfigPort(): Promise<number | null> {
+interface HermesApiConfig {
+    apiHost?: string;
+    apiPort?: number;
+}
+
+async function readHermesApiConfig(): Promise<HermesApiConfig> {
     const home = getHermesHome();
     for (const name of ['config.yaml', 'config.json', 'config.toml']) {
         try {
             const text = await fs.promises.readFile(path.join(home, name), 'utf-8');
-            const m = text.match(/\bport[\s:=]+(\d+)/);
-            if (m) return parseInt(m[1], 10);
+            // Match platforms.api_server.extra block — look for host/port AFTER api_server: header
+            // to avoid grabbing ports from unrelated sections (ollama, etc.)
+            const apiSection = text.match(/api_server:([\s\S]*?)(?=\n\S|\n\n[a-z]|$)/)?.[1] ?? '';
+            const portMatch = apiSection.match(/\bport:\s*(\d+)/);
+            const hostMatch = apiSection.match(/\bhost:\s*["']?([\d.a-z-]+)["']?/);
+            if (portMatch) {
+                return {
+                    apiPort: parseInt(portMatch[1], 10),
+                    apiHost: hostMatch?.[1] ?? '127.0.0.1',
+                };
+            }
         } catch { /* file absent or unreadable */ }
     }
-    return null;
+    return {};
 }
 
 async function hermesAutoDetect(timeoutMs = 200): Promise<string | null> {
-    const configPort = await readHermesConfigPort();
-    const known = [9119, 9120, 9000, 8642, 8000];
-    const ports = configPort
-        ? [configPort, ...known.filter(p => p !== configPort)]
-        : known;
+    // Only scan ports that serve the Hermes dashboard HTML (with __HERMES_SESSION_TOKEN__).
+    // The API server port (from config) is a separate REST endpoint — do not include it here.
+    const ports = [9119, 9120, 9000, 8000];
     const results = await Promise.all(ports.map(async (port) => {
         const url = `http://127.0.0.1:${port}`;
         try {

@@ -545,25 +545,33 @@ function portFromUrl(value: string): string {
     try { return new URL(value).port || ''; } catch { return ''; }
 }
 
-async function readSouveraineConfigPort(): Promise<number | null> {
+async function readSouveraineConfigUrl(): Promise<string | null> {
     try {
         const configPath = path.join(getSouveraineHome(), '.souveraine', 'config.toml');
         const text = await fs.promises.readFile(configPath, 'utf-8');
-        // Match `port = <number>` under [server] block
-        const m = text.match(/\bport\s*=\s*(\d+)/);
-        if (m) return parseInt(m[1], 10);
+        // Prefer explicit url field (most specific — includes host, port, scheme)
+        const urlMatch = text.match(/\burl\s*=\s*"(https?:\/\/[^"]+)"/);
+        if (urlMatch) return urlMatch[1].replace(/\/$/, '');
+        // Fall back to constructing from bind + port under [server]
+        const portMatch = text.match(/\bport\s*=\s*(\d+)/);
+        const bindMatch = text.match(/\bbind\s*=\s*"([^"]+)"/);
+        if (portMatch) {
+            const host = bindMatch?.[1] ?? '127.0.0.1';
+            return `http://${host}:${portMatch[1]}`;
+        }
     } catch { /* absent or unreadable */ }
     return null;
 }
 
 async function souverainAutoDetect(timeoutMs = 200): Promise<string | null> {
-    const configPort = await readSouveraineConfigPort();
-    const known = [8484, 8080, 8000, 9000];
-    const ports = configPort
-        ? [configPort, ...known.filter(p => p !== configPort)]
-        : known;
-    const results = await Promise.all(ports.map(async (port) => {
+    const configUrl = await readSouveraineConfigUrl();
+    // Probe config URL first (most specific), then fallback port scan
+    const candidates: string[] = configUrl ? [configUrl] : [];
+    for (const port of [8484, 8080, 8000, 9000]) {
         const url = `http://127.0.0.1:${port}`;
+        if (url !== configUrl) candidates.push(url);
+    }
+    const results = await Promise.all(candidates.map(async (url) => {
         try {
             const agents = await jsonRequest<any>(`${url}/v1/agents`, { timeoutMs });
             return Array.isArray(agents) ? url : null;
