@@ -125,6 +125,7 @@ export abstract class ChatBase {
             handleUserMessage: (text, dispatchOverride) => this.handleUserMessage(text, dispatchOverride),
             handleStopRun: () => this.handleStopRun(),
             handleAttachFile: () => this.handleAttachFile(),
+            handleAttachPastedFile: (data) => this.handleAttachPastedFile(data),
             handleSlashComplete: (prefix) => this.handleSlashComplete(prefix),
             handleCreateChat: (text) => this.handleCreateChat(text),
             handleNewChatThenSend: (text) => this.handleNewChatThenSend(text),
@@ -983,6 +984,34 @@ export abstract class ChatBase {
                 isLive: false,
             });
         }
+    }
+
+    protected handleAttachPastedFile(data: any): void {
+        const name = String(data?.name || 'pasted-file');
+        const content = String(data?.content || '');
+        const encoding = String(data?.encoding || 'text');
+        if (!content) return;
+
+        const storageDir = this.bridgeRegistry.context.globalStorageUri.fsPath;
+        const pastedDir = `${storageDir}/pasted`;
+        try { fs.mkdirSync(pastedDir, { recursive: true }); } catch {}
+
+        const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const ts = Date.now();
+        const filePath = `${pastedDir}/${ts}_${safeName}`;
+
+        if (encoding === 'base64') {
+            const buf = Buffer.from(content, 'base64');
+            fs.writeFileSync(filePath, buf);
+        } else {
+            fs.writeFileSync(filePath, content, 'utf8');
+        }
+
+        this.addAttachedPill({
+            filePath,
+            displayText: name,
+            isLive: false,
+        });
     }
 
     protected async handleNewChat(): Promise<void> {

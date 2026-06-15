@@ -360,7 +360,11 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
     }
 
     getEnvironmentLabel(): string {
-        return `hermling@hermes:${portFromUrl(getHermesBaseUrl())}`;
+        const home = getHermesHome();
+        const dirName = path.basename(home);
+        // Strip common prefixes: ~/.hermes-hermling → hermling
+        const match = dirName.match(/^hermes[_-]?(.+)/);
+        return match ? match[1] : dirName;
     }
 
     getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }> {
@@ -454,6 +458,16 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
             await textRequest(getHermesBaseUrl(), { timeoutMs: 1000 });
             return;
         } catch {}
+        // Configured URL unreachable — auto-detect on other ports before spawning
+        const detected = await hermesAutoDetect(300);
+        if (detected) {
+            const u = new URL(detected);
+            await updateHermesRuntime({
+                dashboardUrl: detected,
+                wsUrl: `ws://${u.host}/api/ws`,
+            });
+            return;
+        }
         this.spawnDashboard();
         for (let i = 0; i < 30; i++) {
             await new Promise(r => setTimeout(r, 1000));
@@ -543,8 +557,24 @@ function reasoningEffortsFromRaw(raw: any): string[] {
         .filter((e): e is string => !!e);
 }
 
+async function readHermesConfigPort(): Promise<number | null> {
+    const home = getHermesHome();
+    for (const name of ['config.yaml', 'config.json', 'config.toml']) {
+        try {
+            const text = await fs.promises.readFile(path.join(home, name), 'utf-8');
+            const m = text.match(/\bport[\s:=]+(\d+)/);
+            if (m) return parseInt(m[1], 10);
+        } catch { /* file absent or unreadable */ }
+    }
+    return null;
+}
+
 async function hermesAutoDetect(timeoutMs = 200): Promise<string | null> {
-    const ports = [9119, 9120, 9000, 8642, 8000];
+    const configPort = await readHermesConfigPort();
+    const known = [9119, 9120, 9000, 8642, 8000];
+    const ports = configPort
+        ? [configPort, ...known.filter(p => p !== configPort)]
+        : known;
     const results = await Promise.all(ports.map(async (port) => {
         const url = `http://127.0.0.1:${port}`;
         try {

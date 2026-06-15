@@ -384,7 +384,10 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
     }
 
     getEnvironmentLabel(): string {
-        return `souvieling@souveraine:${portFromUrl(getSouveraineBaseUrl())}`;
+        const home = getSouveraineHome();
+        const dirName = path.basename(home);
+        const match = dirName.match(/^souveraine[_-]?(.+)/);
+        return match ? match[1].replace(/-home$/, '') : dirName;
     }
 
     getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }> {
@@ -407,6 +410,12 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
             await jsonRequest(`${getSouveraineBaseUrl()}/health`, { timeoutMs: 1000 });
             return;
         } catch {}
+        // Configured URL unreachable — auto-detect on other ports before spawning
+        const detected = await souverainAutoDetect(300);
+        if (detected) {
+            await updateSouveraineRuntime({ baseUrl: detected });
+            return;
+        }
         this.spawnServer();
         for (let i = 0; i < 45; i++) {
             await new Promise(r => setTimeout(r, 1000));
@@ -536,8 +545,23 @@ function portFromUrl(value: string): string {
     try { return new URL(value).port || ''; } catch { return ''; }
 }
 
+async function readSouveraineConfigPort(): Promise<number | null> {
+    try {
+        const configPath = path.join(getSouveraineHome(), '.souveraine', 'config.toml');
+        const text = await fs.promises.readFile(configPath, 'utf-8');
+        // Match `port = <number>` under [server] block
+        const m = text.match(/\bport\s*=\s*(\d+)/);
+        if (m) return parseInt(m[1], 10);
+    } catch { /* absent or unreadable */ }
+    return null;
+}
+
 async function souverainAutoDetect(timeoutMs = 200): Promise<string | null> {
-    const ports = [8484, 8080, 8000, 9000];
+    const configPort = await readSouveraineConfigPort();
+    const known = [8484, 8080, 8000, 9000];
+    const ports = configPort
+        ? [configPort, ...known.filter(p => p !== configPort)]
+        : known;
     const results = await Promise.all(ports.map(async (port) => {
         const url = `http://127.0.0.1:${port}`;
         try {

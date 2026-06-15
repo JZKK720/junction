@@ -560,10 +560,22 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
     }
 
     getEnvironmentLabel(): string {
-        const configured = mimoServerUrl();
-        if (configured) return `mimo@${new URL(configured).host}`;
-        const port = this.serverPort ? String(this.serverPort) : '?';
-        return `ling@mimocode:${port}`;
+        const home = mimoHome();
+        const dirName = path.basename(home);
+        if (dirName === 'mimocode') {
+            // XDG dir — try to find agent name from config or default
+            const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(process.env.HOME || '~', '.config');
+            const configFile = path.join(xdgConfig, 'mimocode', 'config.yaml');
+            try {
+                const content = fs.readFileSync(configFile, 'utf8');
+                const nameMatch = content.match(/^#\s*(\S+)/m);
+                if (nameMatch) return nameMatch[1];
+            } catch {}
+            return 'ling';
+        }
+        // Stripped prefix: ~/.mimocode-junction → junction
+        const match = dirName.match(/^mimocode[_-]?(.+)/);
+        return match ? match[1] : dirName;
     }
 
     getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }> {
@@ -648,6 +660,14 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
             }
         }
         this.externalServer = false;
+        // Auto-detect before spawning: config sniffer then port scan
+        const detected = await mimoAutoDetect(300);
+        if (detected) {
+            this.serverUrl = detected;
+            this.serverPort = parseInt(new URL(detected).port || '80', 10);
+            this.externalServer = false;
+            return;
+        }
         await this.startServer();
     }
 
@@ -758,4 +778,32 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         }
         this.externalServer = false;
     }
+}
+
+async function readMimoConfigPort(): Promise<number | null> {
+    try {
+        const configPath = path.join(mimoHome(), 'config.yaml');
+        const text = await fs.promises.readFile(configPath, 'utf-8');
+        const m = text.match(/\bport[\s:=]+(\d+)/);
+        if (m) return parseInt(m[1], 10);
+    } catch { /* absent or unreadable */ }
+    return null;
+}
+
+async function mimoAutoDetect(timeoutMs = 200): Promise<string | null> {
+    const configPort = await readMimoConfigPort();
+    const known = [3000, 7080, 8080, 8642, 9000];
+    const ports = configPort
+        ? [configPort, ...known.filter(p => p !== configPort)]
+        : known;
+    const results = await Promise.all(ports.map(async (port) => {
+        const url = `http://127.0.0.1:${port}`;
+        try {
+            await jsonRequest(`${url}/global/health`, { timeoutMs });
+            return url;
+        } catch {
+            return null;
+        }
+    }));
+    return results.find((r) => r !== null) ?? null;
 }
