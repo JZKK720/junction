@@ -75,7 +75,7 @@ export class BridgeRegistry extends EventEmitter {
                     ? 'Active bridge'
                     : (hasConfigured ? 'Switch bridge' : 'Disconnected; setup required'),
                 section: 'Bridges',
-                icon: bridge.id === 'openclaw' ? 'plug' : 'hubot',
+                icon: bridge.isConnected() ? 'hubot' : 'plug',
                 checked: isActive,
                 bridgeId: bridge.id,
                 children: mappedChildren,

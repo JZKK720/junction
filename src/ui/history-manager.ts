@@ -88,10 +88,10 @@ export class HistoryManager {
         private readonly postToWebview: (message: any) => void,
     ) {}
 
-    private captureDebug(payload: any): void {
+    private captureDebug(kind: string, payload: any): void {
         const logger = Logger.getInstance() as Logger & { captureDebugStream?: (kind: string, payload: any) => void };
         if (typeof logger.captureDebugStream === 'function') {
-            logger.captureDebugStream('history-rebuild', payload);
+            logger.captureDebugStream(kind, payload);
         }
     }
 
@@ -178,7 +178,15 @@ export class HistoryManager {
     }
 
     renderTranscript(transcript: TranscriptTurn[]): void {
-        this.postToWebview({ type: 'history', messages: this.historyMessages(transcript) });
+        const messages = this.historyMessages(transcript);
+        this.captureDebug('chat-history-webview', {
+            source: 'renderTranscript',
+            inputTurnCount: transcript.length,
+            outputCount: messages.length,
+            inputTurns: transcript,
+            outputMessages: messages,
+        });
+        this.postToWebview({ type: 'history', messages });
     }
 
     // ── session list ───────────────────────────────────────────────────────
@@ -242,12 +250,19 @@ export class HistoryManager {
         try {
             const restored = await this.loadHistoryMessages(bridge, 200);
             const messages = restored.messages;
+            this.captureDebug('chat-history-raw', {
+                source: 'restoreHistory',
+                historySource: restored.source,
+                sessionKey: bridge.getCurrentSessionKey(),
+                inputCount: messages.length,
+                inputMessages: messages,
+            });
             if (!Array.isArray(messages) || messages.length === 0) {
                 this.renderTranscript(transcript);
                 return;
             }
             const turns = this.rebuildTurnsFromGatewayHistory(messages);
-            this.captureDebug({
+            this.captureDebug('chat-history-normalized', {
                 source: 'restoreHistory',
                 historySource: restored.source,
                 sessionKey: bridge.getCurrentSessionKey(),
@@ -273,12 +288,19 @@ export class HistoryManager {
         try {
             const restored = await this.loadHistoryMessages(bridge, 1000);
             const messages = restored.messages;
+            this.captureDebug('chat-history-raw', {
+                source: 'handleLoadMoreHistory',
+                historySource: restored.source,
+                sessionKey: bridge.getCurrentSessionKey(),
+                inputCount: messages.length,
+                inputMessages: messages,
+            });
             if (!Array.isArray(messages) || messages.length === 0) {
                 this.postToWebview({ type: 'noMoreHistory' });
                 return;
             }
             const turns = this.rebuildTurnsFromGatewayHistory(messages);
-            this.captureDebug({
+            this.captureDebug('chat-history-normalized', {
                 source: 'handleLoadMoreHistory',
                 historySource: restored.source,
                 sessionKey: bridge.getCurrentSessionKey(),
@@ -311,8 +333,16 @@ export class HistoryManager {
             if (!result || !result.messages || result.messages.length === 0) {
                 return; // Caller should fall back
             }
+            this.captureDebug('chat-history-raw', {
+                source: 'handleLoadMoreHistoryFromJsonl',
+                historySource: 'jsonl-fallback',
+                sessionKey,
+                offset,
+                inputCount: result.messages.length,
+                inputMessages: result.messages,
+            });
             const turns = this.rebuildTurnsFromGatewayHistory(result.messages);
-            this.captureDebug({
+            this.captureDebug('chat-history-normalized', {
                 source: 'handleLoadMoreHistoryFromJsonl',
                 sessionKey,
                 offset,
@@ -546,7 +576,16 @@ export class HistoryManager {
         }
         flush();
         const deduped = this.dedupeAssistantEchoTurns(turns);
-        this.captureDebug({
+        this.captureDebug('history-rebuild', {
+            source: 'rebuildTurnsFromGatewayHistory',
+            inputCount: messages.length,
+            preDedupeCount: turns.length,
+            outputCount: deduped.length,
+            inputMessages: messages,
+            preDedupeTurns: turns,
+            outputTurns: deduped,
+        });
+        this.captureDebug('chat-history-normalized', {
             source: 'rebuildTurnsFromGatewayHistory',
             inputCount: messages.length,
             preDedupeCount: turns.length,

@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as vscode from 'vscode';
 
-export type BridgeId = 'openclaw' | 'hermes' | 'souveraine' | 'mimocode' | (string & {});
+export type BridgeId = 'openclaw' | 'hermes' | 'souveraine' | 'mimocode' | 'goose' | (string & {});
 export type ChatScope = 'folder' | 'all';
 
 /**
@@ -68,6 +68,9 @@ export interface BridgeCapabilities {
     steering: boolean;
     usage: boolean;
     tools: boolean;
+    /** Raw thinking is streamed natively and should not be echoed as assistant
+     *  display text while a reasoning stream is active. Default false. */
+    hidesRawThinking?: boolean;
 }
 
 export interface BridgeContext {
@@ -163,6 +166,7 @@ export interface ChatBridge extends EventEmitter {
     watchSession?(key: string): void;
     unwatchSession?(key: string): void;
     createChat(folderUri?: vscode.Uri): Promise<string>;
+    forkChat?(parentSessionKey: string, folderUri?: vscode.Uri): Promise<string | null>;
     listSessions(scope: ChatScope, includeArchived: boolean, archivedKeys: ReadonlySet<string>): Promise<BridgeSession[]>;
     renameSession(key: string, label: string): Promise<void>;
     getSessionHistory(limit?: number, folderUri?: vscode.Uri): Promise<any>;

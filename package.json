@@ -93,60 +93,12 @@
             "openclaw",
             "hermes",
             "souveraine",
-            "mimocode"
+            "mimocode",
+            "goose"
           ],
           "default": "openclaw",
-          "description": "Active local agent bridge."
-        },
-        "junction.openclaw.gatewayUrl": {
-          "type": "string",
-          "default": "ws://127.0.0.1:18789",
-          "description": "WebSocket URL of the OpenClaw runtime."
-        },
-        "junction.openclaw.configPath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the openclaw.json config file for the selected OpenClaw runtime."
-        },
-        "junction.hermes.dashboardUrl": {
-          "type": "string",
-          "default": "http://127.0.0.1:9119",
-          "description": "Local Hermes dashboard URL used for native WebSocket integration."
-        },
-        "junction.hermes.wsUrl": {
-          "type": "string",
-          "default": "ws://127.0.0.1:9119/api/ws",
-          "description": "Local Hermes dashboard JSON-RPC WebSocket URL."
-        },
-        "junction.hermes.apiBaseUrl": {
-          "type": "string",
-          "default": "http://127.0.0.1:8642",
-          "description": "Local Hermes API server URL for REST fallback/status."
-        },
-        "junction.hermes.home": {
-          "type": "string",
-          "default": "~/.hermes-hermling",
-          "description": "Hermes home used for the managed hermling test runtime."
-        },
-        "junction.souveraine.baseUrl": {
-          "type": "string",
-          "default": "http://127.0.0.1:8484",
-          "description": "Local Souveraine HTTP server URL."
-        },
-        "junction.souveraine.home": {
-          "type": "string",
-          "default": "~/.souveraine-souvieling-home",
-          "description": "HOME directory used for the managed souvieling test runtime."
-        },
-        "junction.autoSendFileContext": {
-          "type": "boolean",
-          "default": true,
-          "description": "Automatically stage editor context when switching files."
-        },
-        "junction.fileContextInterval": {
-          "type": "number",
-          "default": 5000,
-          "description": "Interval (in ms) for automatically staging editor context."
+          "description": "Active local agent bridge.",
+          "order": 1
         },
         "junction.sendBehavior": {
           "type": "string",
@@ -161,7 +113,8 @@
             "Enter sends on a single line; multiline requires Ctrl/Cmd+Enter"
           ],
           "default": "ctrlEnter",
-          "description": "How the chat composer submits a message."
+          "description": "How the chat composer submits a message.",
+          "order": 2
         },
         "junction.followUpMode": {
           "type": "string",
@@ -178,68 +131,34 @@
             "Stop the current run, then send the new message"
           ],
           "default": "default",
-          "description": "Global follow-up mode. Per-bridge overrides: junction.openclaw.followUpMode, junction.hermes.followUpMode, junction.souveraine.followUpMode."
+          "description": "Global follow-up mode. Per-bridge overrides: junction.openclaw.followUpMode, junction.hermes.followUpMode, junction.souveraine.followUpMode.",
+          "order": 3
         },
-        "junction.openclaw.followUpMode": {
-          "type": "string",
-          "enum": [
-            "default",
-            "queue",
-            "steer",
-            "interrupt"
-          ],
-          "default": "default",
-          "description": "Follow-up mode for OpenClaw. 'default' uses the global junction.followUpMode."
-        },
-        "junction.hermes.repoPath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the hermes-agent repo for managed spawn (leave empty to disable managed spawn)."
-        },
-        "junction.hermes.followUpMode": {
-          "type": "string",
-          "enum": [
-            "default",
-            "queue",
-            "steer",
-            "interrupt"
-          ],
-          "default": "default",
-          "description": "Follow-up mode for Hermes. 'default' uses the global junction.followUpMode."
-        },
-        "junction.souveraine.repoPath": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the Souveraine repo for managed spawn (leave empty to disable managed spawn)."
-        },
-        "junction.souveraine.followUpMode": {
-          "type": "string",
-          "enum": [
-            "default",
-            "queue",
-            "steer",
-            "interrupt"
-          ],
-          "default": "default",
-          "description": "Follow-up mode for Souveraine. 'default' uses the global junction.followUpMode."
-        },
-        "junction.reasoningDisplay": {
+        "junction.lookAndFeel": {
           "type": "string",
           "enum": [
             "compact",
-            "chronological"
+            "timeline"
           ],
           "enumDescriptions": [
-            "Stream thinking expanded, then auto-collapse to a summary when it finishes",
-            "Show a compact 'Thinking\u2026 ~N tokens' line while reasoning, then reveal the full text and keep it expanded after finish"
+            "Compact chat stream with activity folded into summary accordions.",
+            "Timeline chat stream with chronological reasoning/activity flow. Also enables the orange theme."
           ],
           "default": "compact",
-          "description": "How reasoning/thinking blocks are displayed in the chat."
+          "description": "Chat look and feel.",
+          "order": 4
         },
         "junction.checkpoints.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Snapshot the workspace at each turn so you can 'Rewind code to here' (uses a shadow git repo in extension storage, never your real .git)."
+          "description": "Snapshot the workspace at each turn so you can 'Rewind code to here' (uses a shadow git repo in extension storage, never your real .git).",
+          "order": 5
+        },
+        "junction.beta.openclawForkRewind": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show beta Fork and Rewind buttons. Tested only with OpenClaw; leave off for other bridges.",
+          "order": 6
         },
         "junction.sandboxMode": {
           "type": "string",
@@ -250,7 +169,8 @@
             "full-access"
           ],
           "default": "default",
-          "description": "Local UI preference for agent sandbox display. Applied only when the active bridge supports a matching control surface."
+          "description": "Local UI preference for agent sandbox display. Applied only when the active bridge supports a matching control surface.",
+          "order": 7
         },
         "junction.approvalMode": {
           "type": "string",
@@ -260,37 +180,32 @@
             "never"
           ],
           "default": "default",
-          "description": "Local UI preference for approval display. Applied only when the active bridge supports a matching control surface."
+          "description": "Local UI preference for approval display. Applied only when the active bridge supports a matching control surface.",
+          "order": 8
         },
         "junction.extraRichText": {
           "type": "boolean",
           "default": true,
-          "description": "Enable Pretext-powered extra-rich text rendering with animated text effects (matrix scroll, typewriter, etc.). Uses canvas-based text layout for smoother animations."
+          "description": "Enable Pretext-powered extra-rich text rendering with animated text effects (matrix scroll, typewriter, etc.). Uses canvas-based text layout for smoother animations.",
+          "order": 9
         },
         "junction.todoCodeLensEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Show CodeLens actions above TODO/FIXME/HACK comments to send them to Junction."
-        },
-        "junction.activityStream.layout": {
-          "type": "string",
-          "enum": [
-            "accordion",
-            "timeline",
-            "hybrid"
-          ],
-          "enumDescriptions": [
-            "Finished activity folds into a summary accordion (\"Edited 2 files, ran 3 commands\")",
-            "Rows stay inline on a vertical timeline rail; nothing folds",
-            "Both: activity folds into the accordion, and the expanded body renders as a timeline rail"
-          ],
-          "default": "accordion",
-          "description": "How a turn's tool/activity rows are laid out in the chat stream."
+          "description": "Show CodeLens actions above TODO/FIXME/HACK comments to send them to Junction.",
+          "order": 10
         },
         "junction.activityStream.rail": {
           "type": "boolean",
           "default": true,
-          "description": "Show the vertical guide line beside activity rows (timeline/hybrid layouts)."
+          "description": "Show the vertical guide line beside activity rows in timeline mode.",
+          "order": 11
+        },
+        "junction.activityStream.condensed": {
+          "type": "boolean",
+          "default": true,
+          "description": "Group consecutive file edits into compact sections (one per file) instead of showing each edit as a separate row.",
+          "order": 12
         },
         "junction.activityStream.dots": {
           "type": "string",
@@ -303,41 +218,172 @@
             "Neutral dots with a spinner while running"
           ],
           "default": "status",
-          "description": "Status indicator style on activity rows."
+          "description": "Status indicator style on activity rows.",
+          "order": 13
+        },
+        "junction.bubble.radius": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 999,
+          "default": 16,
+          "description": "User message bubble corner radius. 0 = hard edges, 16 = default round, 999 = fully circular.",
+          "order": 14
+        },
+        "junction.bubble.tip": {
+          "type": "string",
+          "enum": ["none", "top-right", "bottom-right"],
+          "enumDescriptions": [
+            "No pointed tip — full round corners",
+            "Pointed tip at top-right corner",
+            "Pointed tip at bottom-right corner"
+          ],
+          "default": "none",
+          "description": "Position of the pointed tail on user message bubbles.",
+          "order": 15
         },
         "junction.steerKeybinding": {
           "type": "string",
           "default": "",
-          "description": "Custom keybinding to steer in-flight runs (e.g., 'Ctrl+Shift+Enter'). Left empty by default (unbound)."
+          "description": "Custom keybinding to steer in-flight runs (e.g., 'Ctrl+Shift+Enter'). Left empty by default (unbound).",
+          "order": 16
         },
         "junction.showFullHistory": {
           "type": "boolean",
           "default": false,
-          "description": "Show full chat history on load (locally installed OpenClaw instances only). When enabled, loads up to 1000 messages instead of the default 200. May be slower on large sessions."
+          "description": "Show full chat history on load (locally installed OpenClaw instances only). When enabled, loads up to 1000 messages instead of the default 200. May be slower on large sessions.",
+          "order": 17
+        },
+        "junction.autoSendFileContext": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically stage active editor context when switching files. Explicit file pills are still sent normally.",
+          "order": 18
+        },
+        "junction.fileContextInterval": {
+          "type": "number",
+          "default": 5000,
+          "description": "Interval (in ms) for automatically staging editor context.",
+          "order": 19
+        },
+        "junction.openclaw.gatewayUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:18789",
+          "description": "WebSocket URL of the OpenClaw runtime.",
+          "order": 20
+        },
+        "junction.openclaw.configPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the openclaw.json config file for the selected OpenClaw runtime.",
+          "order": 21
+        },
+        "junction.openclaw.followUpMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
+          "default": "default",
+          "description": "Follow-up mode for OpenClaw. 'default' uses the global junction.followUpMode.",
+          "order": 22
+        },
+        "junction.hermes.dashboardUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:9119",
+          "description": "Local Hermes dashboard URL used for native WebSocket integration.",
+          "order": 30
+        },
+        "junction.hermes.wsUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:9119/api/ws",
+          "description": "Local Hermes dashboard JSON-RPC WebSocket URL.",
+          "order": 31
+        },
+        "junction.hermes.apiBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8642",
+          "description": "Local Hermes API server URL for REST fallback/status.",
+          "order": 32
+        },
+        "junction.hermes.home": {
+          "type": "string",
+          "default": "~/.hermes-hermling",
+          "description": "Hermes home used for the managed hermling test runtime.",
+          "order": 33
+        },
+        "junction.hermes.repoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the hermes-agent repo for managed spawn (leave empty to disable managed spawn).",
+          "order": 34
+        },
+        "junction.hermes.followUpMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
+          "default": "default",
+          "description": "Follow-up mode for Hermes. 'default' uses the global junction.followUpMode.",
+          "order": 35
+        },
+        "junction.souveraine.baseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8484",
+          "description": "Local Souveraine HTTP server URL.",
+          "order": 40
+        },
+        "junction.souveraine.home": {
+          "type": "string",
+          "default": "~/.souveraine-souvieling-home",
+          "description": "HOME directory used for the managed souvieling test runtime.",
+          "order": 41
+        },
+        "junction.souveraine.repoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Souveraine repo for managed spawn (leave empty to disable managed spawn).",
+          "order": 42
+        },
+        "junction.souveraine.followUpMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
+          "default": "default",
+          "description": "Follow-up mode for Souveraine. 'default' uses the global junction.followUpMode.",
+          "order": 43
         },
         "junction.mimocode.serverUrl": {
           "type": "string",
           "default": "",
           "description": "Connect to an already-running MiMoCode server (e.g. http://127.0.0.1:8080). Leave empty to let Junction spawn and manage its own instance.",
-          "order": 999
+          "order": 50
         },
         "junction.mimocode.binaryPath": {
           "type": "string",
           "default": "mimo",
           "description": "Path to the mimo binary. Use \"mimo\" if it is on PATH, or set the full path (e.g. /home/user/bin/mimo).",
-          "order": 1000
+          "order": 51
         },
         "junction.mimocode.port": {
           "type": "number",
           "default": 0,
           "description": "Port for the managed MiMoCode server (0 = auto-assign random port). Ignored when junction.mimocode.serverUrl is set.",
-          "order": 1001
+          "order": 52
         },
         "junction.mimocode.home": {
           "type": "string",
           "default": "~/.mimocode-junction",
           "description": "Data directory for Junction-managed MiMoCode state",
-          "order": 1002
+          "order": 53
         },
         "junction.mimocode.followUpMode": {
           "type": "string",
@@ -349,7 +395,25 @@
           ],
           "default": "default",
           "description": "MiMoCode follow-up mode preference (overrides junction.followUpMode when active bridge is MiMoCode)",
-          "order": 1003
+          "order": 54
+        },
+        "junction.goose.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Goose ACP server URL. Leave empty to auto-detect from localhost:3284.",
+          "order": 60
+        },
+        "junction.goose.home": {
+          "type": "string",
+          "default": "",
+          "description": "Goose data directory. Leave empty for auto-detection (~/.goose).",
+          "order": 61
+        },
+        "junction.goose.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to goose binary. Leave empty to auto-detect from PATH.",
+          "order": 62
         }
       }
     }

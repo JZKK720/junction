@@ -210,12 +210,11 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
         }
     }
 
-    async sendChatMessage(message: string, context?: BridgeContext): Promise<any> {
+    async sendChatMessage(message: string, _context?: BridgeContext): Promise<any> {
         await this.ensureConnected();
         if (!this.activeSessionId) await this.createChat();
         const session_id = this.activeSessionId!;
-        const text = context?.workspace ? `[Workspace: ${context.workspace}]\n${message}` : message;
-        await this.request('prompt.submit', { session_id, text }, 120000);
+        await this.request('prompt.submit', { session_id, text: message }, 120000);
         return { session_id };
     }
 

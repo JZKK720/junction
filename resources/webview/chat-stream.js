@@ -15,12 +15,40 @@
   var messagesDiv = document.getElementById('chat-messages');
   if (!messagesDiv) return;
   var pinnedThrobber = document.getElementById('pinned-anim-throbber');
+  var scrollToBottomBtn = document.getElementById('scroll-to-bottom');
+  var composerShell = document.getElementById('composer-shell');
 
   // ── State (extends what modules define) ──────────────────────────────────
   var isRestoringHistory = false;
   var userScrollSticky = true;
   var isProgrammaticScroll = false;
   var historyFragment = null;
+
+  function scrollBottomGap() {
+    return messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight;
+  }
+
+  function updateScrollToBottomButton() {
+    if (!scrollToBottomBtn) return;
+    if (composerShell) {
+      document.documentElement.style.setProperty('--composer-shell-height', composerShell.offsetHeight + 'px');
+    }
+    var show = scrollBottomGap() > 96;
+    scrollToBottomBtn.hidden = !show;
+    scrollToBottomBtn.classList.toggle('visible', show);
+  }
+  window.updateScrollToBottomButton = updateScrollToBottomButton;
+
+  if (scrollToBottomBtn) {
+    scrollToBottomBtn.addEventListener('click', function () {
+      window.forceScrollToBottom();
+      updateScrollToBottomButton();
+    });
+  }
+  window.addEventListener('resize', updateScrollToBottomButton);
+  if (composerShell && typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(updateScrollToBottomButton).observe(composerShell);
+  }
 
   // Sync module-window state references via shared names that modules already set
   // (activeRuns, reasoningBlocks, toolCalls, toolContainers are set by messages.js)
@@ -29,13 +57,18 @@
   (function () {
     if (!messagesDiv) return;
     messagesDiv.addEventListener('scroll', function () {
-      if (window.isProgrammaticScroll) { window.isProgrammaticScroll = false; return; }
-      var atBottom = messagesDiv.scrollHeight - messagesDiv.scrollTop - messagesDiv.clientHeight < 50;
+      if (window.isProgrammaticScroll) {
+        window.isProgrammaticScroll = false;
+        updateScrollToBottomButton();
+        return;
+      }
+      var atBottom = scrollBottomGap() < 50;
       window.userScrollSticky = atBottom;
+      updateScrollToBottomButton();
       maybeLoadMoreFromScroll();
     });
-    messagesDiv.addEventListener('transitionend', function () { window.scrollToBottom(); });
-    messagesDiv.addEventListener('animationend', function () { window.scrollToBottom(); });
+    messagesDiv.addEventListener('transitionend', function () { window.scrollToBottom(); updateScrollToBottomButton(); });
+    messagesDiv.addEventListener('animationend', function () { window.scrollToBottom(); updateScrollToBottomButton(); });
   })();
 
   // ── clearMessages (needs access to all modules) ──────────────────────────
@@ -54,6 +87,7 @@
     window.activeRuns.clear();
     window.runSubagentInfo.clear();
     window.reasoningBlocks.clear();
+    if (window.reasoningInterrupted) window.reasoningInterrupted.clear();
     window.toolCalls.clear();
     window.toolContainers.clear();
     if (window.thinkingTextState) window.thinkingTextState.clear();
@@ -94,11 +128,12 @@
           window.scheduleBarTick(bar);
         }
         block.classList.add('thinking');
-        block.open = (window.reasoningMode === 'compact');
+        block.open = (window.reasoningMode === 'chronological');
       }
     }
     window.forceScrollToBottom();
     showSeeMoreIfNeeded();
+    updateScrollToBottomButton();
     if (typeof window.dismissStartupLoader === 'function') window.dismissStartupLoader(true);
   }
   window.renderHistory = renderHistory;
@@ -158,17 +193,17 @@
       '  display: block;' +
       '  margin: 8px auto 12px;' +
       '  padding: 4px 16px;' +
-      '  border: 1px solid var(--vscode-widget-border, #444);' +
+      '  border: 1px solid var(--vscode-widget-border, transparent);' +
       '  border-radius: 14px;' +
       '  background: var(--vscode-sideBar-background, transparent);' +
-      '  color: var(--vscode-descriptionForeground, #999);' +
+      '  color: var(--vscode-descriptionForeground, var(--vscode-foreground));' +
       '  font-size: 11px;' +
       '  cursor: pointer;' +
       '  transition: background .15s, color .15s;' +
       '}' +
       '#see-more-history:hover {' +
-      '  background: var(--vscode-widget-background, #333);' +
-      '  color: var(--vscode-foreground, #ccc);' +
+      '  background: var(--vscode-list-hoverBackground, var(--vscode-sideBar-background));' +
+      '  color: var(--vscode-foreground);' +
       '}' +
       '#see-more-history.loading {' +
       '  opacity: .6;' +
@@ -183,6 +218,17 @@
       if (colors[key]) document.documentElement.style.setProperty('--junction-token-' + key, colors[key]);
     });
   }
+
+  function applyChatMotionConfig() {
+    var cfg = window.animConfig || {};
+    var root = document.documentElement;
+    if (cfg.chatRiseDistance !== undefined) root.style.setProperty('--junction-chat-rise-distance', Number(cfg.chatRiseDistance) + 'px');
+    if (cfg.chatRiseDuration !== undefined) root.style.setProperty('--junction-chat-rise-duration', Number(cfg.chatRiseDuration) + 's');
+    if (cfg.chatRiseTilt !== undefined) root.style.setProperty('--junction-chat-rise-tilt', Number(cfg.chatRiseTilt) + 'deg');
+    if (cfg.chatRiseBlur !== undefined) root.style.setProperty('--junction-chat-rise-blur', Number(cfg.chatRiseBlur) + 'px');
+  }
+  window.applyChatMotionConfig = applyChatMotionConfig;
+  try { applyChatMotionConfig(); } catch (e) {}
 
   // ── Startup animation override ───────────────────────────────────────────
   function overrideStartupAnimation() {
@@ -208,7 +254,7 @@
     loader.classList.remove('dismissed');
     loader.style.opacity = '1'; loader.style.pointerEvents = 'auto'; loader.style.display = 'block';
     if (typeof window.applySplashWordmarkScale === 'function') window.applySplashWordmarkScale(loader);
-    loader.innerHTML = '<div class="startup-copy"><div class="startup-wordmark">Junction</div><div class="startup-sub">connecting\u2026</div></div>';
+    loader.innerHTML = '';
     var w = window.innerWidth, h = window.innerHeight;
     var canvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: w, height: h, loaderMagic: window.getAnimVal('loaderMagic', false) });
     if (canvas) { canvas.id = 'startup-matrix'; loader.insertBefore(canvas, loader.firstChild); }
@@ -234,11 +280,16 @@
         break;
       case 'config':
         if (msg.reasoningDisplay) window.reasoningMode = msg.reasoningDisplay;
-        if (msg.activityLayout) window.streamCfg.layout = msg.activityLayout;
+        if (msg.activityLayout) window.streamCfg.layout = window.normalizeActivityLayout ? window.normalizeActivityLayout(msg.activityLayout) : (msg.activityLayout === 'timeline' ? 'timeline' : 'accordion');
         if (msg.activityRail !== undefined) window.streamCfg.rail = !!msg.activityRail;
         if (msg.activityDots) window.streamCfg.dots = msg.activityDots;
+        if (msg.activityCondensed !== undefined) window.streamCfg.condensed = !!msg.activityCondensed;
+        if (msg.betaForkRewind !== undefined) window.betaForkRewind = !!msg.betaForkRewind;
+        if (msg.bubbleRadius !== undefined) document.documentElement.style.setProperty('--junction-bubble-radius', msg.bubbleRadius + 'px');
+        if (msg.bubbleTip !== undefined) document.documentElement.style.setProperty('--junction-bubble-tip', msg.bubbleTip);
         window.applyStreamConfig();
         if (msg.animConfig) Object.assign(window.animConfig, msg.animConfig);
+        applyChatMotionConfig();
         if (msg.animationMode) window._junctionAnimationMode = msg.animationMode;
         if (msg.animColor) window._junctionAnimColor = msg.animColor;
         if (msg.loaderColor) window._junctionLoaderAnimColor = msg.loaderColor;
@@ -284,19 +335,73 @@
       case 'userEcho':
         if (!window.isWorkspaceContext(msg.text)) window.addUserRow(msg.text, msg.messageId, msg.hasCheckpoint, null, msg.isSteer);
         break;
+      case 'checkpointReady':
+        var cpRow = messagesDiv.querySelector('[data-message-id="' + msg.messageId + '"]');
+        if (cpRow) {
+          cpRow.setAttribute('data-has-checkpoint', 'true');
+          var cpActions = cpRow.querySelector('.msg-actions');
+          if (cpActions) cpActions.remove();
+          cpRow.appendChild(window.buildMsgActions(msg.messageId, cpRow.classList.contains('assistant'), true));
+        }
+        break;
       case 'steerFailed':
         var row = document.querySelector('[data-message-id="' + msg.messageId + '"]');
         if (row) {
+          row.setAttribute('data-queued', 'true');
           var bubble = row.querySelector('.msg-text');
           if (bubble) {
             var notice = document.createElement('div');
             notice.className = 'steer-notice';
-            notice.style.cssText = 'font-size:10px;color:var(--vscode-errorForeground);margin-top:4px;font-style:italic;';
             notice.textContent = '(Steering failed; queued as follow-up)';
             bubble.appendChild(notice);
+            if (!bubble.querySelector('.queue-badge')) {
+              var failedQueueBadge = document.createElement('span');
+              failedQueueBadge.className = 'queue-badge';
+              failedQueueBadge.textContent = 'QUEUED';
+              bubble.insertBefore(failedQueueBadge, bubble.firstChild);
+            }
           }
           var badge = row.querySelector('.steer-badge');
           if (badge) badge.remove();
+        }
+        break;
+      case 'queuedUserAdded':
+        var addedRow = messagesDiv.querySelector('[data-message-id="' + msg.messageId + '"]');
+        if (addedRow) {
+          addedRow.setAttribute('data-queued', 'true');
+          var addedBubble = addedRow.querySelector('.msg-text');
+          if (addedBubble && !addedBubble.querySelector('.queue-badge')) {
+            var qBadge = document.createElement('span');
+            qBadge.className = 'queue-badge';
+            qBadge.textContent = 'QUEUED';
+            addedBubble.insertBefore(qBadge, addedBubble.firstChild);
+          }
+        }
+        break;
+      case 'queuedUserActivated':
+        var activeRow = messagesDiv.querySelector('[data-message-id="' + msg.messageId + '"]');
+        if (activeRow) {
+          activeRow.removeAttribute('data-queued');
+          var activeBadge = activeRow.querySelector('.queue-badge');
+          if (activeBadge) activeBadge.remove();
+        }
+        break;
+      case 'queuedUserSteered':
+        var steeredRow = messagesDiv.querySelector('[data-message-id="' + msg.messageId + '"]');
+        if (steeredRow) {
+          steeredRow.removeAttribute('data-queued');
+          steeredRow.setAttribute('data-steer', 'true');
+          var steeredBubble = steeredRow.querySelector('.msg-text');
+          if (steeredBubble) {
+            var oldQueue = steeredBubble.querySelector('.queue-badge');
+            if (oldQueue) oldQueue.remove();
+            if (!steeredBubble.querySelector('.steer-badge')) {
+              var sBadge = document.createElement('span');
+              sBadge.className = 'steer-badge';
+              sBadge.textContent = 'STEER';
+              steeredBubble.insertBefore(sBadge, steeredBubble.firstChild);
+            }
+          }
         }
         break;
       case 'queuedUserUpdated':
@@ -306,6 +411,10 @@
           if (queuedText) {
             queuedText.dataset.rawText = msg.text || '';
             queuedText.innerHTML = window.renderMarkdown(msg.text || '');
+            var updatedBadge = document.createElement('span');
+            updatedBadge.className = 'queue-badge';
+            updatedBadge.textContent = 'QUEUED';
+            queuedText.insertBefore(updatedBadge, queuedText.firstChild);
           }
         }
         break;
@@ -390,9 +499,26 @@
   messagesDiv.addEventListener('click', function (e) {
     var target = e.target.closest('.file-link');
     if (!target) return;
+    e.preventDefault();
+    e.stopPropagation();
     var filePath = target.getAttribute('data-file');
     if (filePath) vscode.postMessage({ type: 'openFile', filePath: filePath });
   });
+
+  messagesDiv.addEventListener('click', function (e) {
+    if (!document.body.classList.contains('stream-layout-timeline')) return;
+    var summary = e.target.closest('.activity-thought > summary');
+    if (!summary) return;
+    var thought = summary.parentElement;
+    if (!thought) return;
+    e.preventDefault();
+    var nextOpen = !thought.open;
+    var row = thought.closest('.chat-row.assistant');
+    var scope = row || messagesDiv;
+    scope.querySelectorAll('.activity-thought').forEach(function (block) {
+      block.open = nextOpen;
+    });
+  }, true);
 
   // ── Hamburger menu share ───────────────────────────────────────────────
   window.addEventListener('junction-share-chat', function (ev) {

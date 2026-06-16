@@ -2,7 +2,7 @@
  * ConfigManager — handles VS Code configuration for the Junction chat UI.
  *
  * Responsible for:
- * - Reading/writing extension settings (sendBehavior, reasoningDisplay, etc.)
+ * - Reading/writing extension settings (sendBehavior, lookAndFeel, etc.)
  * - Reading/writing animation settings (globalState)
  * - Building config payloads to send to the webview
  * - Sandbox/approval mode configuration UI
@@ -26,7 +26,7 @@ export class ConfigManager {
 
     /** Read follow-up behavior: per-bridge setting first, then global default. */
     getFollowUpMode(bridgeId: string): 'queue' | 'steer' | 'interrupt' {
-        const perBridgeKey = bridgeId ? `junction.${bridgeId}.followUpMode` : '';
+        const perBridgeKey = bridgeId ? `${bridgeId}.followUpMode` : '';
         let mode = perBridgeKey ? config().get<string>(perBridgeKey, 'default') : 'default';
         if (!mode || mode === 'default') {
             mode = config().get<string>('followUpMode', 'queue');
@@ -36,16 +36,20 @@ export class ConfigManager {
 
     /** Send full config to the webview. */
     buildConfigPayload(): WebviewConfigPayload {
-        const reasoningDisplay = config().get<string>('reasoningDisplay', 'compact');
+        const reasoningDisplay = this.readReasoningDisplayMode();
         const animSettings = this.context.globalState.get<any>('junction.animSettings');
         return {
             type: 'config',
             sendBehavior: this.getSendBehavior(),
             reasoningDisplay,
             extraRichText: config().get<boolean>('extraRichText', true),
-            activityLayout: config().get<string>('activityStream.layout', 'accordion'),
+            activityLayout: this.readActivityLayoutMode(),
             activityRail: config().get<boolean>('activityStream.rail', true),
             activityDots: config().get<string>('activityStream.dots', 'status'),
+            activityCondensed: config().get<boolean>('activityStream.condensed', true),
+            betaForkRewind: config().get<boolean>('beta.openclawForkRewind', false),
+            bubbleRadius: config().get<number>('bubble.radius', 16),
+            bubbleTip: config().get<string>('bubble.tip', 'none'),
             showFullHistory: config().get<boolean>('showFullHistory', false),
             steerKeybinding: config().get<string>('steerKeybinding', ''),
             animConfig: animSettings?.config,
@@ -142,6 +146,27 @@ export class ConfigManager {
         return config().get<string>('approvalMode', 'default');
     }
 
+    readLookAndFeelMode(): 'compact' | 'timeline' | undefined {
+        const lookAndFeel = config().inspect<string>('lookAndFeel');
+        const raw = lookAndFeel?.workspaceFolderValue
+            ?? lookAndFeel?.workspaceValue
+            ?? lookAndFeel?.globalValue;
+        return (raw === 'compact' || raw === 'timeline') ? raw : undefined;
+    }
+
+    readReasoningDisplayMode(): 'compact' | 'chronological' {
+        const cfg = config();
+        const raw = this.readLookAndFeelMode() ?? cfg.get<string>('reasoningDisplay', 'compact');
+        return (raw === 'timeline' || raw === 'chronological') ? 'chronological' : 'compact';
+    }
+
+    readActivityLayoutMode(): 'accordion' | 'timeline' {
+        const lookAndFeel = this.readLookAndFeelMode();
+        if (lookAndFeel) return lookAndFeel === 'timeline' ? 'timeline' : 'accordion';
+        const legacyLayout = config().get<string>('activityStream.layout', 'accordion');
+        return legacyLayout === 'timeline' ? 'timeline' : 'accordion';
+    }
+
     async updateSandboxMode(mode: string): Promise<void> {
         await config().update('sandboxMode', mode, vscode.ConfigurationTarget.Global);
     }
@@ -154,6 +179,10 @@ export class ConfigManager {
     static affectsChatConfig(e: vscode.ConfigurationChangeEvent): boolean {
         return (
             e.affectsConfiguration('junction.activityStream') ||
+            e.affectsConfiguration('junction.activityStream.condensed') ||
+            e.affectsConfiguration('junction.beta.openclawForkRewind') ||
+            e.affectsConfiguration('junction.bubble') ||
+            e.affectsConfiguration('junction.lookAndFeel') ||
             e.affectsConfiguration('junction.reasoningDisplay') ||
             e.affectsConfiguration('junction.sendBehavior') ||
             e.affectsConfiguration('junction.extraRichText') ||

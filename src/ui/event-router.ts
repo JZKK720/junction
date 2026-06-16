@@ -27,6 +27,7 @@ const UI_ONLY_MESSAGE_TYPES = new Set([
     'copyToClipboard',
     'openFile',
     'forkConversation',
+    'rewindToMessage',
     'setReaction',
     'openSettings',
     'getUsage',
@@ -43,6 +44,7 @@ export interface ChatBaseHandlers {
     handleUserMessage(text: string, dispatchOverride?: string): Promise<void>;
     handleStopRun(): Promise<void>;
     handleAttachFile(): Promise<void>;
+    handleAttachPastedFile(data: any): void;
     handleSlashComplete(prefix: string): Promise<void>;
     handleCreateChat(text?: string): Promise<void>;
     handleNewChatThenSend(text: string): Promise<void>;
@@ -68,13 +70,16 @@ export interface ChatBaseHandlers {
     handleToggleLivePill(enabled: boolean): void;
     handleEditQueuedFollowUp(index: number, text: string): void;
     handleMoveQueuedFollowUp(index: number, direction: 'up' | 'down'): void;
+    handleReorderQueuedFollowUps(order: string[]): void;
     handleToggleQueuedFollowUpGroup(index: number): void;
+    handleSteerQueuedFollowUp(index: number, id?: string): Promise<void>;
     handleRemoveQueuedFollowUp(index: number): void;
     handleLoadMoreHistory(): Promise<void>;
     handleLoadMoreHistoryFromJsonl(offset: number): Promise<void>;
     handleOpenSettings(): Promise<void>;
     handleGetUsage(): Promise<void>;
     handleForkConversation(messageId?: string): Promise<void>;
+    handleRewindToMessage(messageId?: string): Promise<void>;
     handleOpenFile(filePath: string): Promise<void>;
     handleSetReaction(messageId: string, value: 'up' | 'down' | null): Promise<void>;
     postToWebview(message: any): void;
@@ -112,6 +117,9 @@ export class EventRouter {
                     break;
                 case 'attachFile':
                     await this.handlers.handleAttachFile();
+                    break;
+                case 'attachPastedFile':
+                    this.handlers.handleAttachPastedFile(data);
                     break;
                 case 'slashComplete':
                     await this.handlers.handleSlashComplete(data.prefix);
@@ -202,8 +210,14 @@ export class EventRouter {
                 case 'moveQueuedFollowUp':
                     this.handlers.handleMoveQueuedFollowUp(Number(data.index), data.direction === 'up' ? 'up' : 'down');
                     break;
+                case 'reorderQueuedFollowUps':
+                    this.handlers.handleReorderQueuedFollowUps(Array.isArray(data.order) ? data.order.map(String) : []);
+                    break;
                 case 'toggleQueuedFollowUpGroup':
                     this.handlers.handleToggleQueuedFollowUpGroup(Number(data.index));
+                    break;
+                case 'steerQueuedFollowUp':
+                    await this.handlers.handleSteerQueuedFollowUp(Number(data.index), data.id ? String(data.id) : undefined);
                     break;
                 case 'removeQueuedFollowUp':
                     this.handlers.handleRemoveQueuedFollowUp(Number(data.index));
@@ -225,6 +239,9 @@ export class EventRouter {
                 case 'forkConversation':
                     await this.handlers.handleForkConversation(data.messageId);
                     break;
+                case 'rewindToMessage':
+                    await this.handlers.handleRewindToMessage(data.messageId);
+                    break;
                 case 'openFile':
                     await this.handlers.handleOpenFile(data.filePath);
                     break;
@@ -238,6 +255,10 @@ export class EventRouter {
                     if (this.configManager) {
                         await this.configManager.saveAnimConfig(data);
                     }
+                    break;
+                case 'saveBubbleConfig':
+                    await vscode.workspace.getConfiguration('junction').update('bubble.radius', data.radius ?? 16, vscode.ConfigurationTarget.Global);
+                    await vscode.workspace.getConfiguration('junction').update('bubble.tip', data.tip ?? 'none', vscode.ConfigurationTarget.Global);
                     break;
             }
         } catch (error: any) {

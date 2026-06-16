@@ -35,7 +35,7 @@ export class WorkspaceTracker {
 
     private scheduleAutoSend(): void {
         const cfg = config();
-        if (!cfg.get<boolean>('autoSendFileContext', true)) return;
+        if (!cfg.get<boolean>('autoSendFileContext', false)) return;
         const interval = cfg.get<number>('fileContextInterval', 5000);
 
         if (this.autoSendTimer) clearTimeout(this.autoSendTimer);

@@ -26,6 +26,9 @@ const sources = [
       'webview/assets/diff-unified-updTK7TW.css',
       'webview/assets/file-diff-aJzDRNwM.js',
       'webview/assets/prompt-editor-DqEG2JY9.js',
+      'webview/assets/above-composer-panel-row-DfRXIh3e.js',
+      'webview/assets/queued-message-list-DQD53U0k.js',
+      'webview/assets/thread-handoff-composer-block-state-JXbVXeVN.js',
       'webview/assets/user-formatted-text-COqPi9LU.js',
       'webview/assets/user-message-attachments-CxuoHau6.css'
     ]
@@ -86,6 +89,10 @@ async function main() {
   const manifest = [];
 
   for (const source of sources) {
+    if (!(await exists(source.root))) {
+      console.warn(`Skipping missing addon source: ${source.root}`);
+      continue;
+    }
     const targetRoot = path.join(outRoot, source.name);
     await fs.rm(targetRoot, { recursive: true, force: true });
     await fs.mkdir(targetRoot, { recursive: true });

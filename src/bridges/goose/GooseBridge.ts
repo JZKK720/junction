@@ -120,7 +120,11 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
     getSettingsQuery(): string { return 'junction.goose'; }
 
     setPendingFileContext(context: string): void { this.pendingFileContext = context; }
-    getPendingFileContext(): string | null { return this.pendingFileContext; }
+    getPendingFileContext(): string | null {
+        const ctx = this.pendingFileContext;
+        this.pendingFileContext = null;
+        return ctx;
+    }
 
     getCurrentSessionKey(_folderUri?: vscode.Uri): string | null {
         return this.activeSessionId;
@@ -166,21 +170,18 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
         const sessionId = this.activeSessionId || await this.createChat();
         const runId = `goose-${Date.now()}`;
 
+        this.mapperState = { reasoningParts: new Set(), textAccum: new Map() };
         this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId, sessionKey: sessionId });
-
-        const ctxStr = context?.workspace ? `[Workspace: ${context.workspace}]` : '';
-        const fullText = [ctxStr, message].filter(Boolean).join('\n\n');
 
         try {
             await streamSse(
                 `${this.baseUrl}/v1/sessions/${sessionId}/messages`,
                 {
                     method: 'POST',
-                    body: { role: 'user', content: fullText },
+                    body: { role: 'user', content: message },
                     timeoutMs: 300000,
                 },
                 (event) => {
-                    this.mapperState = { reasoningParts: new Set(), textAccum: new Map() };
                     const result = mapGooseSseEvent(runId, event.event, event.data, this.mapperState);
                     for (const ev of result.events) {
                         this.emit('stream', { ...ev, sessionKey: sessionId });

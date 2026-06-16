@@ -82,11 +82,27 @@
 
     var colorRow = makeRow();
 
+    // Custom color toggle for splash
+    var splashCustomBtn = document.createElement('button');
+    splashCustomBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:9px;border:1px solid var(--vscode-input-border);';
+    function syncSplashCustom() {
+      var active = !!window.animConfig.splashColorCustom;
+      splashCustomBtn.textContent = 'Custom color';
+      splashCustomBtn.style.background = active ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
+      splashCustomBtn.style.color = active ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
+    }
+    splashCustomBtn.addEventListener('click', function () {
+      window.animConfig.splashColorCustom = !window.animConfig.splashColorCustom;
+      syncSplashCustom();
+      syncSplashColorVisibility();
+      saveAndRefresh(window.refreshPreview);
+    });
+    syncSplashCustom();
+    window.settingsSyncFunctions.push(syncSplashCustom);
+    colorRow.appendChild(splashCustomBtn);
+
     var splashColorWrap = document.createElement('div');
-    splashColorWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
-    var splashColorLbl = document.createElement('span');
-    splashColorLbl.textContent = 'Tint:';
-    splashColorLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:30px;';
+    splashColorWrap.style.cssText = 'display:none;align-items:center;gap:4px;margin-left:4px;';
     var splashColorInput = document.createElement('input');
     splashColorInput.type = 'color';
     splashColorInput.style.cssText = 'width:24px;height:18px;border:1px solid var(--vscode-input-border);border-radius:3px;padding:0;cursor:pointer;background:transparent;';
@@ -101,7 +117,7 @@
 
     window.syncSplashColor = function () {
       var raw = window._junctionSplashColor || '';
-      var def = getComputedStyle(document.body).color || '#cccccc';
+      var def = getComputedStyle(document.body).color;
       var parsed = window.parseAnimColor(raw || def);
       splashColorInput.value = parsed.hex;
       splashAlphaInput.value = parsed.a;
@@ -119,11 +135,17 @@
       saveAndRefresh(window.refreshPreview);
     });
 
-    splashColorWrap.appendChild(splashColorLbl);
     splashColorWrap.appendChild(splashColorInput);
     splashColorWrap.appendChild(splashAlphaInput);
     splashColorWrap.appendChild(splashAlphaVal);
     colorRow.appendChild(splashColorWrap);
+
+    function syncSplashColorVisibility() {
+      var custom = !!window.animConfig.splashColorCustom;
+      splashColorWrap.style.display = custom ? 'flex' : 'none';
+    }
+    syncSplashColorVisibility();
+    window.settingsSyncFunctions.push(syncSplashColorVisibility);
 
     makeSlider(colorRow, 'Length', 'splashLength', 1, 10, 0.5, 1.0, 64);
     makeSlider(colorRow, 'Fade', 'splashFade', 0.1, 3, 0.1, 0.3, 64);

@@ -223,10 +223,10 @@ function testHistoryDedupesAssistantEchoes() {
 function testOpenClawReplyMarkerGating() {
   const chatBase = read('src/ui/chatBase.ts');
   assert.match(chatBase, /extractVisibleAssistantText\(runId: string, text: string, isFinal = false\): string \| null/);
-  assert.match(chatBase, /if \(!isFinal && isOpenClaw && hasThinkingStream\) \{\s*return null;\s*\}/);
+  assert.match(chatBase, /if \(!isFinal && this\.hidesRawThinking\(\) && hasThinkingStream\) \{\s*return null;\s*\}/);
   assert.match(chatBase, /const nextText = this\.extractVisibleAssistantText\(runId, event\.text \|\| lastText\);/);
   assert.match(chatBase, /const nextText = this\.extractVisibleAssistantText\(runId, event\.content \|\| lastText, event\.state === 'final'\);/);
-  assert.match(chatBase, /protected hidesRawThinking\(\): boolean \{\s*return this\.bridgeRegistry\.active\.id === 'openclaw';\s*\}/);
+  assert.match(chatBase, /protected hidesRawThinking\(\): boolean \{\s*return !!this\.bridgeRegistry\.active\.capabilities\.hidesRawThinking;/);
   assert.match(chatBase, /fullText: hideRawThinking \? '' : buf/);
 }
 

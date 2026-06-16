@@ -295,10 +295,6 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         if (!this.activeSessionId) await this.createChat();
         const runId = this.activeSessionId!;
         const sessionKey = runId;
-        const text = context?.workspace
-            ? `[Workspace: ${context.workspace}]\n${message}`
-            : message;
-
         this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId, sessionKey });
 
         if (this.activeAbortController) this.activeAbortController.abort();
@@ -322,7 +318,7 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
                 {
                     method: 'POST',
                     body: {
-                        parts: [{ type: 'text', text }],
+                        parts: [{ type: 'text', text: message }],
                         ...(needsContext ? { system: `Working directory: ${directory}` } : {}),
                         ...(modelId ? { model: modelId } : {}),
                         ...(thinking && thinking !== 'off' ? { thinking: true } : {}),

@@ -112,30 +112,35 @@
 
   function toggleMenu(anchorEl) {
     if (!window.choiceMenu) return;
+    var items = [
+      { id: 'rename', label: 'Rename', icon: 'edit' },
+      { id: 'back', label: 'Back to chats', icon: 'list-unordered' },
+      { id: 'usage', label: 'Session usage', icon: 'graph' },
+      { id: 'agentPicker', label: 'Agent picker', icon: 'hubot' },
+      { id: 'animationSettings', label: 'Animation settings', icon: 'symbol-color', action: function () {
+        if (typeof window.toggleChatPreviewPanel === 'function') window.toggleChatPreviewPanel();
+      }},
+      { id: 'playCurtain', label: 'Play chat curtain', icon: 'comment', action: function () {
+        if (typeof window.playChatCurtainPreview === 'function') window.playChatCurtainPreview();
+      }},
+      { id: 'playSplash', label: 'Play splash animation', icon: 'rocket', action: function () {
+        if (typeof window.playSplashAnimationPreview === 'function') window.playSplashAnimationPreview();
+      }}
+    ];
+    if (window.betaForkRewind) {
+      items.push({ id: 'fork', label: 'Fork conversation (OpenClaw beta)', icon: 'git-branch' });
+    }
+    items.push(
+      { id: 'archive', label: 'Archive', icon: 'archive', key: _sessionKey, disabled: !_sessionKey },
+      { id: 'share', label: 'Share / export chat', icon: 'clippy', action: function () {
+        window.dispatchEvent(new CustomEvent('junction-share-chat', { detail: { target: anchorEl } }));
+      }},
+      { id: 'settings', label: 'Settings', icon: 'gear' }
+    );
     window.choiceMenu.open(anchorEl, {
       title: 'Chat actions',
       selectMessage: 'selectHeaderAction',
-      items: [
-        { id: 'rename', label: 'Rename', icon: 'edit' },
-        { id: 'back', label: 'Back to chats', icon: 'list-unordered' },
-        { id: 'usage', label: 'Session usage', icon: 'graph' },
-        { id: 'agentPicker', label: 'Agent picker', icon: 'hubot' },
-        { id: 'animationSettings', label: 'Animation settings', icon: 'symbol-color', action: function () {
-          if (typeof window.toggleChatPreviewPanel === 'function') window.toggleChatPreviewPanel();
-        }},
-        { id: 'playCurtain', label: 'Play chat curtain', icon: 'comment', action: function () {
-          if (typeof window.playChatCurtainPreview === 'function') window.playChatCurtainPreview();
-        }},
-        { id: 'playSplash', label: 'Play splash animation', icon: 'rocket', action: function () {
-          if (typeof window.playSplashAnimationPreview === 'function') window.playSplashAnimationPreview();
-        }},
-        { id: 'fork', label: 'Fork conversation', icon: 'git-branch' },
-        { id: 'archive', label: 'Archive', icon: 'archive', key: _sessionKey, disabled: !_sessionKey },
-        { id: 'share', label: 'Share / export chat', icon: 'clippy', action: function () {
-          window.dispatchEvent(new CustomEvent('junction-share-chat', { detail: { target: anchorEl } }));
-        }},
-        { id: 'settings', label: 'Settings', icon: 'gear' }
-      ]
+      items: items
     });
   }
 

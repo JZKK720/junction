@@ -52,6 +52,10 @@ export interface WebviewConfigPayload {
     activityLayout: string;
     activityRail: boolean;
     activityDots: string;
+    activityCondensed: boolean;
+    betaForkRewind: boolean;
+    bubbleRadius: number;
+    bubbleTip: string;
     showFullHistory: boolean;
     steerKeybinding: string;
     animConfig?: any;

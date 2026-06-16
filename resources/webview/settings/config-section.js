@@ -87,6 +87,10 @@
       if (key === 'spread') defaultVal = 0.3;
       if (key === 'textFade') defaultVal = 0.5;
       if (key === 'curtainFade') defaultVal = 0.3;
+      if (key === 'chatRiseDistance') defaultVal = 260;
+      if (key === 'chatRiseDuration') defaultVal = 0.82;
+      if (key === 'chatRiseTilt') defaultVal = 14;
+      if (key === 'chatRiseBlur') defaultVal = 2;
       
       slider.value = window.animConfig[actualKey] !== undefined ? window.animConfig[actualKey] : defaultVal;
       slider.style.cssText = 'width:60px;height:12px;accent-color:var(--vscode-button-background);';
@@ -104,6 +108,7 @@
           window.updateAllCanvasBackgrounds();
         }
         if (typeof window.refreshWorking === 'function') window.refreshWorking();
+        if (!isLoader && typeof window.applyChatMotionConfig === 'function') window.applyChatMotionConfig();
         if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
       });
 
@@ -132,6 +137,12 @@
     ctrlRow.appendChild(makeSlider('Cooling', 'cooling', 0.4, 0.95, 0.05));
     ctrlRow.appendChild(makeSlider('Spread', 'spread', 0.05, 0.45, 0.05));
     ctrlRow.appendChild(makeSlider('Splash', 'splashLength', 1.0, 10.0, 0.5));
+    if (!isLoader) {
+      ctrlRow.appendChild(makeSlider('Rise', 'chatRiseDistance', 40, 520, 10));
+      ctrlRow.appendChild(makeSlider('Rise s', 'chatRiseDuration', 0.1, 2.5, 0.05));
+      ctrlRow.appendChild(makeSlider('Tilt', 'chatRiseTilt', 0, 35, 1));
+      ctrlRow.appendChild(makeSlider('Blur', 'chatRiseBlur', 0, 8, 0.5));
+    }
     section.appendChild(ctrlRow);
 
     // ── Toggles Row ─────────────────────────────────────────────────────────
@@ -160,14 +171,33 @@
     window.settingsSyncFunctions.push(syncLoop);
     togglesRow.appendChild(loopBtn);
 
-    // Color picker with alpha
-    var colorKey = isLoader ? 'loaderColor' : 'chatColor';
+    // Color: custom toggle + hidden picker
+    var colorCustomKey = isLoader ? 'loaderColorCustom' : 'chatColorCustom';
     var colorWrap = document.createElement('div');
     colorWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;';
-    var colorLbl = document.createElement('span');
-    colorLbl.textContent = 'Color:';
-    colorLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
-    colorWrap.appendChild(colorLbl);
+
+    var customBtn = document.createElement('button');
+    customBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:9px;border:1px solid var(--vscode-input-border);';
+    function syncCustomBtn() {
+      var active = !!window.animConfig[colorCustomKey];
+      customBtn.textContent = 'Custom color';
+      customBtn.style.background = active ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
+      customBtn.style.color = active ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
+    }
+    customBtn.addEventListener('click', function () {
+      window.animConfig[colorCustomKey] = !window.animConfig[colorCustomKey];
+      syncCustomBtn();
+      syncColorVisibility();
+      refreshPreview();
+      if (typeof window.refreshWorking === 'function') window.refreshWorking();
+      if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
+    });
+    syncCustomBtn();
+    window.settingsSyncFunctions.push(syncCustomBtn);
+    colorWrap.appendChild(customBtn);
+
+    var colorPickerWrap = document.createElement('span');
+    colorPickerWrap.style.cssText = 'display:none;align-items:center;gap:4px;margin-left:4px;';
 
     var colorInput = document.createElement('input');
     colorInput.type = 'color';
@@ -181,7 +211,7 @@
 
     function syncColorFromConfig() {
       var raw = isLoader ? window._junctionLoaderAnimColor : window._junctionAnimColor;
-      var def = getComputedStyle(document.body).color || '#cccccc';
+      var def = getComputedStyle(document.body).color;
       var parsed = window.parseAnimColor(raw || def);
       colorInput.value = parsed.hex;
       alphaInput.value = parsed.a;
@@ -208,9 +238,18 @@
     });
     syncColorFromConfig();
     window.settingsSyncFunctions.push(syncColorFromConfig);
-    colorWrap.appendChild(colorInput);
-    colorWrap.appendChild(alphaInput);
-    colorWrap.appendChild(alphaVal);
+    colorPickerWrap.appendChild(colorInput);
+    colorPickerWrap.appendChild(alphaInput);
+    colorPickerWrap.appendChild(alphaVal);
+    colorWrap.appendChild(colorPickerWrap);
+
+    function syncColorVisibility() {
+      var custom = !!window.animConfig[colorCustomKey];
+      colorPickerWrap.style.display = custom ? 'inline-flex' : 'none';
+    }
+    syncColorVisibility();
+    window.settingsSyncFunctions.push(syncColorVisibility);
+
     togglesRow.appendChild(colorWrap);
 
     // BG Color Selector
@@ -254,7 +293,7 @@
       if (currentBg === 'theme') {
         bgSelect.value = 'theme';
         bgColorInput.style.display = 'none';
-        bgColorInput.value = '#000000';
+        bgColorInput.value = window.parseAnimColor(getComputedStyle(document.body).backgroundColor).hex;
       } else {
         bgSelect.value = 'custom';
         bgColorInput.style.display = 'inline-block';

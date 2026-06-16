@@ -9,6 +9,7 @@ import * as crypto from 'crypto';
 import { exec as nodeExec } from 'child_process';
 import { Logger } from '../utils/logger';
 import { MessageProcessor } from '../utils/messageProcessor';
+import { extractThinkingFromSessionMessage } from '../bridges/openclaw/events';
 import { GatewayCapabilities } from './capabilities';
 import { getOpenClawConfigPath, getOpenClawGatewayUrl } from '../config/agentBridgeConfig';
 
@@ -361,6 +362,19 @@ export class GatewayConnection extends EventEmitter {
       // Skip further processing if the message processor returns null
       if (processedMessage === null) {
         return;
+      }
+
+      // Extract thinking blocks from session.message events.
+      // The gateway embeds thinking in message.content[] as type:'thinking'
+      // objects, but the chatBase only handles explicit thinking_chunk events.
+      if (message.type === 'event' && message.event === 'session.message') {
+          const thinkingEvents = extractThinkingFromSessionMessage(message.payload);
+          if (thinkingEvents.length > 0) {
+              this.logger.info(`Extracted ${thinkingEvents.length} thinking_chunk events from session.message`);
+          }
+          for (const ev of thinkingEvents) {
+              this.emit('processed_event', ev);
+          }
       }
       
       // Handle different message types

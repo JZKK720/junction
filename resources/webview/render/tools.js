@@ -48,6 +48,17 @@
     return '';
   }
 
+  function shellCommandText(obj, args) {
+    var value = getFirstString(obj, ['command', 'cmd', 'script']);
+    if (value) return value;
+    if (Array.isArray(obj.command)) return obj.command.join(' ');
+    if (Array.isArray(obj.cmd)) return obj.cmd.join(' ');
+    if (Array.isArray(obj.args)) return obj.args.join(' ');
+    var raw = stringifyArgs(args).trim();
+    if (!raw || raw === '{}' || raw === 'undefined') return '';
+    return raw;
+  }
+
   function diffStatFromPatch(patch) {
     var plus = 0, minus = 0;
     String(patch || '').split('\n').forEach(function (line) {
@@ -61,6 +72,12 @@
     var m = String(patch || '').match(/\*\*\* (?:Update|Add|Delete) File: (.+)/) ||
             String(patch || '').match(/\+\+\+ [ab]\/(.+)/);
     return m ? baseName(m[1].trim()) : '';
+  }
+
+  function patchFilePath(patch) {
+    var m = String(patch || '').match(/\*\*\* (?:Update|Add|Delete) File: (.+)/) ||
+            String(patch || '').match(/\+\+\+ [ab]\/(.+)/);
+    return m ? m[1].trim() : '';
   }
 
   var FILE_ARG_KEYS = ['path', 'file_path', 'filePath', 'file', 'target_file', 'filename'];
@@ -78,19 +95,23 @@
     var name = raw.toLowerCase();
     var obj = parseArgsObject(args) || {};
     var file = extractFilePath(obj);
-    var meta = { kind: 'other', verb: raw, target: '', plus: 0, minus: 0, mono: false, icon: 'tools' };
+    var meta = { kind: 'other', verb: raw, target: '', fullTarget: '', filePath: file || '', plus: 0, minus: 0, mono: false, icon: 'tools' };
 
     if (/(^|_)(exec|bash|shell|terminal|process)/.test(name) || /run_command|run_terminal/.test(name) || name === 'run') {
-      meta.kind = 'exec'; meta.verb = 'Ran'; meta.mono = true;
-      meta.target = String(obj.command || obj.cmd || obj.script || truncateArgs(stringifyArgs(args)));
+      meta.kind = 'exec'; meta.mono = true;
+      meta.verb = 'Ran';
+      meta.fullTarget = shellCommandText(obj, args);
+      meta.target = meta.fullTarget || 'command';
     } else if (/apply_patch|apply_diff|(^|_)patch/.test(name)) {
       meta.kind = 'edit'; meta.verb = 'Edited';
       var patchText = String(obj.patch || obj.diff || obj.input || stringifyArgs(args));
       var stat = diffStatFromPatch(patchText);
       meta.plus = stat.plus; meta.minus = stat.minus;
-      meta.target = baseName(file) || patchFileName(patchText) || 'patch';
+      meta.filePath = file || patchFilePath(patchText);
+      meta.target = baseName(meta.filePath) || patchFileName(patchText) || 'patch';
     } else if (/str_replace|multi_edit|(^|_)edit|(^|_)replace/.test(name)) {
       meta.kind = 'edit'; meta.verb = 'Edited';
+      meta.filePath = file || '';
       meta.target = baseName(file) || 'file';
       if (Array.isArray(obj.edits)) {
         obj.edits.forEach(function (e) {
@@ -103,6 +124,7 @@
       }
     } else if (/(^|_)(write|create)/.test(name) && (file || obj.content !== undefined)) {
       meta.kind = 'edit'; meta.verb = 'Added';
+      meta.filePath = file || '';
       meta.target = baseName(file) || 'file';
       meta.plus = lineCount(obj.content || obj.text || '');
     } else if (/fetch|browser|(^|_)web|http|curl|download/.test(name)) {
@@ -110,6 +132,7 @@
       meta.target = String(obj.url || obj.query || truncateArgs(stringifyArgs(args)));
     } else if (/(^|_)(read|cat|open|view)/.test(name)) {
       meta.kind = 'explore'; meta.verb = 'Read';
+      meta.filePath = file || '';
       meta.target = baseName(file) || truncateArgs(stringifyArgs(args));
     } else if (/grep|search|glob|find|(^|_)(ls|list|tree)/.test(name)) {
       var listing = /(^|_)(ls|list|tree)/.test(name);
@@ -142,7 +165,7 @@
     var section = document.createElement(sectionTag);
     section.className = 'tool-detail-section' + (opts.collapsible ? ' code-editor tool-detail-leaf' : '');
     section.setAttribute('data-section', label.toLowerCase());
-    if (opts.collapsible) section.open = opts.open !== false;
+    if (opts.collapsible) section.open = opts.open === true;
 
     var isJson = false;
     var trimmed = String(text || '').trim();
@@ -192,17 +215,50 @@
 
     var body = document.createElement('div');
     body.className = 'code-editor-body' + (opts.collapsible ? ' tool-detail-leaf-body' : '');
+    body.appendChild(buildLineNumberGutter(text));
     var code = document.createElement('pre');
     code.className = 'code-editor-code';
     if (isJson) { code.innerHTML = window.syntaxHighlightJson(text); }
     else if (label === 'Log') { code.textContent = text; }
-    else { code.innerHTML = window.simpleHighlight(text, lang || 'javascript'); }
+    else { code.innerHTML = window.simpleHighlight(text, lang || 'text'); }
     body.appendChild(code);
 
     editor.appendChild(header);
     editor.appendChild(body);
     if (!opts.collapsible) section.appendChild(editor);
     return section;
+  }
+
+  function lineNumberCount(text) {
+    var value = String(text == null ? '' : text);
+    if (!value) return 1;
+    return value.split('\n').length;
+  }
+
+  function buildLineNumberGutter(text) {
+    var gutter = document.createElement('div');
+    gutter.className = 'code-editor-lines';
+    gutter.setAttribute('aria-hidden', 'true');
+    var count = lineNumberCount(text);
+    for (var i = 1; i <= count; i++) {
+      var num = document.createElement('span');
+      num.className = 'code-editor-line-num';
+      num.textContent = String(i);
+      gutter.appendChild(num);
+    }
+    return gutter;
+  }
+
+  function refreshCodeEditorLines(sectionOrBody, text) {
+    if (!sectionOrBody) return;
+    var body = sectionOrBody.classList && sectionOrBody.classList.contains('code-editor-body')
+      ? sectionOrBody
+      : sectionOrBody.querySelector('.code-editor-body');
+    if (!body) return;
+    var old = body.querySelector('.code-editor-lines');
+    var next = buildLineNumberGutter(text);
+    if (old) old.replaceWith(next);
+    else body.insertBefore(next, body.firstChild);
   }
 
   function setToolRowStatus(row, statusClass) {
@@ -376,44 +432,54 @@
     section.className = 'tool-detail-section tool-edit-previews';
     section.setAttribute('data-section', 'changes');
 
-    var title = document.createElement('div');
-    title.className = 'tool-edit-previews-title';
-    title.textContent = changes.length === 1 ? 'Change' : ('Changes (' + changes.length + ')');
-    section.appendChild(title);
+    if (changes.length === 1) section.classList.add('tool-edit-previews-inline');
+    else {
+      var title = document.createElement('div');
+      title.className = 'tool-edit-previews-title';
+      title.textContent = 'Changes (' + changes.length + ')';
+      section.appendChild(title);
+    }
 
     changes.forEach(function (change, index) {
-      var wrapper = document.createElement('details');
-      wrapper.className = 'tool-edit-preview';
-      if (changes.length === 1 && index === 0) wrapper.open = true;
+      var inlineSingle = changes.length === 1;
+      var wrapper = inlineSingle ? document.createElement('div') : document.createElement('details');
+      wrapper.className = 'tool-edit-preview' + (inlineSingle ? ' tool-edit-preview-inline' : '');
+      if (!inlineSingle) wrapper.open = false;
 
-      var summary = document.createElement('summary');
-      summary.className = 'tool-edit-preview-summary';
+      var summary = inlineSingle ? null : document.createElement('summary');
+      if (summary) summary.className = 'tool-edit-preview-summary';
 
-      var fileEl = document.createElement('span');
-      fileEl.className = 'tool-edit-preview-file';
-      fileEl.textContent = change.path || ('edit-' + (index + 1));
-      summary.appendChild(fileEl);
-
-      var statsEl = document.createElement('span');
-      statsEl.className = 'tool-edit-preview-stats';
-      if (change.oldText) {
-        var minusEl = document.createElement('span');
-        minusEl.className = 'diff-minus';
-        minusEl.textContent = '-' + lineCount(change.oldText);
-        statsEl.appendChild(minusEl);
+      if (summary) {
+        var fileEl = document.createElement('span');
+        fileEl.className = 'tool-edit-preview-file';
+        fileEl.textContent = change.path || ('edit-' + (index + 1));
+        fileEl.title = change.path || '';
+        summary.appendChild(fileEl);
       }
-      if (change.newText) {
-        var plusEl = document.createElement('span');
-        plusEl.className = 'diff-plus';
-        plusEl.textContent = '+' + lineCount(change.newText);
-        statsEl.appendChild(plusEl);
+
+      if (summary) {
+        var statsEl = document.createElement('span');
+        statsEl.className = 'tool-edit-preview-stats';
+        if (change.oldText) {
+          var minusEl = document.createElement('span');
+          minusEl.className = 'diff-minus';
+          minusEl.textContent = '-' + lineCount(change.oldText);
+          statsEl.appendChild(minusEl);
+        }
+        if (change.newText) {
+          var plusEl = document.createElement('span');
+          plusEl.className = 'diff-plus';
+          plusEl.textContent = '+' + lineCount(change.newText);
+          statsEl.appendChild(plusEl);
+        }
+        summary.appendChild(statsEl);
+        appendChevron(summary);
+        wrapper.appendChild(summary);
       }
-      summary.appendChild(statsEl);
-      appendChevron(summary);
-      wrapper.appendChild(summary);
 
       var body = document.createElement('div');
       body.className = 'tool-edit-preview-body';
+      if (inlineSingle) section._ioTarget = body;
 
       if (change.oldText) {
         var beforeWrap = document.createElement('details');
@@ -456,7 +522,13 @@
     details._toolArgs = tool.args;
     details.setAttribute('data-kind', meta.kind);
     details.setAttribute('data-target', meta.target);
+    if (meta.filePath) details.setAttribute('data-file', meta.filePath);
+    if (meta.fullTarget) details.setAttribute('data-full-target', meta.fullTarget);
     details.setAttribute('data-icon', meta.icon);
+    details.setAttribute('data-tool-name', meta.verb);
+    if (meta.kind === 'exec') details.classList.add('tool-row-pill');
+    if (meta.kind === 'explore' && meta.verb === 'Read') details.classList.add('tool-row-pill');
+    if (meta.kind === 'fetch') details.classList.add('tool-row-pill');
     var statusClass = resultMeta.isError ? 'error' : (tool.phase === 'result' ? 'done' : 'running');
     var summary = document.createElement('summary');
     summary.className = 'tool-row-summary';
@@ -473,9 +545,14 @@
     summary.appendChild(verb);
 
     if (meta.target) {
-      var target = document.createElement('span');
-      target.className = 'tool-target' + (meta.mono ? ' mono' : '');
+      var target = document.createElement(meta.filePath ? 'a' : 'span');
+      target.className = 'tool-target' + (meta.mono ? ' mono' : '') + (meta.filePath ? ' file-link' : '');
       target.textContent = meta.target;
+      if (meta.filePath) {
+        target.href = '#';
+        target.setAttribute('data-file', meta.filePath);
+        target.title = meta.filePath;
+      }
       summary.appendChild(target);
     }
 
@@ -521,9 +598,13 @@
     if (editPreview) detail.appendChild(editPreview);
     if (resultMeta.errorText) detail.appendChild(buildDetailSection('Error', resultMeta.errorText, 'text', { collapsible: true, open: true }));
     if (resultMeta.fileText) detail.appendChild(buildDetailSection('File text', resultMeta.fileText, inferLanguageFromPath(extractFilePath(parseArgsObject(tool.args) || {})), { collapsible: true, open: false }));
-    if (argsText && argsText !== '{}') detail.appendChild(buildDetailSection('Input', argsText, undefined, { collapsible: true }));
-    if (tool.updates) detail.appendChild(buildDetailSection('Log', tool.updates, undefined, { collapsible: true }));
-    if (tool.result && resultMeta.showRawOutput) detail.appendChild(buildDetailSection(resultMeta.errorText ? 'Raw output' : 'Output', resultMeta.rawOutput, undefined, { collapsible: true }));
+    var shellLang = meta.kind === 'exec' ? 'sh' : undefined;
+    if (meta.kind === 'exec' && meta.fullTarget) detail.appendChild(buildDetailSection('Command', meta.fullTarget, shellLang, { collapsible: true }));
+    var previewBodies = editPreview ? editPreview.querySelectorAll('.tool-edit-preview-body') : [];
+    var ioTarget = (previewBodies.length === 1) ? previewBodies[0] : detail;
+    if (argsText && argsText !== '{}') ioTarget.appendChild(buildDetailSection('Input', argsText, shellLang, { collapsible: true }));
+    if (tool.updates) ioTarget.appendChild(buildDetailSection('Log', tool.updates, shellLang, { collapsible: true }));
+    if (tool.result && resultMeta.showRawOutput) ioTarget.appendChild(buildDetailSection(resultMeta.errorText ? 'Raw output' : 'Output', resultMeta.rawOutput, shellLang, { collapsible: true }));
     return details;
   }
 
@@ -546,6 +627,12 @@
   function handleToolStart(ev) {
     var row = window.getOrCreateAssistantMessage(ev.runId);
     if (window.flushActivityNotes) window.flushActivityNotes(ev.runId, row);
+    if (window.activityUsesUnifiedTimeline && window.activityUsesUnifiedTimeline() && window.ensureActivityThoughtBlock) {
+      window.ensureActivityThoughtBlock(ev.runId, row);
+    }
+    // A tool fired: any thinking that resumes after this opens a new reasoning
+    // segment, so thought/tool order stays chronological in accordion mode.
+    if (window.reasoningInterrupted) window.reasoningInterrupted.add(ev.runId);
     var tools = row.querySelector('.tool-calls');
     if (!tools) {
       var stream = window.ensureActivityStream ? window.ensureActivityStream(row) : row;
@@ -564,12 +651,14 @@
       rebuilt.id = existing.id || ('tool-' + ev.toolCallId);
       existing.replaceWith(rebuilt);
       window.toolCalls.set(ev.toolCallId, rebuilt);
+      groupToolRows(rebuilt.closest('.tool-calls'));
       return;
     }
     var card = buildToolRow({ toolName: toolName, args: args, phase: 'start' });
     card.id = 'tool-' + ev.toolCallId;
     tools.appendChild(card);
     window.toolCalls.set(ev.toolCallId, card);
+    groupToolRows(tools);
     window.scrollToBottom();
   }
   window.handleToolStart = handleToolStart;
@@ -585,6 +674,9 @@
       stream.appendChild(container);
     }
     window.toolContainers.set(row.getAttribute('data-run-id') || 'history-tools', container);
+    if (window.activityUsesUnifiedTimeline && window.activityUsesUnifiedTimeline() && window.ensureActivityThoughtBlock) {
+      window.ensureActivityThoughtBlock(row.getAttribute('data-run-id') || 'history-tools', row);
+    }
     tools.forEach(function (tool) {
       var toolName = tool.toolName || '';
       if (!toolName) return;
@@ -604,6 +696,9 @@
       container = document.createElement('div');
       container.className = 'tool-calls';
       stream.appendChild(container);
+    }
+    if (window.activityUsesUnifiedTimeline && window.activityUsesUnifiedTimeline() && window.ensureActivityThoughtBlock) {
+      window.ensureActivityThoughtBlock(row.getAttribute('data-run-id') || 'history-tools', row);
     }
     var card = buildToolRow({ toolName: tool.toolName, args: tool.args, updates: tool.updates, result: tool.result, isError: tool.isError, phase: 'result' });
     container.appendChild(card);
@@ -625,10 +720,16 @@
     var log = detail.querySelector('[data-section="log"]');
     if (!log) {
       log = buildDetailSection('Log', '');
-      detail.appendChild(log);
+      var logPreviewBodies = detail.querySelectorAll('.tool-edit-preview-body');
+      var logTarget = (logPreviewBodies.length === 1) ? logPreviewBodies[0] : detail;
+      logTarget.appendChild(log);
     }
     var pre = log.querySelector('pre');
-    if (pre) pre.textContent = (pre.textContent || '') + (ev.text || '');
+    if (pre) {
+      pre.textContent = (pre.textContent || '') + (ev.text || '');
+      refreshCodeEditorLines(log, pre.textContent || '');
+    }
+    if (card.parentNode) groupToolRows(card.closest('.tool-calls'));
     window.scrollToBottom();
   }
   window.handleToolUpdate = handleToolUpdate;
@@ -657,7 +758,9 @@
           var section = detail.querySelector('[data-section="output"], [data-section="raw output"]');
           if (resultMeta.showRawOutput) {
             if (!section) {
-              detail.appendChild(buildDetailSection(resultMeta.errorText ? 'Raw output' : 'Output', out, undefined, { collapsible: true }));
+              var outPreviewBodies = detail.querySelectorAll('.tool-edit-preview-body');
+              var outTarget = (outPreviewBodies.length === 1) ? outPreviewBodies[0] : detail;
+              outTarget.appendChild(buildDetailSection(resultMeta.errorText ? 'Raw output' : 'Output', out, undefined, { collapsible: true }));
             } else {
               var label = section.querySelector('.code-editor-label');
               if (label) label.textContent = resultMeta.errorText ? 'Raw output' : 'Output';
@@ -669,7 +772,8 @@
                   try { JSON.parse(trimmed); isJson = true; } catch (e) {}
                 }
                 if (isJson) { code.innerHTML = window.syntaxHighlightJson(out); }
-                else { code.innerHTML = window.simpleHighlight(out, 'javascript'); }
+                else { code.innerHTML = window.simpleHighlight(out, card.getAttribute('data-kind') === 'exec' ? 'sh' : 'text'); }
+                refreshCodeEditorLines(section, out);
               }
             }
           } else if (section) {
@@ -693,53 +797,99 @@
         }
       }
     }
+    if (card.parentNode) groupToolRows(card.closest('.tool-calls'));
     window.scrollToBottom();
   }
   window.handleToolResult = handleToolResult;
 
   // ── Activity-stream config ───────────────────────────────────────────────
-  var streamCfg = { layout: 'accordion', rail: true, dots: 'status' };
+  function normalizeActivityLayout(layout) {
+    return layout === 'timeline' ? 'timeline' : 'accordion';
+  }
+  window.normalizeActivityLayout = normalizeActivityLayout;
+
+  var streamCfg = { layout: 'accordion', rail: true, dots: 'status', condensed: true };
   window.streamCfg = streamCfg;
 
   function applyStreamConfig() {
     var b = document.body;
+    streamCfg.layout = normalizeActivityLayout(streamCfg.layout);
     b.classList.remove(
-      'stream-layout-accordion', 'stream-layout-timeline', 'stream-layout-hybrid',
+      'stream-layout-accordion', 'stream-layout-timeline',
       'stream-rail', 'stream-dots-status', 'stream-dots-minimal'
     );
     b.classList.add('stream-layout-' + streamCfg.layout);
-    if (streamCfg.rail) b.classList.add('stream-rail');
-    b.classList.add('stream-dots-' + streamCfg.dots);
+    if (streamCfg.layout === 'timeline') {
+      if (streamCfg.rail) b.classList.add('stream-rail');
+      b.classList.add('stream-dots-' + streamCfg.dots);
+    }
     if (window.syncActivityLayoutAllRows) window.syncActivityLayoutAllRows();
+    if (streamCfg.layout === 'timeline') {
+      if (window.ensureTimelineActivityModule) window.ensureTimelineActivityModule();
+      else if (window.syncTimelineStickyUserRows) window.syncTimelineStickyUserRows();
+    } else if (window.clearTimelineStickyUserRows) {
+      window.clearTimelineStickyUserRows();
+    }
+    if (GROUPABLE_KINDS) {
+      document.querySelectorAll('#chat-messages .tool-calls').forEach(function (container) {
+        groupToolRows(container);
+      });
+    }
   }
   applyStreamConfig();
   window.applyStreamConfig = applyStreamConfig;
 
   var GROUPABLE_KINDS = { edit: 1, exec: 1, explore: 1, fetch: 1 };
 
-  function classifyCommand(cmd) {
-    var c = String(cmd || '').trim();
-    for (var guard = 0; guard < 4; guard++) {
-      var m = c.match(/^cd\s+[^;&|]+(?:&&|;)\s*(.*)$/);
-      if (!m) break;
-      c = m[1].trim();
+  function classifyShellActions(command) {
+    var counts = { cd: 0, list: 0, search: 0, read: 0, command: 0 };
+    var text = String(command || '').trim();
+    if (!text) return counts;
+    text.split(/\s*(?:&&|\|\||;)\s*/).forEach(function (part) {
+      var p = String(part || '').trim();
+      if (!p) return;
+      if (/^for\s+/.test(p) || /^while\s+/.test(p) || /^if\s+/.test(p)) {
+        counts.command++;
+        return;
+      }
+      var m = p.match(/^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:sudo\s+)?([\w.\/-]+)/);
+      var word = (m ? m[1] : '').replace(/^.*\//, '');
+      if (!word) return;
+      if (word === 'cd' || word === 'pushd' || word === 'popd') counts.cd++;
+      else if (/^(ls|tree|du|exa|lsd)$/.test(word)) counts.list++;
+      else if (/^(grep|rg|ag|ack|fd|find)$/.test(word)) counts.search++;
+      else if (/^(cat|head|tail|bat|less|more|stat|wc)$/.test(word)) counts.read++;
+      else if (word === 'sed' && /\s-n\b/.test(p) && !/\s-i\b/.test(p)) counts.read++;
+      else counts.command++;
+    });
+    return counts;
+  }
+
+  function shellCommandWord(command) {
+    var text = String(command || '').trim();
+    var fallback = '';
+    if (!text) return '';
+    var parts = text.split(/\s*(?:&&|\|\||;)\s*/);
+    for (var i = 0; i < parts.length; i++) {
+      var p = String(parts[i] || '').trim();
+      if (!p || /^for\s+|^while\s+|^if\s+/.test(p)) continue;
+      var m = p.match(/^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:sudo\s+)?([\w.\/-]+)/);
+      var word = (m ? m[1] : '').replace(/^.*\//, '');
+      if (!word) continue;
+      if (!fallback) fallback = word;
+      if (word !== 'cd' && word !== 'pushd' && word !== 'popd') return word;
     }
-    var word = (c.match(/^[\w.\/-]+/) || [''])[0].replace(/^.*\//, '');
-    if (/^(grep|rg|ag|ack|fd|find)$/.test(word)) return 'search';
-    if (/^(ls|tree|du|exa|lsd)$/.test(word)) return 'list';
-    if (/^(cat|head|tail|bat|less|more|stat|wc)$/.test(word)) return 'read';
-    if (word === 'sed' && /\s-n\b/.test(c) && !/\s-i\b/.test(c)) return 'read';
-    return 'command';
+    return fallback;
   }
 
   function activitySummaryLabel(rows) {
     var created = {}, edited = {}, explored = {};
-    var searches = 0, lists = 0, commands = 0, webSearches = 0, calls = 0;
+    var searches = 0, lists = 0, reads = 0, cd = 0, commands = 0, webSearches = 0, calls = 0;
     rows.forEach(function (r) {
       var kind = r.getAttribute('data-kind');
       var verbEl = r.querySelector('.tool-verb');
       var verb = verbEl ? verbEl.textContent : '';
-      var target = r.getAttribute('data-target') || '';
+    var target = r.getAttribute('data-target') || '';
       if (kind === 'edit') {
         if (verb === 'Added') created[target] = 1;
         else edited[target] = 1;
@@ -748,11 +898,12 @@
         else if (verb === 'Listed') lists++;
         else searches++;
       } else if (kind === 'exec') {
-        var cls = classifyCommand(target);
-        if (cls === 'read') explored[target] = 1;
-        else if (cls === 'search') searches++;
-        else if (cls === 'list') lists++;
-        else commands++;
+        var shell = classifyShellActions(r.getAttribute('data-full-target') || target);
+        cd += shell.cd;
+        lists += shell.list;
+        searches += shell.search;
+        reads += shell.read;
+        commands += shell.command;
       } else if (kind === 'fetch') { webSearches++; }
       else { calls++; }
     });
@@ -769,38 +920,170 @@
       if (createdCount && !editedCount) seg(createdCount, 'Added', 'added', 'file', 'files');
       else seg(editedTotal, 'Edited', 'edited', 'file', 'files');
     }
-    var exploreBits = [];
-    if (size(explored)) exploreBits.push(size(explored) + (size(explored) === 1 ? ' file' : ' files'));
-    if (searches) exploreBits.push(searches + (searches === 1 ? ' search' : ' searches'));
-    if (lists) exploreBits.push(lists + (lists === 1 ? ' list' : ' lists'));
-    if (exploreBits.length) segs.push((segs.length === 0 ? 'Explored' : 'explored') + ' ' + exploreBits.join(', '));
-    seg(commands, 'Ran', 'ran', 'command', 'commands');
+    var exploredCount = size(explored);
+    if (exploredCount) seg(exploredCount, 'Read', 'read', 'file', 'files');
+    seg(searches, 'Searched code', 'searched code', 'time', 'times');
+    seg(lists, 'Listed files', 'listed files', 'time', 'times');
+    seg(reads, 'Read files', 'read files', 'time', 'times');
+    seg(cd, 'Changed directory', 'changed directory', 'time', 'times');
+    seg(commands, 'Ran', 'ran', 'other command', 'other commands');
     seg(webSearches, 'Searched web', 'searched web', 'time', 'times');
     seg(calls, 'Called', 'called', 'tool', 'tools');
     return segs.length ? segs.join(', ') : 'Tool activity';
   }
+  window.activitySummaryLabel = activitySummaryLabel;
 
-  function toolGroupKey(row) {
-    if (!row || !row.classList || !row.classList.contains('tool-row')) return '';
-    var kind = row.getAttribute('data-kind') || '';
-    var verbEl = row.querySelector('.tool-verb');
-    var verb = verbEl ? verbEl.textContent : '';
-    var target = row.getAttribute('data-target') || '';
-    if (kind === 'edit') return kind;
-    if (kind === 'exec') return kind;
-    if (kind === 'explore') return kind + '||' + verb;
-    if (kind === 'fetch') return kind;
-    return [kind, verb, target].join('||');
+  function setReasoningActivitySummary(reasoning, text) {
+    if (!reasoning) return;
+    var summary = reasoning.querySelector(':scope > summary');
+    if (!summary) return;
+    var subline = summary.querySelector('.reasoning-activity-summary');
+    if (!subline) {
+      var label = summary.querySelector('.reasoning-label');
+      var wrapper = summary.querySelector('.reasoning-summary-text');
+      if (!wrapper) {
+        wrapper = document.createElement('span');
+        wrapper.className = 'reasoning-summary-text';
+        if (label) {
+          label.parentNode.insertBefore(wrapper, label);
+          wrapper.appendChild(label);
+        } else {
+          summary.insertBefore(wrapper, summary.lastChild);
+        }
+      }
+      subline = document.createElement('span');
+      subline.className = 'reasoning-activity-summary';
+      wrapper.appendChild(subline);
+    }
+    subline.textContent = text || '';
   }
 
-  function groupToolRows(container) {
+  function directToolRows(node) {
+    if (!node || !node.classList) return [];
+    if (node.classList.contains('tool-row')) return [node];
+    if (node.classList.contains('tool-group')) {
+      return Array.prototype.slice.call(node.querySelectorAll('.tool-group-body > .tool-row'));
+    }
+    return [];
+  }
+
+  function syncReasoningActivitySummaries(container) {
     if (!container) return;
+    Array.prototype.slice.call(container.querySelectorAll(':scope > .reasoning-disclosure')).forEach(function (reasoning) {
+      var rows = [];
+      Array.prototype.slice.call(reasoning.children).forEach(function (node) {
+        rows = rows.concat(directToolRows(node));
+      });
+      setReasoningActivitySummary(reasoning, rows.length ? activitySummaryLabel(rows) : '');
+    });
+  }
+
+  function directActivityNodes(container) {
+    return Array.prototype.slice.call(container.children).filter(function (node) {
+      return node.classList && (
+        node.classList.contains('tool-row') ||
+        node.classList.contains('tool-group') ||
+        node.classList.contains('reasoning-disclosure') ||
+        (node.classList.contains('reasoning-content') && node.classList.contains('activity-thought-chunk'))
+      );
+    });
+  }
+
+  function createAccordionThoughtRoot(container) {
+    var block = document.createElement('details');
+    block.className = 'reasoning-disclosure accordion-root-thought';
+    block.open = false;
+    var summary = document.createElement('summary');
+    if (window.summaryHtml) summary.innerHTML = window.summaryHtml('Thought · ~0 tokens', { showBar: false });
+    else summary.textContent = 'Thought · ~0 tokens';
+    block.appendChild(summary);
+    container.insertBefore(block, container.firstChild);
+    return block;
+  }
+
+  function directReasonings(container) {
+    return Array.prototype.slice.call(container.querySelectorAll(':scope > .reasoning-disclosure'));
+  }
+
+  function liftAccordionActivityChildren(container) {
+    if (!container) return;
+    directReasonings(container).forEach(function (reasoning) {
+      if (!reasoning.classList.contains('accordion-root-thought')) return;
+      var insertAfter = reasoning;
+      Array.prototype.slice.call(reasoning.children).forEach(function (child) {
+        if (!child.classList) return;
+        if (child.tagName && child.tagName.toLowerCase() === 'summary') return;
+        if (
+          child.classList.contains('tool-row') ||
+          child.classList.contains('tool-group') ||
+          (child.classList.contains('reasoning-content') && child.classList.contains('activity-thought-chunk'))
+        ) {
+          container.insertBefore(child, insertAfter.nextSibling);
+          insertAfter = child;
+        }
+      });
+      reasoning.remove();
+    });
+  }
+
+  function mergeAccordionThoughts(container) {
+    if (!container || streamCfg.layout !== 'accordion') return;
+    var nodes = directActivityNodes(container).filter(function (node) {
+      return !(node.classList && node.classList.contains('reasoning-disclosure') && node.classList.contains('thinking'));
+    });
+    if (!nodes.length) return;
+    var root = createAccordionThoughtRoot(container);
+    container.insertBefore(root, nodes[0]);
+    root.classList.add('accordion-root-thought');
+    root.open = false;
+
+    nodes.forEach(function (node) {
+      if (!node.classList) return;
+      if (node.classList.contains('reasoning-disclosure')) {
+        var content = node.querySelector(':scope > .reasoning-content');
+        if (content && content.textContent.trim()) {
+          content.classList.add('activity-thought-chunk');
+          root.appendChild(content);
+        }
+        node.remove();
+        return;
+      }
+      if (
+        node.classList.contains('tool-row') ||
+        node.classList.contains('tool-group') ||
+        (node.classList.contains('reasoning-content') && node.classList.contains('activity-thought-chunk'))
+      ) {
+        root.appendChild(node);
+      }
+    });
+
+    var rawText = Array.prototype.slice.call(root.querySelectorAll(':scope > .activity-thought-chunk'))
+      .map(function (chunk) { return chunk.textContent || ''; })
+      .join('\n\n');
+    var label = 'Thought · ~' + (rawText.trim() ? window.approxTokens(rawText).toLocaleString() : '0') + ' tokens';
+    var labelEl = root.querySelector(':scope > summary .reasoning-label');
+    if (labelEl) labelEl.textContent = label;
+    else {
+      var summary = root.querySelector(':scope > summary');
+      if (summary) summary.textContent = label;
+    }
+    var rows = [];
+    Array.prototype.slice.call(root.children).forEach(function (node) {
+      rows = rows.concat(directToolRows(node));
+    });
+    setReasoningActivitySummary(root, rows.length ? activitySummaryLabel(rows) : '');
+  }
+
+  function ungroupDirectToolGroups(container) {
     Array.prototype.slice.call(container.querySelectorAll(':scope > .tool-group')).forEach(function (group) {
       var body = group.querySelector('.tool-group-body');
       if (body) { while (body.firstChild) container.insertBefore(body.firstChild, group); }
       group.remove();
     });
-    if (streamCfg.layout === 'timeline') return;
+  }
+
+  function groupRowsInContainer(container) {
+    ungroupDirectToolGroups(container);
     var children = Array.prototype.slice.call(container.children);
     var runs = [];
     var current = [];
@@ -812,7 +1095,6 @@
 
     children.forEach(function (node) {
       var groupable = !!(node.classList && node.classList.contains('tool-row') &&
-        !node.querySelector('.tool-row-status.running') &&
         GROUPABLE_KINDS[node.getAttribute('data-kind')]);
       if (!groupable) {
         flushRun();
@@ -832,13 +1114,18 @@
     flushRun();
 
     runs.forEach(function (groupable) {
+      if (streamCfg.condensed && groupable[0].getAttribute('data-kind') === 'edit') {
+        buildCondensedFileGroup(groupable, container);
+        return;
+      }
       var hasError = groupable.some(function (r) { return r.querySelector('.tool-row-status.error'); });
+      var hasRunning = groupable.some(function (r) { return r.querySelector('.tool-row-status.running'); });
       var group = document.createElement('details');
       group.className = 'tool-group';
       var summary = document.createElement('summary');
       summary.className = 'tool-row-summary tool-group-summary';
       var groupStatus = document.createElement('span');
-      groupStatus.className = 'tool-row-status ' + (hasError ? 'error' : 'done');
+      groupStatus.className = 'tool-row-status ' + (hasError ? 'error' : (hasRunning ? 'running' : 'done'));
       groupStatus.setAttribute('aria-hidden', 'true');
       groupStatus.innerHTML = '<span class="codicon codicon-' + (groupable[0].getAttribute('data-icon') || 'layers') + ' tool-status-icon" aria-hidden="true"></span>';
       summary.appendChild(groupStatus);
@@ -854,6 +1141,118 @@
       group.appendChild(body);
       groupable.forEach(function (r) { r.open = false; body.appendChild(r); });
     });
+  }
+
+  function toolGroupKey(row) {
+    if (!row || !row.classList || !row.classList.contains('tool-row')) return '';
+    var kind = row.getAttribute('data-kind') || '';
+    var verbEl = row.querySelector('.tool-verb');
+    var verb = verbEl ? verbEl.textContent : '';
+    var target = row.getAttribute('data-target') || '';
+    if (streamCfg.condensed) {
+      if (kind === 'edit') return 'file||' + target;
+      if (kind === 'exec') return kind + '||' + shellCommandWord(row.getAttribute('data-full-target') || target);
+      if (kind === 'explore') return kind + '||' + verb;
+      if (kind === 'fetch') return kind;
+      return kind + '||' + verb;
+    }
+    if (kind === 'edit') return kind;
+    if (kind === 'exec') return kind + '||' + shellCommandWord(row.getAttribute('data-full-target') || target);
+    if (kind === 'explore') return kind + '||' + verb;
+    if (kind === 'fetch') return kind;
+    return [kind, verb, target].join('||');
+  }
+
+  function extractEditFilePath(row) {
+    var args = row._toolArgs;
+    if (!args) return '';
+    var obj = parseArgsObject(args);
+    return extractFilePath(obj) || row.getAttribute('data-target') || '';
+  }
+
+  function buildCondensedFileGroup(rows, container) {
+    var filePath = extractEditFilePath(rows[0]) || 'file';
+    var fileName = baseName(filePath);
+    var totalPlus = 0, totalMinus = 0;
+    var hasError = false;
+    var hasRunning = false;
+    rows.forEach(function (r) {
+      if (r.querySelector('.tool-row-status.error')) hasError = true;
+      if (r.querySelector('.tool-row-status.running')) hasRunning = true;
+      var plusEl = r.querySelector('.diff-plus');
+      var minusEl = r.querySelector('.diff-minus');
+      if (plusEl) totalPlus += parseInt(plusEl.textContent.replace('+', ''), 10) || 0;
+      if (minusEl) totalMinus += parseInt(minusEl.textContent.replace('-', ''), 10) || 0;
+    });
+    var verbEl = rows[0].querySelector('.tool-verb');
+    var verb = verbEl ? verbEl.textContent : 'Edited';
+    var group = document.createElement('details');
+    group.className = 'tool-group file-group';
+    group.setAttribute('data-file', filePath);
+    var summary = document.createElement('summary');
+    summary.className = 'tool-row-summary tool-group-summary file-group-summary';
+    var statusEl = document.createElement('span');
+    statusEl.className = 'tool-row-status ' + (hasError ? 'error' : (hasRunning ? 'running' : 'done'));
+    statusEl.setAttribute('aria-hidden', 'true');
+    var icon = rows[0].getAttribute('data-icon') || 'edit';
+    statusEl.innerHTML = '<span class="codicon codicon-' + icon + ' tool-status-icon" aria-hidden="true"></span>';
+    summary.appendChild(statusEl);
+    var verbSummary = document.createElement('span');
+    verbSummary.className = 'tool-verb';
+    verbSummary.textContent = verb;
+    summary.appendChild(verbSummary);
+    var fileEl = document.createElement('a');
+    fileEl.className = 'file-group-name file-link';
+    fileEl.textContent = fileName;
+    fileEl.href = '#';
+    fileEl.setAttribute('data-file', filePath);
+    fileEl.title = filePath;
+    summary.appendChild(fileEl);
+    var count = rows.length;
+    if (count > 1) {
+      var badge = document.createElement('span');
+      badge.className = 'file-group-count';
+      badge.textContent = count + ' edits';
+      summary.appendChild(badge);
+    }
+    if (totalPlus || totalMinus) {
+      var diffEl = document.createElement('span');
+      diffEl.className = 'tool-diff';
+      if (totalPlus) {
+        var plus = document.createElement('span');
+        plus.className = 'diff-plus';
+        plus.textContent = '+' + totalPlus;
+        diffEl.appendChild(plus);
+      }
+      if (totalMinus) {
+        var minus = document.createElement('span');
+        minus.className = 'diff-minus';
+        minus.textContent = '-' + totalMinus;
+        diffEl.appendChild(minus);
+      }
+      summary.appendChild(diffEl);
+    }
+    appendChevron(summary);
+    var body = document.createElement('div');
+    body.className = 'tool-group-body';
+    container.insertBefore(group, rows[0]);
+    group.appendChild(summary);
+    group.appendChild(body);
+    rows.forEach(function (r) { r.open = false; body.appendChild(r); });
+    return group;
+  }
+
+  function groupToolRows(container) {
+    if (!container) return;
+    if (streamCfg.layout === 'accordion') liftAccordionActivityChildren(container);
+    ungroupDirectToolGroups(container);
+    // Reasoning disclosures and tool rows stay flat siblings in arrival order, so
+    // the stream reads chronologically: thought, its tools, next thought, its
+    // tools. (Reasoning is segmented at tool boundaries in reasoning.js.) Tools are
+    // never nested inside a thought disclosure — that buried/segregated them.
+    groupRowsInContainer(container);
+    mergeAccordionThoughts(container);
+    syncReasoningActivitySummaries(container);
   }
   window.groupToolRows = groupToolRows;
 

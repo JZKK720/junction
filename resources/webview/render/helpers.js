@@ -14,6 +14,15 @@
 
   // ── Simple syntax highlighter ───────────────────────────────────────────────
   function simpleHighlight(code, lang) {
+    var language = String(lang || '').toLowerCase();
+    if (/^(sh|shell|bash|zsh)$/.test(language)) {
+      return escapeHtml(code)
+        .replace(/(^|\s)(#.*)$/gm, '$1<span class="hl-cm">$2</span>')
+        .replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;|&#039;(?:[^&]|&(?!#039;))*?&#039;)/g, '<span class="hl-st">$1</span>')
+        .replace(/\b(if|then|else|elif|fi|for|while|do|done|case|esac|function|select|until|in)\b/g, '<span class="hl-kw">$1</span>')
+        .replace(/\b(cd|ls|cat|head|tail|grep|rg|find|sed|awk|git|npm|pnpm|yarn|node|python|python3|bash|zsh|sh|mkdir|cp|mv|rm|chmod|chown|pwd|echo)\b/g, '<span class="hl-fn">$1</span>')
+        .replace(/(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)/g, '<span class="hl-ty">$1</span>');
+    }
     var tokens = [];
     var pos = 0;
     var rules = [
@@ -65,6 +74,16 @@
   }
   window.syntaxHighlightJson = syntaxHighlightJson;
 
+  function codeLineNumbersHtml(text) {
+    var count = String(text || '').split('\n').length || 1;
+    var out = '<div class="code-editor-lines" aria-hidden="true">';
+    for (var i = 1; i <= count; i++) {
+      out += '<span class="code-editor-line-num">' + i + '</span>';
+    }
+    return out + '</div>';
+  }
+  window.codeLineNumbersHtml = codeLineNumbersHtml;
+
   // ── Approximate token count ───────────────────────────────────────────────
   function approxTokens(text) { return Math.max(1, Math.round((text || '').length / 4)); }
   window.approxTokens = approxTokens;
@@ -83,6 +102,7 @@
             '<span class="code-editor-lang">' + escapeHtml(cleanLang) + '</span>' +
           '</div>' +
           '<div class="code-editor-body">' +
+            codeLineNumbersHtml(str) +
             '<pre class="code-editor-code"><code class="language-' + escapeHtml(lang || '') + '">' + simpleHighlight(str, lang) + '</code></pre>' +
           '</div>' +
         '</div>';
@@ -123,20 +143,20 @@
   // ── Format thinking content ──────────────────────────────────────────────────
   function formatThinkingContent(text) {
     if (!text) return '';
-    var trimmed = text.trim();
-    if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && !trimmed.includes('\n')) {
+    var cleaned = text.replace(/<\/?(?:thinking|thought|scratchpad|reasoning|analysis|reflection)[^>]*>/gi, '').trim();
+    if ((cleaned.startsWith('{') || cleaned.startsWith('[')) && !cleaned.includes('\n')) {
       try {
-        var obj = JSON.parse(trimmed);
+        var obj = JSON.parse(cleaned);
         return '<pre class="thinking-json">' + syntaxHighlightJson(JSON.stringify(obj, null, 2)) + '</pre>';
       } catch (e) { /* fall through */ }
     }
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    if (cleaned.startsWith('{') || cleaned.startsWith('[')) {
       try {
-        var obj2 = JSON.parse(trimmed);
+        var obj2 = JSON.parse(cleaned);
         return '<pre class="thinking-json">' + syntaxHighlightJson(JSON.stringify(obj2, null, 2)) + '</pre>';
       } catch (e) { /* fall through */ }
     }
-    return '<div class="thinking-text">' + escapeHtml(text).replace(/\n/g, '<br>') + '</div>';
+    return '<div class="thinking-text">' + escapeHtml(cleaned).replace(/\n/g, '<br>') + '</div>';
   }
   window.formatThinkingContent = formatThinkingContent;
 
@@ -165,6 +185,7 @@
         window.isProgrammaticScroll = true;
         messagesDiv_h.scrollTop = messagesDiv_h.scrollHeight;
       }
+      if (window.updateScrollToBottomButton) window.updateScrollToBottomButton();
     });
   }
 

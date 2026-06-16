@@ -11,7 +11,8 @@
                  font-src ${CSP_SOURCE_PLACEHOLDER} data:;
                  media-src 'none';
                  connect-src 'none';
-                 frame-src 'none';">
+                 frame-src 'none';
+                 sandbox allow-scripts allow-same-origin allow-clipboard-read;">
   <link rel="stylesheet" href="${TOKENS_CSS_URI}">
   <link rel="stylesheet" href="${CODICON_CSS_URI}">
   <link rel="stylesheet" href="${CHAT_CSS_URI}">
@@ -25,45 +26,10 @@
       z-index: 1000;
       display: block;
       overflow: hidden;
-      background: var(--vscode-editor-background);
+      background: var(--vscode-sideBar-background, var(--vscode-editor-background));
       transition: opacity 160ms ease-out;
     }
     #startup-loader.dismissed { opacity: 0; pointer-events: none; }
-    .startup-copy {
-      position: absolute;
-      inset: 0;
-      z-index: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      pointer-events: none;
-    }
-    .startup-wordmark {
-      font-family: var(--vscode-font-family);
-      font-size: calc(1.35em * var(--junction-splash-wordmark-scale, 1));
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      background: linear-gradient(100deg,
-        var(--vscode-descriptionForeground) 0%,
-        var(--vscode-descriptionForeground) 38%,
-        var(--vscode-foreground) 50%,
-        var(--vscode-descriptionForeground) 62%,
-        var(--vscode-descriptionForeground) 100%);
-      background-size: 220% 100%;
-      background-position: 140% 0;
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
-      animation: startup-shimmer 2200ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
-    }
-    .startup-sub {
-      font-family: var(--vscode-font-family);
-      font-size: 0.8em;
-      color: var(--vscode-descriptionForeground);
-      opacity: 0.7;
-    }
     #startup-matrix {
       position: absolute;
       inset: 0;
@@ -73,22 +39,10 @@
       margin: 0;
       opacity: 1;
     }
-    @keyframes startup-shimmer {
-      0% { background-position: 140% 0; }
-      100% { background-position: -120% 0; }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .startup-wordmark {
-        animation: none;
-        background: none;
-        color: var(--vscode-foreground);
-        -webkit-text-fill-color: currentColor;
-      }
-    }
     #boot-error {
       font-family: var(--vscode-editor-font-family, monospace);
       font-size: 0.85em;
-      color: var(--vscode-errorForeground, #f48771);
+      color: var(--vscode-errorForeground);
       background: var(--vscode-inputValidation-errorBackground, transparent);
       margin: 0;
       max-height: 30vh;
@@ -105,10 +59,6 @@
        here instead of leaving a silent blank panel. -->
   <div id="startup-loader" aria-hidden="true">
     <canvas id="startup-matrix" width="240" height="36"></canvas>
-    <div class="startup-copy">
-      <div class="startup-wordmark">Junction</div>
-      <div class="startup-sub">connecting…</div>
-    </div>
   </div>
   <pre id="boot-error"></pre>
 
@@ -158,6 +108,8 @@
       <div id="pinned-anim-throbber" class="pinned-throbber" aria-hidden="true" style="display:none"></div>
     </div>
 
+    <button id="scroll-to-bottom" class="scroll-to-bottom codicon codicon-arrow-down" title="Jump to latest message" aria-label="Jump to latest message" hidden></button>
+
     <!-- floating slash-command menu (positioned above the composer) -->
     <div id="slash-menu" class="slash-menu" hidden></div>
 
@@ -166,9 +118,6 @@
         <!-- queued follow-up rows injected by composer.js -->
       </div>
       <div id="context-hints" class="context-hints">
-        <button class="context-hint" data-action="attach-current" title="Attach current file" aria-label="Attach current file">
-          <span class="codicon codicon-file-add"></span>
-        </button>
         <div id="attached-files-bar">
           <!-- file pills injected by attached-files-bar.js -->
         </div>
@@ -183,7 +132,11 @@
       </div>
 
       <div id="composer-footer">
-        <button id="btn-attach-file" class="codicon codicon-plus" title="Attach file"></button>
+        <button id="btn-attach-file" class="composer-chip attach-files-chip" title="Attach files" aria-haspopup="menu">
+          <span class="codicon codicon-plus"></span>
+          <span class="attach-files-label">Attach files</span>
+          <span class="codicon codicon-chevron-down"></span>
+        </button>
         <!-- Environment switcher: bridge/runtime + agent (bottom-left, Codex "work locally" analog) -->
         <button id="env-switcher" class="env-switcher" title="Switch bridge / agent">
           <span class="codicon codicon-server-environment"></span>
@@ -191,9 +144,13 @@
           <span class="codicon codicon-chevron-down"></span>
         </button>
         <button id="model-display" class="composer-chip model-chip" title="Change model">Model</button>
-        <button id="sandbox-display" class="composer-chip sandbox-chip" title="Sandbox / approvals">Sandbox</button>
         <span class="footer-spacer"></span>
         <div id="composer-actions">
+          <button id="sandbox-display" class="composer-chip sandbox-chip" title="Sandbox / approvals" aria-label="Sandbox / approvals">
+            <span class="codicon codicon-lock sandbox-mode-icon" aria-hidden="true"></span>
+            <span class="sandbox-separator" aria-hidden="true">/</span>
+            <span class="codicon codicon-check sandbox-approval-icon" aria-hidden="true"></span>
+          </button>
           <button id="btn-send" class="codicon codicon-send" title="Send" onclick="window.composerSend && window.composerSend()"></button>
         </div>
       </div>
@@ -244,43 +201,106 @@
         report(msg);
         try { vscode.postMessage({ type: 'consoleError', text: msg }); } catch (_) {}
       });
-      // Matrix loader animation on startup canvas
+      // Early Zalgo splash fallback; module loader replaces it once ready.
       (function () {
         var canvas = document.getElementById('startup-matrix');
         if (!canvas) return;
         var ctx = canvas.getContext('2d');
         if (!ctx) return;
         var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%';
-        var fontSize = 11;
-        var cols = Math.floor(canvas.width / fontSize);
+        var marks = ['̍','̎','̄','̅','̿','̑','̐','̒','̓','̔','̽','̾','̀','́','̂','̃','̆','̇','̈','̊','̌'];
+        var fontSize = 12;
+        var cols = 1;
         var drops = [];
-        for (var i = 0; i < cols; i++) drops.push(Math.random() * canvas.height);
+        function themedColor(prop, fallbackProp) {
+          var root = getComputedStyle(document.documentElement);
+          var val = root.getPropertyValue(prop).trim();
+          if (!val && fallbackProp) val = root.getPropertyValue(fallbackProp).trim();
+          return val || 'currentColor';
+        }
+        function resize() {
+          var w = Math.max(240, Math.floor(window.innerWidth || 240));
+          var h = Math.max(120, Math.floor(window.innerHeight || 120));
+          if (canvas.width === w && canvas.height === h) return;
+          canvas.width = w;
+          canvas.height = h;
+          cols = Math.max(8, Math.floor(canvas.width / fontSize));
+          drops = [];
+          for (var i = 0; i < cols; i++) {
+            drops.push({
+              x: (i + 0.5) * (canvas.width / cols),
+              y: Math.random() * canvas.height,
+              vy: 0.7 + Math.random() * 1.2,
+              vx: (Math.random() - 0.5) * 0.15
+            });
+          }
+        }
+        function zalgoChar() {
+          var ch = chars[Math.floor(Math.random() * chars.length)];
+          var count = 1 + Math.floor(Math.random() * 2);
+          for (var i = 0; i < count; i++) ch += marks[Math.floor(Math.random() * marks.length)];
+          return ch;
+        }
+        function titleSpec() {
+          var scale = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--junction-splash-wordmark-scale')) || 1;
+          var size = Math.round(Math.max(24, Math.min(96, canvas.width * 0.12, canvas.height * 0.2)) * scale);
+          var font = '600 ' + size + 'px ' + (getComputedStyle(document.body).fontFamily || 'sans-serif');
+          ctx.font = font;
+          var width = ctx.measureText('Junction').width;
+          var height = size * 1.1;
+          return {
+            font: font,
+            size: size,
+            x: canvas.width / 2,
+            y: canvas.height / 2,
+            left: (canvas.width - width) / 2,
+            right: (canvas.width + width) / 2,
+            top: (canvas.height - height) / 2,
+            bottom: (canvas.height + height) / 2
+          };
+        }
         function draw() {
           if (canvas.classList && canvas.closest('#startup-loader.dismissed')) return;
-          ctx.fillStyle = 'rgba(0,0,0,0.08)';
+          resize();
+          var title = titleSpec();
+          ctx.globalAlpha = 0.08;
+          var loader = document.getElementById('startup-loader');
+          ctx.fillStyle = (loader ? getComputedStyle(loader).backgroundColor : '') || themedColor('--vscode-sideBar-background', '--vscode-editor-background');
           ctx.fillRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = '#10a37f';
+          ctx.fillStyle = themedColor('--vscode-foreground', '--vscode-descriptionForeground');
           ctx.font = fontSize + 'px monospace';
-          for (var i = 0; i < cols; i++) {
-            var ch = chars[Math.floor(Math.random() * chars.length)];
+          for (var i = 0; i < drops.length; i++) {
+            var drop = drops[i];
+            drop.x += drop.vx * fontSize;
+            drop.y += drop.vy * fontSize * 0.45;
+            if (drop.x > title.left && drop.x < title.right && drop.y > title.top && drop.y < title.bottom) {
+              drop.y = title.top - 2;
+              drop.vy *= -0.5;
+              drop.vx += (drop.x < title.x ? -1 : 1) * 0.18;
+            }
             ctx.globalAlpha = 0.4 + Math.random() * 0.6;
-            ctx.fillText(ch, i * fontSize, drops[i]);
-            drops[i] += fontSize * 0.6;
-            if (drops[i] > canvas.height && Math.random() > 0.97) drops[i] = 0;
+            ctx.fillText(zalgoChar(), drop.x, drop.y);
+            if (drop.y > canvas.height + fontSize || drop.x < -fontSize || drop.x > canvas.width + fontSize) {
+              drop.x = (i + 0.5) * (canvas.width / cols);
+              drop.y = -Math.random() * canvas.height * 0.25;
+              drop.vy = 0.7 + Math.random() * 1.2;
+              drop.vx = (Math.random() - 0.5) * 0.15;
+            }
           }
+          ctx.globalAlpha = 1;
+          ctx.font = title.font;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = themedColor('--vscode-foreground', '--vscode-descriptionForeground');
+          ctx.fillText('Junction', title.x, title.y);
+          ctx.textAlign = 'start';
+          ctx.textBaseline = 'alphabetic';
           ctx.globalAlpha = 1;
           requestAnimationFrame(draw);
         }
+        resize();
         draw();
       })();
-      // Watchdog: if nothing dismissed the loader after 10s, say so.
-      setTimeout(function () {
-        var loader = document.getElementById('startup-loader');
-        if (loader && !loader.classList.contains('dismissed')) {
-          var sub = loader.querySelector('.startup-sub');
-          if (sub) sub.textContent = 'still connecting… is the gateway running?';
-        }
-      }, 10000);
     })();
   </script>
 </body>

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 import { Logger } from '../utils/logger';
 import { ToolEventHandler } from './toolEventHandler';
 import { CheckpointManager } from '../checkpoints/checkpointManager';
@@ -39,6 +40,7 @@ export abstract class ChatBase {
     protected cachedHistory: Array<{ role: string; content: string; isSteer?: boolean }> = [];
     protected transcript: TranscriptTurn[] = [];
     protected runTurnIds = new Map<string, string>();
+    protected completedRunIds = new Set<string>();
     protected fallbackRunCounter = 0;
     protected activeRunId: string | null = null;
     protected currentModelDisplay: string = '';
@@ -89,6 +91,7 @@ export abstract class ChatBase {
             this.transcript = [];
             this.runTurnIds.clear();
             this.activeRuns.clear();
+            this.completedRunIds.clear();
             this.activeRunId = null;
             this.currentModelDisplay = '';
             this.currentModelId = undefined;
@@ -151,13 +154,16 @@ export abstract class ChatBase {
             handleToggleLivePill: (enabled) => this.handleToggleLivePill(enabled),
             handleEditQueuedFollowUp: (index, text) => this.handleEditQueuedFollowUp(index, text),
             handleMoveQueuedFollowUp: (index, direction) => this.handleMoveQueuedFollowUp(index, direction),
+            handleReorderQueuedFollowUps: (order) => this.handleReorderQueuedFollowUps(order),
             handleToggleQueuedFollowUpGroup: (index) => this.handleToggleQueuedFollowUpGroup(index),
+            handleSteerQueuedFollowUp: (index, id) => this.handleSteerQueuedFollowUp(index, id),
             handleRemoveQueuedFollowUp: (index) => this.handleRemoveQueuedFollowUp(index),
             handleLoadMoreHistory: () => this.handleLoadMoreHistory(),
             handleLoadMoreHistoryFromJsonl: (offset) => this.handleLoadMoreHistoryFromJsonl(offset),
             handleOpenSettings: () => this.handleOpenSettings(),
             handleGetUsage: () => this.handleGetUsage(),
             handleForkConversation: (messageId) => this.handleForkConversation(messageId),
+            handleRewindToMessage: (messageId) => this.handleRewindToMessage(messageId),
             handleOpenFile: (filePath) => this.handleOpenFile(filePath),
             handleSetReaction: (messageId, value) => this.handleSetReaction(messageId, value),
             postToWebview: (message) => this.postToWebview(message),
@@ -196,6 +202,35 @@ export abstract class ChatBase {
 
     /** Send a message to the underlying webview. Subclasses implement this. */
     protected abstract postToWebview(message: any): void;
+
+    protected captureWebviewMessage(message: any): void {
+        const type = String(message?.type ?? '');
+        if (!this.isChatDebugWebviewMessage(type)) return;
+        Logger.getInstance().captureDebugStream('chat-webview', {
+            bridgeId: this.bridgeRegistry.active.id,
+            sessionKey: this.viewSessionKey ?? this.bridge.getCurrentSessionKey?.(),
+            message,
+        });
+    }
+
+    private isChatDebugWebviewMessage(type: string): boolean {
+        return type === 'history'
+            || type === 'switchToChat'
+            || type === 'moreHistory'
+            || type === 'userEcho'
+            || type === 'response'
+            || type === 'assistant_stream_start'
+            || type === 'assistant_stream_delta'
+            || type === 'assistant_stream_end'
+            || type === 'thinking_chunk'
+            || type === 'thinking_end'
+            || type === 'tool_start'
+            || type === 'tool_update'
+            || type === 'tool_result'
+            || type === 'subagentInfo'
+            || type === 'runActive'
+            || type === 'runComplete';
+    }
 
     /**
      * Assemble the modular webview HTML. Delegates to webview-base.
@@ -252,6 +287,10 @@ export abstract class ChatBase {
     protected visibleTurnContent(role: string, content: string): string | null {
         const text = String(content || '');
         const trimmed = text.trim();
+        if (role === 'user') {
+            const visible = this.stripWorkspaceContextBlock(text).replace(WORKSPACE_LINE_PREFIX_RE, '');
+            return visible.trim() ? visible : null;
+        }
         if (
             trimmed.startsWith(VSCODE_WORKSPACE_CONTEXT_PREFIX) ||
             trimmed.startsWith(LEGACY_VSCODE_WORKSPACE_CONTEXT_PREFIX) ||
@@ -262,10 +301,41 @@ export abstract class ChatBase {
         ) {
             return null;
         }
-        if (role === 'user') {
-            return text.replace(WORKSPACE_LINE_PREFIX_RE, '');
-        }
         return text;
+    }
+
+    protected buildWorkspaceContextBlock(context: any): string {
+        const workspace = String(context?.workspaceFolder ?? context?.workspace ?? '').trim();
+        if (!workspace) return '';
+        return [
+            VSCODE_WORKSPACE_CONTEXT_PREFIX,
+            `workspace: ${workspace}`,
+            'treat paths as relative to workspace.',
+        ].join('\n');
+    }
+
+    protected stripWorkspaceContextBlock(text: string): string {
+        let out = String(text || '');
+        const canonical = new RegExp(
+            '^' +
+            VSCODE_WORKSPACE_CONTEXT_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+            '\\r?\\nworkspace: [^\\r\\n]*\\r?\\ntreat paths as relative to workspace\\.\\r?\\n\\r?\\n?',
+            'i',
+        );
+        let prev = '';
+        while (prev !== out) {
+            prev = out;
+            out = out.replace(canonical, '');
+        }
+        if (out.trim().startsWith(LEGACY_VSCODE_WORKSPACE_CONTEXT_PREFIX)) return '';
+        return out;
+    }
+
+    protected withWorkspaceContext(text: string, context: any): string {
+        const block = this.buildWorkspaceContextBlock(context);
+        if (!block) return text;
+        const stripped = this.stripWorkspaceContextBlock(text);
+        return `${block}\n\n${stripped}`;
     }
 
     protected cloneTranscript(turns: TranscriptTurn[]): TranscriptTurn[] {
@@ -351,19 +421,6 @@ export abstract class ChatBase {
         this.persistCurrentTranscript();
     }
 
-    /**
-     * Send a message to the gateway without showing it in the chat UX.
-     * Records in transcript/history for persistence but skips the userEcho webview event.
-     * Reusable for any bridge command that should be invisible to the user (e.g. "/stop").
-     */
-    protected async sendSilentCommand(text: string): Promise<void> {
-        const messageId = this.makeMessageId('m');
-        this.transcript.push({ id: messageId, role: 'user', content: text, messageId, hasCheckpoint: false });
-        this.cachedHistory.push({ role: 'user', content: text });
-        this.persistCurrentTranscript();
-        await this.dispatchUserMessage(text);
-    }
-
     protected isTerminalLifecyclePhase(phase: unknown): boolean {
         return this.historyManager.isTerminalLifecyclePhase(phase);
     }
@@ -432,6 +489,7 @@ export abstract class ChatBase {
         try { await this.bridge.connect(); } catch (e) { /* already connected */ }
         const lastKey = this.bridge.getCurrentSessionKey();
         if (lastKey) this.adoptViewSession(lastKey);
+        await this.refreshModelDisplayFromChoices();
         const title = this.defaultChatTitle();
         this.postToWebview({ type: 'switchToChat', title, history: this.historyMessages() });
         this.postToWebview({ type: 'history', messages: this.historyMessages() });
@@ -494,6 +552,7 @@ export abstract class ChatBase {
         this.transcript = [];
         this.runTurnIds.clear();
         this.activeRuns.clear();
+        this.completedRunIds.clear();
         this.pendingNewChat = false;
         this.postToWebview({ type: 'switchToChat', title: this.defaultChatTitle(), history: [] });
         this.postToWebview({ type: 'updateTitle', key, title: this.defaultChatTitle() });
@@ -626,6 +685,7 @@ export abstract class ChatBase {
                 index,
                 text,
                 groupWithPrevious: !!this.pendingFollowUpGroupWithPrevious[index],
+                canSteer: this.bridge.canSteer(),
             })),
         });
     }
@@ -634,6 +694,7 @@ export abstract class ChatBase {
         this.pendingFollowUp.push(text);
         this.pendingFollowUpMessageIds.push(messageId);
         this.pendingFollowUpGroupWithPrevious.push(false);
+        this.postToWebview({ type: 'queuedUserAdded', messageId });
         this.pushFollowUpQueue();
     }
 
@@ -647,16 +708,18 @@ export abstract class ChatBase {
     protected dequeueFollowUp(): string | null {
         if (this.pendingFollowUp.length === 0) return null;
         const parts = [this.pendingFollowUp.shift() || ''];
-        this.pendingFollowUpMessageIds.shift();
+        const activatedIds = [this.pendingFollowUpMessageIds.shift()].filter(Boolean) as string[];
         this.pendingFollowUpGroupWithPrevious.shift();
         while (this.pendingFollowUp.length > 0 && this.pendingFollowUpGroupWithPrevious[0]) {
             parts.push(this.pendingFollowUp.shift() || '');
-            this.pendingFollowUpMessageIds.shift();
+            const id = this.pendingFollowUpMessageIds.shift();
+            if (id) activatedIds.push(id);
             this.pendingFollowUpGroupWithPrevious.shift();
         }
         if (this.pendingFollowUpGroupWithPrevious.length > 0) {
             this.pendingFollowUpGroupWithPrevious[0] = false;
         }
+        activatedIds.forEach((messageId) => this.postToWebview({ type: 'queuedUserActivated', messageId }));
         this.pushFollowUpQueue();
         return parts.filter(Boolean).join('\n\n') || null;
     }
@@ -692,9 +755,75 @@ export abstract class ChatBase {
         this.pushFollowUpQueue();
     }
 
+    protected handleReorderQueuedFollowUps(order: string[]): void {
+        if (!Array.isArray(order) || order.length === 0) return;
+        const byId = new Map<string, number>();
+        this.pendingFollowUpMessageIds.forEach((id, index) => byId.set(id, index));
+        const seen = new Set<number>();
+        const nextText: string[] = [];
+        const nextIds: string[] = [];
+        const nextGroups: boolean[] = [];
+        for (const id of order) {
+            const index = byId.get(id);
+            if (index === undefined || seen.has(index)) continue;
+            seen.add(index);
+            nextText.push(this.pendingFollowUp[index]);
+            nextIds.push(this.pendingFollowUpMessageIds[index]);
+            nextGroups.push(this.pendingFollowUpGroupWithPrevious[index]);
+        }
+        this.pendingFollowUp.forEach((text, index) => {
+            if (seen.has(index)) return;
+            nextText.push(text);
+            nextIds.push(this.pendingFollowUpMessageIds[index]);
+            nextGroups.push(this.pendingFollowUpGroupWithPrevious[index]);
+        });
+        if (nextText.length !== this.pendingFollowUp.length) return;
+        this.pendingFollowUp = nextText;
+        this.pendingFollowUpMessageIds = nextIds;
+        this.pendingFollowUpGroupWithPrevious = nextGroups;
+        if (this.pendingFollowUpGroupWithPrevious.length > 0) {
+            this.pendingFollowUpGroupWithPrevious[0] = false;
+        }
+        this.pushFollowUpQueue();
+    }
+
     protected handleToggleQueuedFollowUpGroup(index: number): void {
         if (!Number.isInteger(index) || index <= 0 || index >= this.pendingFollowUp.length) return;
         this.pendingFollowUpGroupWithPrevious[index] = !this.pendingFollowUpGroupWithPrevious[index];
+        this.pushFollowUpQueue();
+    }
+
+    protected async handleSteerQueuedFollowUp(index: number, id?: string): Promise<void> {
+        let targetIndex = index;
+        if (id) {
+            const byId = this.pendingFollowUpMessageIds.indexOf(id);
+            if (byId >= 0) targetIndex = byId;
+        }
+        if (!Number.isInteger(targetIndex) || targetIndex < 0 || targetIndex >= this.pendingFollowUp.length) return;
+        const sessionKey = this.viewSessionKey ?? this.bridge.getCurrentSessionKey();
+        if (!sessionKey || !this.bridge.canSteer()) return;
+        const text = this.pendingFollowUp[targetIndex];
+        const messageId = this.pendingFollowUpMessageIds[targetIndex];
+        let success = false;
+        try {
+            success = await this.bridge.injectMessage(sessionKey, text);
+        } catch (err) {
+            Logger.getInstance().warn('steer queued follow-up failed', err);
+        }
+        if (!success) {
+            this.postToWebview({ type: 'steerFailed', messageId });
+            return;
+        }
+        this.pendingFollowUp.splice(targetIndex, 1);
+        this.pendingFollowUpMessageIds.splice(targetIndex, 1);
+        this.pendingFollowUpGroupWithPrevious.splice(targetIndex, 1);
+        if (this.pendingFollowUpGroupWithPrevious.length > 0) {
+            this.pendingFollowUpGroupWithPrevious[0] = false;
+        }
+        const turn = this.transcript.find((item) => item.messageId === messageId);
+        if (turn) turn.isSteer = true;
+        this.postToWebview({ type: 'queuedUserSteered', messageId });
+        this.persistCurrentTranscript();
         this.pushFollowUpQueue();
     }
 
@@ -747,6 +876,8 @@ export abstract class ChatBase {
         this.postToWebview({
             type: 'sandboxDisplay',
             label: `${sandbox}/${approval}`,
+            sandbox,
+            approval,
             description: 'Local sandbox / approval preference',
         });
     }
@@ -833,10 +964,17 @@ export abstract class ChatBase {
             .join('\n\n');
 
         const folderUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-        const key = await this.bridge.createChat(folderUri);
+        const parentKey = this.bridge.getCurrentSessionKey();
+        const structuralFork = !messageId && parentKey && typeof this.bridge.forkChat === 'function'
+            ? await this.bridge.forkChat(parentKey, folderUri).catch((err) => {
+                Logger.getInstance().warn('structural fork failed; falling back to transcript fork', err);
+                return null;
+            })
+            : null;
+        const key = structuralFork || await this.bridge.createChat(folderUri);
         if (folderUri) this.bridge.setActiveSession(folderUri, key);
 
-        if (context) {
+        if (!structuralFork && context) {
             await this.bridge.injectMessage(key, '[Forked conversation context]\n' + context).catch(() => false);
         }
 
@@ -847,6 +985,7 @@ export abstract class ChatBase {
         this.transcript = [];
         this.runTurnIds.clear();
         this.activeRuns.clear();
+        this.completedRunIds.clear();
         this.activeRunId = null;
 
         try {
@@ -863,7 +1002,21 @@ export abstract class ChatBase {
 
         this.postToWebview({ type: 'switchToChat', title: this.defaultChatTitle(), history: this.historyMessages() });
         this.postToWebview({ type: 'updateTitle', key, title: this.defaultChatTitle() });
-        vscode.window.showInformationMessage('Conversation forked with local transcript context.');
+        vscode.window.showInformationMessage(structuralFork ? 'Conversation forked.' : 'Conversation forked with local transcript context.');
+    }
+
+    protected async handleRewindToMessage(messageId?: string): Promise<void> {
+        if (!messageId) return;
+        const pick = await vscode.window.showWarningMessage(
+            'Rewind workspace files to this checkpoint? Current state will be snapshotted first.',
+            { modal: true },
+            'Rewind'
+        );
+        if (pick !== 'Rewind') return;
+        const ok = await this.checkpoints.rewindTo(messageId);
+        if (ok) {
+            vscode.window.showInformationMessage('Workspace rewound to checkpoint.');
+        }
     }
 
     protected async handleOpenFile(filePath: string): Promise<void> {
@@ -964,6 +1117,40 @@ export abstract class ChatBase {
         this.postToWebview({ type: 'modelDisplay', model: this.currentModelDisplay, reasoning: this.currentThinking });
     }
 
+    protected async refreshModelDisplayFromChoices(): Promise<void> {
+        if (!this.bridge.capabilities.models) {
+            this.pushModelDisplay();
+            return;
+        }
+        try {
+            const choices = await this.bridge.listModelChoices(this.currentModelId, this.currentThinking);
+            let selectedParent: ChoiceMenuItem | undefined;
+            let selectedChild: ChoiceMenuItem | undefined;
+            const visit = (items: ChoiceMenuItem[], parent?: ChoiceMenuItem) => {
+                for (const item of items) {
+                    if (item.checked) {
+                        selectedParent = parent || item;
+                        selectedChild = parent ? item : undefined;
+                    }
+                    if (Array.isArray(item.children)) visit(item.children, item);
+                }
+            };
+            visit(choices);
+            const modelItem = selectedParent;
+            if (modelItem) {
+                const label = String(modelItem.label || modelItem.model || modelItem.id || '').trim();
+                if (label) this.currentModelDisplay = label;
+                this.currentModelId = String(modelItem.model || modelItem.id || this.currentModelId || '').trim() || this.currentModelId;
+            }
+            if (selectedChild?.thinking !== undefined) {
+                this.currentThinking = String(selectedChild.thinking);
+            }
+        } catch (err) {
+            Logger.getInstance().warn('refresh model display failed', err);
+        }
+        this.pushModelDisplay();
+    }
+
     protected async handleAttachFile(): Promise<void> {
         const defaultUri = vscode.workspace.workspaceFolders?.[0]?.uri;
         const uris = await vscode.window.showOpenDialog({
@@ -1024,21 +1211,24 @@ export abstract class ChatBase {
         this.transcript = [];
         this.runTurnIds.clear();
         this.activeRuns.clear();
+        this.completedRunIds.clear();
         this.activeRunId = null;
         this.clearFollowUpQueue();
         this.postToWebview({ type: 'history', messages: [] });
     }
 
     protected async handleStopRun(): Promise<void> {
-        const sessionKey = this.viewSessionKey;
-        if (!sessionKey || !this.activeRunId) return;
+        const sessionKey = this.viewSessionKey ?? this.bridge.getCurrentSessionKey();
+        if (!sessionKey) return;
+        const runId = this.activeRunId ?? this.activeRunIdsBySession.get(sessionKey) ?? undefined;
         try {
-            // OpenClaw: send "/stop" as a message (gateway interprets it), hide from UX
-            if (this.bridge.id === 'openclaw') {
-                await this.sendSilentCommand('/stop');
-            } else {
-                await this.bridge.stopRun(sessionKey, this.activeRunId);
-            }
+            Logger.getInstance().captureDebugStream('chat-stop', {
+                bridgeId: this.bridgeRegistry.active.id,
+                sessionKey,
+                runId: runId ?? null,
+                activeRunId: this.activeRunId,
+            });
+            await this.bridge.stopRun(sessionKey, runId);
         } catch (err) { Logger.getInstance().error('Stop run failed', err); }
     }
 
@@ -1207,6 +1397,46 @@ export abstract class ChatBase {
         return sections.length ? '[Attached Context]\n\n' + sections.join('\n\n---\n\n') : '';
     }
 
+    protected buildOutboundFileContext(): {
+        fileContext: string;
+        pendingFileContext: string | null;
+        attachedFileContext: string;
+        skippedPendingFileContext: string | null;
+    } {
+        const pendingFileContext = this.bridge.getPendingFileContext();
+        const attachedFileContext = this.buildAttachedFileContext();
+        const pendingForSend = this.shouldDropPendingFileContext(pendingFileContext)
+            ? null
+            : pendingFileContext;
+        const fileContext = [pendingForSend, attachedFileContext].filter(Boolean).join('\n\n');
+        return {
+            fileContext,
+            pendingFileContext,
+            attachedFileContext,
+            skippedPendingFileContext: pendingForSend ? null : pendingFileContext,
+        };
+    }
+
+    protected shouldDropPendingFileContext(pendingFileContext: string | null): boolean {
+        if (!pendingFileContext || this.attachedPills.size === 0) return false;
+        const pendingPath = this.extractCurrentFilePath(pendingFileContext);
+        if (!pendingPath) return false;
+        const normalizedPending = this.normalizeWorkspacePath(pendingPath);
+        for (const pill of this.attachedPills.values()) {
+            if (this.normalizeWorkspacePath(pill.filePath) === normalizedPending) return true;
+        }
+        return false;
+    }
+
+    protected extractCurrentFilePath(fileContext: string): string | null {
+        const match = /^Current file:\s*(.+)$/m.exec(fileContext);
+        return match?.[1]?.trim() || null;
+    }
+
+    protected normalizeWorkspacePath(filePath: string): string {
+        return path.normalize(this.resolveWorkspaceFilePath(filePath)).replace(/\\/g, '/');
+    }
+
     protected refreshLivePillFromEditor(): void {
         if (!this.livePillPath) return;
         const pill = this.createEditorPill(true);
@@ -1353,6 +1583,7 @@ export abstract class ChatBase {
     protected async dispatchUserMessage(text: string): Promise<void> {
         try {
             this.postToWebview({ type: 'runActive', active: true });
+            const dispatchContext = await this.gatherContext();
             if (this.pendingNewChat) {
                 const folderUri = vscode.workspace.workspaceFolders?.[0]?.uri;
                 const key = await this.bridge.createChat(folderUri);
@@ -1364,12 +1595,14 @@ export abstract class ChatBase {
                 this.bridge.renameSession(key, autoTitle).catch(() => {});
             }
             const sessionKey = this.bridge.getCurrentSessionKey();
-            const fileContext = [
-                this.bridge.getPendingFileContext(),
-                this.buildAttachedFileContext(),
-            ].filter(Boolean).join('\n\n');
-            if (fileContext && sessionKey) {
-                if (this.bridge.canAdminInject()) {
+            const {
+                fileContext,
+                pendingFileContext,
+                attachedFileContext,
+                skippedPendingFileContext,
+            } = this.buildOutboundFileContext();
+            if (fileContext) {
+                if (sessionKey && this.bridge.canAdminInject()) {
                     try {
                         await this.bridge.injectMessage(sessionKey, '[Workspace File Context]\n' + fileContext);
                     } catch (err) {
@@ -1380,12 +1613,24 @@ export abstract class ChatBase {
                     text = fileContext + '\n\n' + text;
                 }
             }
+            const outboundText = this.withWorkspaceContext(text, dispatchContext);
+            Logger.getInstance().captureDebugStream('chat-dispatch', {
+                bridgeId: this.bridgeRegistry.active.id,
+                sessionKey: this.bridge.getCurrentSessionKey(),
+                originalText: text,
+                outboundText,
+                context: dispatchContext,
+                fileContext,
+                pendingFileContext,
+                attachedFileContext,
+                skippedPendingFileContext,
+            });
             if (!this.viewSessionKey) {
                 const preKey = this.bridge.getCurrentSessionKey();
                 if (preKey) this.adoptViewSession(preKey);
                 else this.pendingSessionAdoption = true;
             }
-            await this.bridge.sendChatMessage(text, await this.gatherContext());
+            await this.bridge.sendChatMessage(outboundText, dispatchContext);
             if (!this.viewSessionKey) {
                 const postKey = this.bridge.getCurrentSessionKey();
                 if (postKey) this.adoptViewSession(postKey);
@@ -1438,6 +1683,10 @@ export abstract class ChatBase {
     }
 
     protected hidesRawThinking(): boolean {
+        return !!this.bridgeRegistry.active.capabilities.hidesRawThinking;
+    }
+
+    protected mirrorsAssistantChatMessages(): boolean {
         return this.bridgeRegistry.active.id === 'openclaw';
     }
 
@@ -1463,6 +1712,13 @@ export abstract class ChatBase {
     }
 
     protected handleStreamEvent(event: any): void {
+        Logger.getInstance().captureDebugStream('chat-stream-raw', {
+            bridgeId: event?._bridgeId ?? this.bridgeRegistry.active.id,
+            activeBridgeId: this.bridgeRegistry.active.id,
+            viewSessionKey: this.viewSessionKey,
+            activeSessionKey: this.bridge.getCurrentSessionKey?.(),
+            event,
+        });
         if (event._bridgeId && event._bridgeId !== this.bridgeRegistry.active.id) return;
         const eventSession = String(event?.sessionKey ?? '').trim();
         if (!eventSession) return;
@@ -1480,6 +1736,7 @@ export abstract class ChatBase {
                 this.finalizeRun(this.activeRunId);
             }
             this.activeRunId = event.runId || null;
+            if (this.activeRunId) this.completedRunIds.delete(this.activeRunId);
             const session = String(event?.sessionKey ?? this.bridge.getCurrentSessionKey() ?? '').trim();
             if (session && this.activeRunId) {
                 this.activeRunIdsBySession.set(session, this.activeRunId);
@@ -1520,6 +1777,16 @@ export abstract class ChatBase {
 
         if (event.type === 'agent_message') {
             const runId = this.resolveRunId(event, 'agent');
+            if (this.mirrorsAssistantChatMessages()) {
+                Logger.getInstance().captureDebugStream('chat-stream-filtered', {
+                    bridgeId: this.bridgeRegistry.active.id,
+                    branch: 'agent_message',
+                    runId,
+                    rawEvent: event,
+                    dropped: 'mirrored-by-chat-message',
+                });
+                return;
+            }
             const lastText = this.activeRuns.get(runId) || '';
             const nextText = this.extractVisibleAssistantText(runId, event.text || lastText);
             Logger.getInstance().captureDebugStream('chat-stream-filtered', {
@@ -1542,6 +1809,11 @@ export abstract class ChatBase {
             const runId = this.resolveRunId(event, 'chat');
             const lastText = this.activeRuns.get(runId) || '';
             const nextText = this.extractVisibleAssistantText(runId, event.content || lastText, event.state === 'final');
+            const turnId = this.runTurnIds.get(runId);
+            const turn = turnId ? this.transcript.find(t => t.id === turnId) : undefined;
+            const completedDuplicate = nextText !== null
+                && this.completedRunIds.has(runId)
+                && HistoryManager.normalizeAssistantText(turn?.content || '') === HistoryManager.normalizeAssistantText(nextText);
             Logger.getInstance().captureDebugStream('chat-stream-filtered', {
                 bridgeId: this.bridgeRegistry.active.id,
                 branch: 'chat_message_assistant',
@@ -1549,18 +1821,20 @@ export abstract class ChatBase {
                 rawEvent: event,
                 lastText,
                 nextText,
-                dropped: nextText === null ? 'hidden-before-reply-marker' : null,
+                dropped: nextText === null ? 'hidden-before-reply-marker' : (completedDuplicate ? 'completed-run-duplicate' : null),
             });
             if (nextText === null) return;
+            if (completedDuplicate) return;
             const duplicate = this.findRecentAssistantDuplicate(nextText);
             if (duplicate && duplicate.runId !== runId) return;
             this.updateAssistantTurn(runId, nextText);
             if (event.state === 'final') {
-                const turnId = this.runTurnIds.get(runId);
-                const turn = turnId ? this.transcript.find(t => t.id === turnId) : undefined;
-                const messageId = turn?.messageId || turnId;
+                const finalTurnId = this.runTurnIds.get(runId);
+                const finalTurn = finalTurnId ? this.transcript.find(t => t.id === finalTurnId) : undefined;
+                const messageId = finalTurn?.messageId || finalTurnId;
                 this.postToWebview({ type: 'assistant_stream_end', runId, messageId });
                 this.activeRuns.delete(runId);
+                this.completedRunIds.add(runId);
             }
             return;
         }
@@ -1610,6 +1884,7 @@ export abstract class ChatBase {
         const messageId = turn?.messageId || turnId;
         this.postToWebview({ type: 'assistant_stream_end', runId, messageId });
         this.activeRuns.delete(runId);
+        this.completedRunIds.add(runId);
         for (const [session, rid] of this.activeRunIdsBySession) {
             if (rid === runId) this.activeRunIdsBySession.delete(session);
         }
@@ -1675,9 +1950,8 @@ export abstract class ChatBase {
         const turnId = this.runTurnIds.get(runId);
         const turn = turnId ? this.transcript.find((item) => item.id === turnId) : undefined;
         const hasThinkingStream = this.thinkingBuffers.has(runId) || !!turn?.thinking;
-        const isOpenClaw = this.bridgeRegistry.active.id === 'openclaw';
 
-        if (!isFinal && isOpenClaw && hasThinkingStream) {
+        if (!isFinal && this.hidesRawThinking() && hasThinkingStream) {
             return null;
         }
 

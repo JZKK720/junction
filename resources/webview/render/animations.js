@@ -19,6 +19,7 @@
   };
   var PretextAPI = window.Pretext || null;
   var extraRichEnabled = true; // default on
+  var ZALGO_SPLASH_MARKS = ['̍','̎','̄','̅','̿','̑','̐','̒','̓','̔','̽','̾','̀','́','̂','̃','̆','̇','̈','̉','̊','̋','̌','̍','̎','̏','̐'];
 
   /** Get font string from computed style. */
   function getCurrentFont() {
@@ -42,7 +43,11 @@
     splashCharsetPreset: 'katakana', splashCharsetCustom: '',
     splashQuantity: 1.4, splashMinOpacity: 0.2, splashMaxOpacity: 0.9,
     splashSizeVariance: 0.45, splashColorVariance: 0.32, splashBounce: 1.1,
-    splashWordmarkScale: 1.0
+    splashWordmarkScale: 1.0,
+    chatRiseDistance: 260, chatRiseDuration: 0.82, chatRiseTilt: 14, chatRiseBlur: 2,
+    chatColorCustom: false,
+    loaderColorCustom: false,
+    splashColorCustom: false
   };
   window.animConfig = animConfig;
   window.SPLASH_CHARSETS = splashCharsets;
@@ -58,6 +63,8 @@
       if (savedState._junctionAnimColor) window._junctionAnimColor = savedState._junctionAnimColor;
       if (savedState._junctionLoaderAnimColor) window._junctionLoaderAnimColor = savedState._junctionLoaderAnimColor;
       if (savedState._junctionSplashColor) window._junctionSplashColor = savedState._junctionSplashColor;
+      if (savedState.bubbleRadius !== undefined) document.documentElement.style.setProperty('--junction-bubble-radius', savedState.bubbleRadius + 'px');
+      if (savedState.bubbleTip) document.documentElement.style.setProperty('--junction-bubble-tip', savedState.bubbleTip);
     }
   } catch (e) {}
 
@@ -181,8 +188,8 @@
   }
   window.getReactionPair = getReactionPair;
 
-  if (!window._junctionSplashColor) window._junctionSplashColor = 'rgba(128, 0, 128, 1)';
-  if (!window._junctionAnimColor) window._junctionAnimColor = getComputedStyle(document.body).color || '#ccc';
+  if (!window._junctionSplashColor) window._junctionSplashColor = getComputedStyle(document.body).color;
+  if (!window._junctionAnimColor) window._junctionAnimColor = getComputedStyle(document.body).color;
 
   function getAnimVal(key, fallback, localOpts) {
     if (key === 'widthMode') return 'full';
@@ -207,19 +214,21 @@
   function getAnimIntensity(localOpts) { return getAnimVal('intensity', 1.0, localOpts); }
 
   function getAnimColor(localOpts) {
+    var bodyColor = getComputedStyle(document.body).color;
     if (localOpts && localOpts.isSplash) {
-      return window._junctionSplashColor || window._junctionLoaderAnimColor || window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+      return animConfig.splashColorCustom ? (window._junctionSplashColor || bodyColor) : bodyColor;
     }
     if (window._activeLoaderContext || (localOpts && localOpts.loader)) {
-      return window._junctionLoaderAnimColor || window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+      return animConfig.loaderColorCustom ? (window._junctionLoaderAnimColor || bodyColor) : bodyColor;
     }
-    return window._junctionAnimColor || getComputedStyle(document.body).color || '#ccc';
+    return animConfig.chatColorCustom ? (window._junctionAnimColor || bodyColor) : bodyColor;
   }
   window.getAnimColor = getAnimColor;
 
   function getAnimationBgColor(alpha, localOpts) {
-    var bg = getComputedStyle(document.body).backgroundColor || 'rgba(30,30,30,1)';
-    if (bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') bg = 'rgb(30, 30, 30)';
+    var loader = localOpts && localOpts.isSplash ? document.getElementById('startup-loader') : null;
+    var bg = (loader ? getComputedStyle(loader).backgroundColor : '') || getComputedStyle(document.body).backgroundColor;
+    if (bg === 'transparent' || bg === 'rgba(0, 0, 0, 0)') bg = getComputedStyle(document.documentElement).getPropertyValue('--vscode-sideBar-background').trim() || getComputedStyle(document.documentElement).getPropertyValue('--vscode-editor-background').trim();
     var configBg = getAnimVal('bgColor', 'theme', localOpts);
     if (configBg !== 'theme') bg = configBg;
     var a = (alpha !== undefined) ? alpha : getAnimVal('bgAlpha', 0.05, localOpts);
@@ -233,7 +242,7 @@
       var b = parseInt(hex.substring(4,6), 16);
       return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
     }
-    return 'rgba(0,0,0,' + a + ')';
+    return bg || 'transparent';
   }
   window.getAnimationBgColor = getAnimationBgColor;
 
@@ -278,7 +287,7 @@
 
     function getFirePixel(h, c) {
       var r, g, b;
-      var isGreen = (getAnimColor(opts) === '#10a37f');
+      var isGreen = false;
       if (isGreen) {
         if (h < 0.25) { r = 0; g = Math.floor(h * 4 * 180); b = 0; }
         else if (h < 0.5) { r = 0; g = 180 + Math.floor((h - 0.25) * 4 * 75); b = Math.floor((h - 0.25) * 4 * 60); }
@@ -436,7 +445,7 @@
           done = true; ctx.clearRect(0, 0, tw, th);
           if (!opts.isSplash && !opts.unbounded) {
             ctx.font = fontStr;
-            ctx.fillStyle = getComputedStyle(document.body).color || '#ccc';
+            ctx.fillStyle = getComputedStyle(document.body).color;
             lines.forEach(function (line, i) { ctx.fillText(line, 10, (i + 1) * lineHeight); });
           }
         }
@@ -522,7 +531,7 @@
       var progress = Math.min(elapsed / duration, 1);
       ctx.clearRect(0, 0, tw, th);
       ctx.font = fontStr;
-      var fgColor = getComputedStyle(document.body).color || '#ccc';
+      var fgColor = getComputedStyle(document.body).color;
       chars.forEach(function (c) {
         var t = Math.max(0, Math.min(1, (elapsed - c.delay) / 800));
         if (t <= 0) return;
@@ -569,7 +578,7 @@
 
     var centerX = opts.unbounded && opts.rect ? (opts.rect.left + opts.rect.width / 2) : (tw / 2);
     var centerY = opts.unbounded && opts.rect ? (opts.rect.top + opts.rect.height / 2) : (th / 2);
-    var fgColor = getComputedStyle(document.body).color || '#ccc';
+    var fgColor = getComputedStyle(document.body).color;
     var isGalaxy = (window._junctionAnimationMode === 'galaxy');
 
     var chars = [];
@@ -702,7 +711,7 @@
     var duration = opts.duration || (getAnimVal('length', 2.0, opts) * 1000) || 1200;
     var done = false;
     var animId = null;
-    var fgColor = getComputedStyle(document.body).color || '#ccc';
+    var fgColor = getComputedStyle(document.body).color;
 
     function frame(now) {
       if (done) return;
@@ -886,7 +895,7 @@
     var duration = opts.duration || (getAnimVal('length', 2.0, opts) * 1000) || 1200;
     var done = false;
     var animId = null;
-    var fgColor = getComputedStyle(document.body).color || '#ccc';
+    var fgColor = getComputedStyle(document.body).color;
     var animColor = getAnimColor(opts);
     var thresholdY = opts.unbounded && opts.rect ? opts.rect.bottom : (opts.isSplash ? Math.floor(th / 2) : (th - 12));
 
@@ -931,28 +940,33 @@
   }
 
   // ── Matrix loader (boot/working states) ──────────────────────────────────
-  function buildSplashWordmarkMask(loader) {
-    if (!loader) return null;
-    var wordmark = loader.querySelector('.startup-wordmark');
-    if (!wordmark) return null;
-    var loaderRect = loader.getBoundingClientRect();
-    var rect = wordmark.getBoundingClientRect();
-    var left = Math.max(0, Math.floor(rect.left - loaderRect.left));
-    var top = Math.max(0, Math.floor(rect.top - loaderRect.top));
-    var width = Math.max(1, Math.ceil(rect.width));
-    var height = Math.max(1, Math.ceil(rect.height));
-    var style = getComputedStyle(wordmark);
+  function buildSplashWordmarkMask(canvas, text) {
+    if (!canvas) return null;
+    var wordmarkText = text || 'Junction';
+    var bodyStyle = getComputedStyle(document.body);
+    var scale = safeNumber(animConfig.splashWordmarkScale, 1);
+    var fontSize = Math.round(Math.max(24, Math.min(96, canvas.width * 0.12, canvas.height * 0.2)) * scale);
+    var font = '600 ' + fontSize + 'px ' + (bodyStyle.fontFamily || 'sans-serif');
+    var measureCanvas = document.createElement('canvas');
+    var measureCtx = measureCanvas.getContext('2d');
+    if (!measureCtx) return null;
+    measureCtx.font = font;
+    var measured = measureCtx.measureText(wordmarkText);
+    var width = Math.max(1, Math.ceil(measured.width + fontSize * 0.35));
+    var height = Math.max(1, Math.ceil(fontSize * 1.25));
+    var left = Math.max(0, Math.floor((canvas.width - width) / 2));
+    var top = Math.max(0, Math.floor((canvas.height - height) / 2));
     var offscreen = document.createElement('canvas');
     offscreen.width = width;
     offscreen.height = height;
     var offCtx = offscreen.getContext('2d');
     if (!offCtx) return null;
     offCtx.clearRect(0, 0, width, height);
-    offCtx.fillStyle = '#fff';
+    offCtx.fillStyle = getComputedStyle(document.body).color;
     offCtx.textAlign = 'center';
     offCtx.textBaseline = 'middle';
-    offCtx.font = (style.fontWeight || '600') + ' ' + (style.fontSize || '18px') + ' ' + (style.fontFamily || 'sans-serif');
-    offCtx.fillText(wordmark.textContent || 'Junction', width / 2, height / 2);
+    offCtx.font = font;
+    offCtx.fillText(wordmarkText, width / 2, height / 2);
     var data = offCtx.getImageData(0, 0, width, height).data;
     return {
       left: left,
@@ -962,6 +976,10 @@
       right: left + width,
       bottom: top + height,
       centerX: left + width / 2,
+      text: wordmarkText,
+      font: font,
+      textX: canvas.width / 2,
+      textY: canvas.height / 2,
       hit: function (x, y) {
         var lx = Math.floor(x - left);
         var ly = Math.floor(y - top);
@@ -969,6 +987,18 @@
         return data[(ly * width + lx) * 4 + 3] > 24;
       }
     };
+  }
+
+  function drawSplashWordmark(ctx, mask, opts) {
+    if (!ctx || !mask) return;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.font = mask.font;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = getAnimColor(opts);
+    ctx.fillText(mask.text, mask.textX, mask.textY);
+    ctx.restore();
   }
 
   function createMatrixLoader(width, height, opts) {
@@ -986,9 +1016,9 @@
     ctx.font = fontSize + 'px monospace';
     var splashQuantity = opts.isSplash ? clamp(safeNumber(animConfig.splashQuantity, 1.4), 0.3, 4) : 1;
     var cols = Math.max(2, Math.floor((canvas.width / fontSize) * getAnimDensity(opts) * splashQuantity));
-    var loaderEl = opts.loaderElement || document.getElementById('startup-loader');
-    var wordmarkMask = opts.isSplash ? buildSplashWordmarkMask(loaderEl) : null;
+    var wordmarkMask = opts.isSplash ? buildSplashWordmarkMask(canvas, opts.text || 'Junction') : null;
     var splashCharset = opts.isSplash ? getSplashCharset() : matrixChars;
+    var splashEffect = opts.splashEffect || 'matrix';
     var splashMinOpacity = clamp(safeNumber(animConfig.splashMinOpacity, 0.2), 0.02, 1);
     var splashMaxOpacity = clamp(safeNumber(animConfig.splashMaxOpacity, 0.9), splashMinOpacity, 1);
     var splashSizeVariance = clamp(safeNumber(animConfig.splashSizeVariance, 0.45), 0, 1.4);
@@ -999,7 +1029,12 @@
     var i;
 
     function randomSplashChar() {
-      return splashCharset.charAt(Math.floor(Math.random() * splashCharset.length));
+      var ch = splashCharset.charAt(Math.floor(Math.random() * splashCharset.length));
+      if (splashEffect === 'zalgo') {
+        var count = 1 + Math.floor(Math.random() * 3);
+        for (var i = 0; i < count; i++) ch += ZALGO_SPLASH_MARKS[Math.floor(Math.random() * ZALGO_SPLASH_MARKS.length)];
+      }
+      return ch;
     }
 
     function assignSplashStyle(drop) {
@@ -1016,8 +1051,8 @@
       var drop = {
         x: laneX,
         laneX: laneX,
-        y: Math.random() * canvas.height,
-        vy: (0.8 + Math.random() * 1.6) * getAnimIntensity(opts),
+        y: canvas.height + Math.random() * canvas.height * 0.3,
+        vy: -(0.8 + Math.random() * 1.6) * getAnimIntensity(opts),
         vx: (Math.random() - 0.5) * 0.04,
         speed: (0.5 + Math.random() * 1.5) * getAnimIntensity(opts),
         ch: opts.isSplash ? randomSplashChar() : matrixChars[Math.floor(Math.random() * matrixChars.length)],
@@ -1032,23 +1067,23 @@
 
     function resetSplashDrop(drop) {
       drop.x = drop.laneX + (Math.random() - 0.5) * fontSize * 0.12;
-      drop.y = -Math.random() * canvas.height * 0.25;
+      drop.y = canvas.height + Math.random() * canvas.height * 0.25;
       drop.vx = (Math.random() - 0.5) * 0.04;
-      drop.vy = 0.8 + Math.random() * 1.4;
+      drop.vy = -(0.8 + Math.random() * 1.4);
       drop.ch = randomSplashChar();
       assignSplashStyle(drop);
     }
 
     function drawSplashLoader() {
       if (canvas.closest && canvas.closest('#startup-loader.dismissed')) return;
-      wordmarkMask = buildSplashWordmarkMask(opts.loaderElement || document.getElementById('startup-loader')) || wordmarkMask;
+      wordmarkMask = buildSplashWordmarkMask(canvas, opts.text || 'Junction') || wordmarkMask;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = 'rgba(0,0,0,0.08)';
+      ctx.fillStyle = getAnimationBgColor(0.08, opts);
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       drops.forEach(function (drop) {
         drop.ch = Math.random() < 0.16 ? randomSplashChar() : drop.ch;
-        drop.vy += 0.015 * getAnimSpeed(opts);
+        drop.vy -= 0.015 * getAnimSpeed(opts);
         drop.vx *= 0.88;
         drop.vx += (drop.laneX - drop.x) * 0.0025;
         var nextX = drop.x + drop.vx * fontSize;
@@ -1072,7 +1107,17 @@
         }
       });
 
-      [true, false].forEach(function (behindLayer) {
+      [true].forEach(function (behindLayer) {
+        drops.forEach(function (drop) {
+          if (drop.behind !== behindLayer) return;
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = drop.fill;
+          ctx.font = Math.max(7, Math.round(fontSize * drop.scale)) + 'px monospace';
+          ctx.fillText(drop.ch, drop.x, drop.y);
+        });
+      });
+      drawSplashWordmark(ctx, wordmarkMask, opts);
+      [false].forEach(function (behindLayer) {
         drops.forEach(function (drop) {
           if (drop.behind !== behindLayer) return;
           ctx.globalAlpha = 1;
@@ -1093,7 +1138,7 @@
         return;
       }
       ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = 'rgba(0,0,0,0.08)';
+      ctx.fillStyle = getAnimationBgColor(0.08, opts);
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.globalCompositeOperation = 'source-over';
       ctx.fillStyle = getAnimColor(opts);
@@ -1125,7 +1170,10 @@
     if (opts.loader) window._activeLoaderContext = true;
     var canvas = null;
     try {
-      if (opts.loader && mode === 'matrix') { canvas = createMatrixLoader(opts.width, opts.height || 40, opts); }
+      if (opts.loader && opts.isSplash && (mode === 'matrix' || mode === 'zalgo')) {
+        canvas = createMatrixLoader(opts.width, opts.height || 40, Object.assign({}, opts, { splashEffect: mode, text: text || 'Junction' }));
+      }
+      else if (opts.loader && mode === 'matrix') { canvas = createMatrixLoader(opts.width, opts.height || 40, opts); }
       else {
         switch (mode) {
           case 'zalgo': canvas = createZalgoCanvas(text, opts); break;

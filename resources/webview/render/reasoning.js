@@ -103,21 +103,30 @@
   function summaryHtml(label, opts) {
     opts = opts || {};
     var bar = opts.showBar ? thinkingBarHtml() : '';
-    return (opts.showBar ? '' : '<span class="thinking-throbber" aria-hidden="true"></span>') +
+    return '<span class="thinking-throbber" aria-hidden="true"></span>' +
       bar +
-      '<span class="reasoning-label">' + window.escapeHtml(label) + '</span>' +
+      '<span class="reasoning-summary-text">' +
+        '<span class="reasoning-label">' + window.escapeHtml(label) + '</span>' +
+        '<span class="reasoning-activity-summary"></span>' +
+      '</span>' +
       '<span class="codicon codicon-chevron-right thinking-toggle" aria-hidden="true"></span>';
   }
 
-  function ensureReasoningSlot(row, runId) {
-    var slot = row.querySelector('.reasoning-slot');
-    if (!slot) {
-      slot = document.createElement('div');
-      slot.className = 'reasoning-slot';
+  // Reasoning shares the .tool-calls stream with tool rows so thoughts and tools
+  // interleave chronologically as flat siblings. Ensure that container exists and
+  // is registered, creating it if reasoning arrives before the first tool.
+  function ensureToolStream(row, runId) {
+    var existing = window.toolContainers && window.toolContainers.get(runId);
+    if (existing) return existing;
+    var tools = row.querySelector('.tool-calls');
+    if (!tools) {
+      tools = document.createElement('div');
+      tools.className = 'tool-calls';
       var stream = window.ensureActivityStream ? window.ensureActivityStream(row) : row;
-      stream.appendChild(slot);
+      stream.appendChild(tools);
     }
-    return slot;
+    if (window.toolContainers) window.toolContainers.set(runId, tools);
+    return tools;
   }
 
   function renderReasoning(runId, fullText, opts) {
@@ -132,22 +141,40 @@
       window.scrollToBottom();
       return;
     }
-    var slot = ensureReasoningSlot(row, runId);
+    var slot = ensureToolStream(row, runId);
     var block = window.reasoningBlocks.get(runId);
     var isActive = !opts.complete;
-    if (!block) {
+    // Chronological interspersing: a tool call since the last thinking burst opens
+    // a NEW reasoning segment, appended at the container's current end so it lands
+    // after the tools that preceded it. Segments carve the cumulative thinking
+    // stream by [_segStart, _segEnd) offsets so each disclosure shows only its slice.
+    var interrupted = !!(window.reasoningInterrupted && window.reasoningInterrupted.has(runId));
+    var fullStr = String(fullText || '');
+    if (!block || interrupted) {
+      var segStart = (block && typeof block._segEnd === 'number') ? block._segEnd : 0;
+      // Don't open a new segment for an empty/whitespace-only burst — a stub thought
+      // between two identical tool calls would split them and break the blob group.
+      // Keep the interrupt flag pending until real reasoning text actually arrives.
+      if (interrupted && !opts.complete && !fullStr.slice(segStart).trim()) {
+        return;
+      }
+      if (interrupted && window.reasoningInterrupted) window.reasoningInterrupted.delete(runId);
+      if (block && interrupted) finalizeReasoningBlock(block);
       block = document.createElement('details');
       block.className = 'reasoning-disclosure thinking';
-      block.open = (opts.row || opts.complete) ? (reasoningMode === 'chronological') : (reasoningMode === 'compact');
+      block._segStart = segStart;
+      block.open = false;
       block.innerHTML = '<summary>' + summaryHtml('', { showBar: isActive }) + '</summary>' +
         '<div class="reasoning-content"></div>';
       slot.appendChild(block);
       window.reasoningBlocks.set(runId, block);
     }
+    block._segEnd = fullStr.length;
+    var segText = fullStr.slice(block._segStart || 0);
     var label = opts.complete
-      ? finalReasoningLabel(fullText, opts.durationMs)
+      ? finalReasoningLabel(segText, opts.durationMs)
       : (reasoningMode === 'compact')
-      ? 'Thinking\u2026 ~' + window.approxTokens(fullText).toLocaleString() + ' tokens'
+      ? 'Thinking\u2026 ~' + window.approxTokens(segText).toLocaleString() + ' tokens'
       : 'Reasoning\u2026';
     block.classList.toggle('thinking', isActive);
     var summary = block.querySelector('summary');
@@ -175,10 +202,24 @@
     }
     var contentEl = block.querySelector('.reasoning-content');
     block.classList.remove('summary-only');
-    contentEl.innerHTML = window.formatThinkingContent(fullText || '');
+    contentEl.innerHTML = window.formatThinkingContent(segText);
     window.scrollToBottom();
   }
   window.renderReasoning = renderReasoning;
+
+  // Finalize a single reasoning segment (stop its bar, freeze its summary label).
+  // Used when a tool interrupts an active segment, before the next one opens.
+  function finalizeReasoningBlock(block) {
+    if (!block) return;
+    var content = block.querySelector('.reasoning-content');
+    var label = finalReasoningLabel(content ? content.textContent : '', 0);
+    block.classList.remove('thinking');
+    var bar = block.querySelector('.thinking-bar');
+    if (bar) stopThinkingBar(bar);
+    var summary = block.querySelector('summary');
+    if (summary) summary.innerHTML = summaryHtml(label);
+    block.open = false;
+  }
 
   function finalReasoningLabel(fullText, durationMs) {
     var secs = durationMs ? Math.max(1, Math.round(durationMs / 1000)) : 0;
@@ -200,7 +241,7 @@
     var bar = block.querySelector('.thinking-bar');
     if (bar) stopThinkingBar(bar);
     block.querySelector('summary').innerHTML = summaryHtml(label);
-    block.open = (reasoningMode === 'chronological');
+    block.open = false;
     var mDiv = document.getElementById('chat-messages');
     if (mDiv.dataset.activeRun === runId) { delete mDiv.dataset.activeRun; delete mDiv.dataset.activeRunTime; }
   }

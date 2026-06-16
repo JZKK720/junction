@@ -51,7 +51,10 @@
       loaderNoiseRes: 4,
       loaderTextFade: 0.5,
       loaderCooling: 0.65,
-      loaderSpread: 0.3
+      loaderSpread: 0.3,
+      chatColorCustom: false,
+      loaderColorCustom: false,
+      splashColorCustom: false
     };
   }
   try {
@@ -79,7 +82,7 @@
 
   // ── Color helpers (hoisted — used by chat + bobber + splash settings) ──
   window.parseAnimColor = function (str) {
-    if (!str || str === '') return { hex: '#cccccc', a: 1 };
+    if (!str || str === '') str = getComputedStyle(document.body).color;
     var m = str.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)$/);
     if (m) {
       var r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3]);
@@ -90,7 +93,9 @@
     if (str.charAt(0) === '#' && str.length === 4) {
       return { hex: '#' + str[1]+str[1]+str[2]+str[2]+str[3]+str[3], a: 1 };
     }
-    return { hex: '#cccccc', a: 1 };
+    var input = document.createElement('input');
+    input.type = 'color';
+    return { hex: input.value, a: 1 };
   };
   window.toRgba = function (hex, a) {
     var r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
@@ -106,7 +111,6 @@
   var modelChip = document.getElementById('model-display');
   var sandboxChip = document.getElementById('sandbox-display');
   var envChip = document.getElementById('env-switcher');
-  var contextHints = document.getElementById('context-hints');
   var queueList = document.getElementById('queued-followups');
 
   // ── Resizable composer input ─────────────────────────────────────────────
@@ -158,10 +162,10 @@
     expandBtn.addEventListener('click', function () {
       var modal = document.createElement('div');
       modal.id = 'chat-expand-modal';
-      modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5);';
+      modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb, var(--vscode-editor-background) 72%, transparent);';
 
       var panel = document.createElement('div');
-      panel.style.cssText = 'width:90vw;max-width:900px;height:80vh;display:flex;flex-direction:column;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:8px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4);';
+      panel.style.cssText = 'width:90vw;max-width:900px;height:80vh;display:flex;flex-direction:column;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:8px;overflow:hidden;box-shadow:0 8px 32px var(--vscode-widget-shadow, transparent);';
 
       var hdr = document.createElement('div');
       hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--vscode-input-border);';
@@ -303,11 +307,14 @@
       var row = document.createElement('div');
       row.className = 'queued-followup' + (item.groupWithPrevious ? ' grouped' : '');
       row.dataset.index = String(index);
+      row.dataset.id = String(item.id || index);
+      row.draggable = true;
 
-      var idx = document.createElement('span');
-      idx.className = 'queued-followup-index';
-      idx.textContent = String(index + 1);
-      row.appendChild(idx);
+      var handle = document.createElement('span');
+      handle.className = 'queued-followup-handle';
+      handle.title = 'Drag to reorder';
+      handle.innerHTML = '<span class="codicon codicon-gripper"></span>';
+      row.appendChild(handle);
 
       var text = document.createElement('div');
       text.className = 'queued-followup-text';
@@ -317,9 +324,10 @@
 
       var actions = document.createElement('div');
       actions.className = 'queued-followup-actions';
-      function iconButton(icon, title, fn) {
+      function iconButton(icon, title, fn, className) {
         var btn = document.createElement('button');
         btn.className = 'codicon codicon-' + icon;
+        if (className) btn.classList.add(className);
         btn.title = title;
         btn.addEventListener('click', function (event) {
           event.preventDefault();
@@ -329,24 +337,55 @@
         actions.appendChild(btn);
         return btn;
       }
-      var up = iconButton('chevron-up', 'Move up', function () {
-        post('moveQueuedFollowUp', { index: index, direction: 'up' });
-      });
-      up.disabled = index === 0;
-      var down = iconButton('chevron-down', 'Move down', function () {
-        post('moveQueuedFollowUp', { index: index, direction: 'down' });
-      });
-      down.disabled = index === list.length - 1;
+      var steer = iconButton('send', 'Steer queued text now', function () {
+        post('steerQueuedFollowUp', { index: index, id: item.id });
+      }, 'queue-steer-action');
+      steer.disabled = item.canSteer === false;
       var group = iconButton('link', 'Group with previous', function () {
         post('toggleQueuedFollowUpGroup', { index: index });
-      });
+      }, 'queue-group-action');
       group.disabled = index === 0;
       if (item.groupWithPrevious) group.classList.add('active');
       iconButton('edit', 'Edit queued text', function () {
         startQueueEdit(row, index, item.text || '');
-      });
+      }, 'queue-edit-action');
       iconButton('trash', 'Remove queued text', function () {
         post('removeQueuedFollowUp', { index: index });
+      }, 'queue-delete-action');
+      row.addEventListener('dragstart', function (event) {
+        row.classList.add('dragging');
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', row.dataset.id || String(index));
+        }
+      });
+      row.addEventListener('dragend', function () {
+        row.classList.remove('dragging');
+        queueList.querySelectorAll('.queued-followup.drag-over').forEach(function (el) { el.classList.remove('drag-over'); });
+      });
+      row.addEventListener('dragover', function (event) {
+        event.preventDefault();
+        row.classList.add('drag-over');
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+      });
+      row.addEventListener('dragleave', function () {
+        row.classList.remove('drag-over');
+      });
+      row.addEventListener('drop', function (event) {
+        event.preventDefault();
+        row.classList.remove('drag-over');
+        var fromId = event.dataTransfer ? event.dataTransfer.getData('text/plain') : '';
+        var toId = row.dataset.id || String(index);
+        if (!fromId || fromId === toId) return;
+        var order = Array.prototype.map.call(queueList.querySelectorAll('.queued-followup'), function (el) {
+          return el.dataset.id || '';
+        }).filter(Boolean);
+        var from = order.indexOf(fromId);
+        var to = order.indexOf(toId);
+        if (from < 0 || to < 0) return;
+        order.splice(from, 1);
+        order.splice(to, 0, fromId);
+        post('reorderQueuedFollowUps', { order: order });
       });
       row.appendChild(actions);
       queueList.appendChild(row);
@@ -412,6 +451,99 @@
     }
   });
 
+  // ── Paste: attach files from clipboard ──────────────────────────────────────
+  function handlePastedFiles(files) {
+    for (var i = 0; i < files.length; i++) {
+      (function (file) {
+        var reader = new FileReader();
+        reader.onload = function () {
+          var content = reader.result;
+          var isBinary = file.type && !file.type.startsWith('text/') && file.type !== 'application/json';
+          var payload = isBinary ? String(content || '').split(',').slice(1).join(',') : String(content || '');
+          post('attachPastedFile', {
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            content: payload,
+            encoding: isBinary ? 'base64' : 'text',
+          });
+        };
+        if (file.type && !file.type.startsWith('text/') && file.type !== 'application/json') {
+          reader.readAsDataURL(file);
+        } else {
+          reader.readAsText(file);
+        }
+      })(files[i]);
+    }
+  }
+
+  function extractFilesFromPaste(e) {
+    var dt = e.clipboardData;
+    if (!dt) return [];
+    // Try files first
+    if (dt.files && dt.files.length) return Array.from(dt.files);
+    // Try items (more reliable for file paste)
+    if (dt.items) {
+      var result = [];
+      for (var i = 0; i < dt.items.length; i++) {
+        if (dt.items[i].kind === 'file') {
+          var f = dt.items[i].getAsFile();
+          if (f) result.push(f);
+        }
+      }
+      return result;
+    }
+    return [];
+  }
+
+  composerInput.addEventListener('paste', function (e) {
+    var files = extractFilesFromPaste(e);
+    if (files.length) {
+      e.preventDefault();
+      handlePastedFiles(files);
+      return;
+    }
+    // Fallback: try async clipboard API
+    if (navigator.clipboard && navigator.clipboard.read) {
+      e.preventDefault();
+      navigator.clipboard.read().then(function (clipData) {
+        var items = clipData.items || [];
+        var files = [];
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].kind === 'file') {
+            var f = items[i].getAsFile();
+            if (f) files.push(f);
+          }
+        }
+        if (files.length) handlePastedFiles(files);
+      }).catch(function () {});
+    }
+  });
+
+  document.addEventListener('paste', function (e) {
+    if (e.target === composerInput) return;
+    var files = extractFilesFromPaste(e);
+    if (files.length) {
+      e.preventDefault();
+      handlePastedFiles(files);
+      return;
+    }
+    if (navigator.clipboard && navigator.clipboard.read) {
+      e.preventDefault();
+      navigator.clipboard.read().then(function (clipData) {
+        var items = clipData.items || [];
+        var files = [];
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].kind === 'file') {
+            var f = items[i].getAsFile();
+            if (f) files.push(f);
+          }
+        }
+        if (files.length) handlePastedFiles(files);
+      }).catch(function () {});
+    }
+  });
+
   // ── Auto-resize + slash detection ────────────────────────────────────────────
   composerInput.addEventListener('input', function () {
     composerInput.style.height = 'auto';
@@ -425,16 +557,31 @@
   });
 
   if (btnStop) btnStop.addEventListener('click', function () { post('stopRun'); });
-  if (btnAttachFile) btnAttachFile.addEventListener('click', function () { post('attachFile'); });
-
-  if (contextHints) {
-    contextHints.addEventListener('click', function (e) {
-      var target = e.target.closest('button');
-      if (!target) return;
-      var action = target.dataset.action;
-      if (action === 'attach-current') post('attachCurrentFile');
+  if (btnAttachFile) btnAttachFile.addEventListener('click', function () {
+    if (!window.choiceMenu) {
+      post('attachFile');
+      return;
+    }
+    window.choiceMenu.open(btnAttachFile, {
+      title: 'Attach files',
+      items: [
+        {
+          id: 'attach-files',
+          label: 'Attach files...',
+          description: 'Choose one or more files',
+          icon: 'files',
+          action: function () { post('attachFile'); }
+        },
+        {
+          id: 'attach-current-file',
+          label: 'Attach current file',
+          description: 'Add active editor file',
+          icon: 'file-add',
+          action: function () { post('attachCurrentFile'); }
+        }
+      ]
     });
-  }
+  });
 
   // ── Slash menu ───────────────────────────────────────────────────────────────
   function hideSlashMenu() { if (slashMenu) { slashMenu.hidden = true; slashMenu.innerHTML = ''; } }
@@ -459,6 +606,24 @@
   }
   function escapeHtml(t) {
     return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function sandboxModeIcon(mode) {
+    if (mode === 'readonly') return 'lock';
+    if (mode === 'workspace-write') return 'edit';
+    if (mode === 'full-access') return 'unlock';
+    return 'settings';
+  }
+
+  function approvalModeIcon(mode) {
+    if (mode === 'ask') return 'question';
+    if (mode === 'never') return 'check';
+    return 'settings';
+  }
+
+  function setCodiconClass(el, name, baseClass) {
+    if (!el) return;
+    el.className = 'codicon codicon-' + name + (baseClass ? ' ' + baseClass : '');
   }
 
   // ── Footer chips ───────────────────────────────────────────────────────────────
@@ -533,6 +698,8 @@
         if (msg.splashColor) {
           window._junctionSplashColor = msg.splashColor;
         }
+        if (msg.bubbleRadius !== undefined) document.documentElement.style.setProperty('--junction-bubble-radius', msg.bubbleRadius + 'px');
+        if (msg.bubbleTip !== undefined) document.documentElement.style.setProperty('--junction-bubble-tip', msg.bubbleTip);
         // Run all registered sync functions (updates mode buttons, sliders, colors, etc.)
         settingsSyncFunctions.forEach(function (fn) {
           try { fn(); } catch (e) {}
@@ -567,7 +734,9 @@
         break;
       case 'sandboxDisplay':
         if (sandboxChip) {
-          sandboxChip.textContent = msg.label || 'Sandbox';
+          setCodiconClass(sandboxChip.querySelector('.sandbox-mode-icon'), sandboxModeIcon(msg.sandbox), 'sandbox-mode-icon');
+          setCodiconClass(sandboxChip.querySelector('.sandbox-approval-icon'), approvalModeIcon(msg.approval), 'sandbox-approval-icon');
+          sandboxChip.setAttribute('aria-label', msg.label || 'Sandbox / approvals');
           sandboxChip.title = msg.description || 'Sandbox / approvals';
         }
         break;

@@ -5,6 +5,7 @@ import { OpenClawBridge } from '../bridges/openclaw/OpenClawBridge';
 import { HermesBridge } from '../bridges/hermes/HermesBridge';
 import { SouveraineBridge } from '../bridges/souveraine/SouveraineBridge';
 import { MiMoCodeBridge } from '../bridges/mimocode/MiMoCodeBridge';
+import { GooseBridge } from '../bridges/goose/GooseBridge';
 import { ChatBase } from './chatBase';
 
 /**
@@ -26,6 +27,7 @@ export class ChatViewProvider extends ChatBase implements vscode.WebviewViewProv
         registry.register(new HermesBridge(context));
         registry.register(new SouveraineBridge(context));
         registry.register(new MiMoCodeBridge(context));
+        registry.register(new GooseBridge(context));
         super(context.extensionUri, registry);
     }
 
@@ -35,6 +37,7 @@ export class ChatViewProvider extends ChatBase implements vscode.WebviewViewProv
     }
 
     protected postToWebview(message: any): void {
+        this.captureWebviewMessage(message);
         this._view?.webview.postMessage(message);
     }
 

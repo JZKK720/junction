@@ -16,6 +16,7 @@ export class ChatPanel extends ChatBase {
     }
 
     protected postToWebview(message: any): void {
+        this.captureWebviewMessage(message);
         this.panel?.webview.postMessage(message);
     }
 

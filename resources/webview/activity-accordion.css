@@ -1,0 +1,211 @@
+/* Accordion activity mode: flat glyph icons, no timeline rail/dots.
+   Base CSS hides ::before/::after on .tool-row-status by default.
+   Timeline mode opts in via activity-timeline.css.
+   Accordion keeps the hidden default: codicon glyph only, no dots. */
+
+/* No timeline rail connectors */
+body.stream-layout-accordion #chat-messages .tool-row::after,
+body.stream-layout-accordion #chat-messages .tool-group::after,
+body.stream-layout-accordion #chat-messages .reasoning-disclosure::after {
+  display: none !important;
+}
+
+/* Summary row padding */
+body.stream-layout-accordion #chat-messages .tool-row-summary,
+body.stream-layout-accordion #chat-messages .tool-group-summary,
+body.stream-layout-accordion #chat-messages .file-group-summary {
+  padding-left: 10px;
+}
+
+/* Detail panels: no left border rail — flatten all nesting */
+body.stream-layout-accordion #chat-messages .tool-detail,
+body.stream-layout-accordion #chat-messages .tool-group-body,
+body.stream-layout-accordion #chat-messages .file-group .tool-group-body {
+  margin-left: 0;
+  border-left: none;
+  padding-left: 0;
+}
+
+/* Running status: pulse the codicon in accordion mode */
+body.stream-layout-accordion #chat-messages .tool-row-status.running .tool-status-icon {
+  animation: accordion-tool-pulse 1.2s ease-in-out infinite;
+  color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+}
+@keyframes accordion-tool-pulse {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.stream-layout-accordion #chat-messages .tool-row-status.running .tool-status-icon {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* Tool pill hover: subtle highlight so pills are discoverable */
+body.stream-layout-accordion #chat-messages .tool-row-pill > .tool-row-summary:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-radius: var(--corner-radius-small, 4px);
+}
+
+/* Thought/reasoning box: no highlight — flat, only sub-pills get emphasis */
+body.stream-layout-accordion #chat-messages .reasoning-disclosure,
+body.stream-layout-accordion #chat-messages .reasoning-disclosure.thinking {
+  border-left: none !important;
+  padding-left: 0 !important;
+  background: transparent !important;
+}
+
+body.stream-layout-accordion #chat-messages .reasoning-disclosure > summary {
+  padding-left: 0;
+}
+
+body.stream-layout-accordion #chat-messages .reasoning-disclosure > .reasoning-content {
+  border-left: none;
+  margin-left: 0;
+  padding-left: 0;
+}
+
+body.stream-layout-accordion #chat-messages .accordion-root-thought > summary {
+  padding-left: 0;
+}
+
+body.stream-layout-accordion #chat-messages .accordion-root-thought > .tool-row,
+body.stream-layout-accordion #chat-messages .accordion-root-thought > .tool-group {
+  margin-left: 18px;
+}
+
+/* Queue: compact mode */
+body.stream-layout-accordion .queued-followups {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-small) var(--space-medium) 0;
+}
+
+body.stream-layout-accordion .queued-followups[hidden] {
+  display: none;
+}
+
+body.stream-layout-accordion .queued-followup {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 5px 3px 8px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-input-border));
+  border-radius: var(--corner-radius-small);
+  background: color-mix(in srgb, var(--vscode-input-background) 82%, var(--vscode-list-hoverBackground));
+  color: var(--vscode-editor-foreground);
+  font-size: 11px;
+}
+
+body.stream-layout-accordion .queued-followup.grouped {
+  border-top-style: dashed;
+}
+
+body.stream-layout-accordion .queued-followup.dragging {
+  opacity: 0.55;
+}
+
+body.stream-layout-accordion .queued-followup.drag-over {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+body.stream-layout-accordion .queued-followup-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 22px;
+  color: var(--vscode-descriptionForeground);
+  cursor: grab;
+  opacity: 0.72;
+}
+
+body.stream-layout-accordion .queued-followup-handle:active {
+  cursor: grabbing;
+}
+
+body.stream-layout-accordion .queued-followup-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.stream-layout-accordion .queued-followup-edit {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 48px;
+  resize: vertical;
+  box-sizing: border-box;
+  border: 1px solid var(--vscode-input-border);
+  border-radius: var(--corner-radius-small);
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+  padding: 6px;
+}
+
+body.stream-layout-accordion .queued-followup-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+body.stream-layout-accordion .queued-followup-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: var(--corner-radius-small);
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  font-family: codicon;
+  font-size: 14px;
+}
+
+body.stream-layout-accordion .queued-followup-actions button:hover,
+body.stream-layout-accordion .queued-followup-actions button.active {
+  background: var(--vscode-list-hoverBackground);
+  color: var(--vscode-editor-foreground);
+}
+
+body.stream-layout-accordion .queued-followup-actions button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+body.stream-layout-accordion #chat-messages .chat-row.user[data-queued="true"] .msg-text {
+  outline: 1px solid color-mix(in srgb, var(--vscode-descriptionForeground) 45%, transparent);
+  outline-offset: 2px;
+}
+
+body.stream-layout-accordion #chat-messages .queue-badge,
+body.stream-layout-accordion #chat-messages .steer-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.5;
+  vertical-align: middle;
+}
+
+body.stream-layout-accordion #chat-messages .steer-notice {
+  margin-top: 4px;
+  color: var(--vscode-errorForeground);
+  font-size: 10px;
+  font-style: italic;
+}

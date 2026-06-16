@@ -53,11 +53,11 @@ export class CommandPalette {
       // Response shape: { commands: CommandEntry[] }
       const raw: unknown[] = res?.commands ?? res ?? [];
 
-      this.commands = raw.map(normalizeCommand).filter((c): c is GatewayCommand => !!c);
+      this.commands = mergeCommands(raw.map(normalizeCommand).filter((c): c is GatewayCommand => !!c));
       this.logger.info(`Loaded ${this.commands.length} commands for agent ${resolvedAgentId}`);
     } catch (error) {
       this.logger.error('commands.list failed', error);
-      this.commands = [];
+      this.commands = mergeCommands([]);
     }
   }
 
@@ -65,7 +65,7 @@ export class CommandPalette {
    * Clear the command cache. Call on reconnect before re-loading.
    */
   invalidate(): void {
-    this.commands = [];
+    this.commands = mergeCommands([]);
   }
 
   /**
@@ -120,4 +120,31 @@ function normalizeCommand(raw: unknown): GatewayCommand | null {
       choices: a.choices ?? [],
     })),
   };
+}
+
+const OPENCLAW_FALLBACK_COMMANDS: GatewayCommand[] = [
+  { name: 'help', description: 'Show available OpenClaw commands.', args: [] },
+  { name: 'models', description: 'List available models.', args: [] },
+  { name: 'model', description: 'Change model.', args: [{ name: 'model' }] },
+  { name: 'usage', description: 'Show session token usage.', args: [] },
+  { name: 'stop', description: 'Stop current run.', args: [] },
+  { name: 'clear', description: 'Clear current chat view.', args: [] },
+  { name: 'new', description: 'Start a new chat.', args: [] },
+  { name: 'fork', description: 'Fork current conversation.', args: [] },
+  { name: 'agents', description: 'List available agents.', args: [] },
+  { name: 'agent', description: 'Switch agent.', args: [{ name: 'agent' }] },
+  { name: 'tools', description: 'List tool status.', args: [] },
+  { name: 'settings', description: 'Show or change runtime settings.', args: [] },
+];
+
+function mergeCommands(commands: GatewayCommand[]): GatewayCommand[] {
+  const seen = new Set<string>();
+  const out: GatewayCommand[] = [];
+  for (const cmd of [...commands, ...OPENCLAW_FALLBACK_COMMANDS]) {
+    const key = cmd.name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(cmd);
+  }
+  return out;
 }

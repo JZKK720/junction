@@ -212,7 +212,6 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         await this.ensureAgent();
         if (!this.activeConversationId) await this.createChat();
         const runId = this.activeConversationId!;
-        const text = context?.workspace ? `[Workspace: ${context.workspace}]\n${message}` : message;
         this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId });
         
         if (this.activeAbortController) {
@@ -226,7 +225,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
                 method: 'POST',
                 body: {
                     stream: true,
-                    messages: [{ role: 'user', content: text }],
+                    messages: [{ role: 'user', content: message }],
                 },
                 signal,
             }, (event) => this.mapSse(runId, event.event, event.data));

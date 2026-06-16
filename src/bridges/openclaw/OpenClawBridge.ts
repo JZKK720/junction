@@ -27,6 +27,7 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         steering: true,
         usage: true,
         tools: true,
+        hidesRawThinking: true,
     };
 
     private readonly gateway: GatewayConnection;
@@ -144,6 +145,18 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
 
     createChat(folderUri?: vscode.Uri): Promise<string> {
         return this.sessionManager.createNewChat(folderUri);
+    }
+
+    async forkChat(parentSessionKey: string, folderUri?: vscode.Uri): Promise<string | null> {
+        if (!parentSessionKey || !this.gateway.capabilities.hasMethod('sessions.fork')) return null;
+        const workspaceDir = folderUri?.fsPath ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        const res = await this.gateway.sendRequest('sessions.fork', {
+            parentSessionKey,
+            ...(workspaceDir ? { workspaceDir } : {}),
+        });
+        const key = typeof res?.key === 'string' ? res.key : null;
+        if (key && folderUri) this.sessionManager.setActiveSession(folderUri, key);
+        return key;
     }
 
     async listSessions(scope: ChatScope, includeArchived: boolean, archivedKeys: ReadonlySet<string>): Promise<BridgeSession[]> {
@@ -458,9 +471,7 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
 
     getEnvironmentLabel(): string {
         const url = getOpenClawGatewayUrl();
-        const agent = this.selection.agentId || 'main';
-        const runtime = this.runtimeNameForUrl(url);
-        return `${agent}@${runtime}:${this.portForUrl(url)}`;
+        return this.runtimeNameForUrl(url) || this.hostForUrl(url);
     }
 
     private async refreshRuntimeLabels(): Promise<void> {

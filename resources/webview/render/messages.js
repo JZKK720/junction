@@ -11,7 +11,8 @@
   // ── State ─────────────────────────────────────────────────────────────────
   var activeRuns = new Map();        // runId → assistant row element
   var runSubagentInfo = new Map();   // runId → subagent metadata
-  var reasoningBlocks = new Map();   // runId → <details> element
+  var reasoningBlocks = new Map();   // runId → current (latest) <details> segment
+  var reasoningInterrupted = new Set(); // runIds whose next thinking opens a new segment
   var toolCalls = new Map();         // toolCallId → tool card element
   var toolContainers = new Map();    // runId → .tool-calls container
   var activityNoteState = new Map(); // runId → { buffer: string }
@@ -25,6 +26,7 @@
   window.activeRuns = activeRuns;
   window.runSubagentInfo = runSubagentInfo;
   window.reasoningBlocks = reasoningBlocks;
+  window.reasoningInterrupted = reasoningInterrupted;
   window.toolCalls = toolCalls;
   window.toolContainers = toolContainers;
   window.activityNoteState = activityNoteState;
@@ -71,8 +73,7 @@
 
   function activityUsesUnifiedTimeline() {
     var body = document.body;
-    return body.classList.contains('stream-layout-timeline') ||
-      body.classList.contains('stream-layout-hybrid');
+    return body.classList.contains('stream-layout-timeline');
   }
   window.activityUsesUnifiedTimeline = activityUsesUnifiedTimeline;
 
@@ -91,7 +92,7 @@
       worklog = document.createElement('details');
       worklog.className = 'activity-worklog';
       worklog.open = true;
-      worklog.innerHTML = '<summary class="activity-worklog-summary"><span class="activity-worklog-label">Working...</span><span class="codicon codicon-chevron-right activity-worklog-toggle" aria-hidden="true"></span></summary><div class="activity-worklog-body"></div>';
+      worklog.innerHTML = '<summary class="activity-worklog-summary"><span class="thinking-throbber" aria-hidden="true"></span><span class="activity-worklog-label">Working...</span><span class="codicon codicon-chevron-right activity-worklog-toggle" aria-hidden="true"></span></summary><div class="activity-worklog-body"></div>';
       stream.appendChild(worklog);
     }
     return worklog;
@@ -105,11 +106,13 @@
     var label = worklog.querySelector('.activity-worklog-label');
     if (!label) return;
     if (state === 'done') {
+      worklog.classList.remove('thinking');
       var started = parseInt(row.getAttribute('data-run-start-ms') || '0', 10);
       var elapsed = durationMs || (started ? (Date.now() - started) : 0);
       row.setAttribute('data-work-duration-ms', String(elapsed));
       label.textContent = 'Worked for ' + formatWorkedDuration(elapsed);
     } else {
+      worklog.classList.add('thinking');
       label.textContent = 'Working...';
     }
   }
@@ -137,7 +140,10 @@
       var body = worklog.querySelector('.activity-worklog-body');
       if (body && body.firstChild !== tools) body.appendChild(tools);
       if (stream.firstChild !== worklog) stream.insertBefore(worklog, stream.firstChild);
-      if (worklog.previousSibling !== reasoningSlot) stream.insertBefore(reasoningSlot, worklog);
+      if (reasoningSlot) {
+        while (reasoningSlot.firstChild) tools.insertBefore(reasoningSlot.firstChild, tools.firstChild);
+        reasoningSlot.remove();
+      }
       var priorDuration = parseInt(row.getAttribute('data-work-duration-ms') || '0', 10);
       setWorklogState(row.getAttribute('data-run-id') || '', row.classList.contains('running') ? 'running' : 'done', priorDuration);
     } else {
@@ -161,6 +167,67 @@
     return ensureToolContainer(runId, row || ((runId && activeRuns.get(runId)) || document.querySelector('[data-run-id="' + runId + '"]')));
   }
 
+  function updateActivityThoughtSummary(block) {
+    if (!block) return;
+    var raw = block.getAttribute('data-thinking-text') || '';
+    var summary = block.querySelector(':scope > summary');
+    var label = 'Thought · ~' + window.approxTokens(raw).toLocaleString() + ' tokens';
+    var labelEl = summary && summary.querySelector('.reasoning-label');
+    if (labelEl) labelEl.textContent = label;
+    else if (summary) summary.textContent = label;
+  }
+  window.updateActivityThoughtSummary = updateActivityThoughtSummary;
+
+  function createActivityThoughtBlock() {
+    var block = document.createElement('details');
+    block.className = 'reasoning-disclosure activity-thought';
+    block.setAttribute('data-activity-thought', 'true');
+    block.setAttribute('data-thinking-text', '');
+    block.open = true;
+
+    var summary = document.createElement('summary');
+    var label = 'Thought · ~0 tokens';
+    if (window.summaryHtml) summary.innerHTML = window.summaryHtml(label, { showBar: false });
+    else summary.textContent = label;
+    block.appendChild(summary);
+    summary.addEventListener('click', function (event) {
+      var row = block.closest('.chat-row.assistant');
+      if (!row || !activityUsesUnifiedTimeline()) return;
+      event.preventDefault();
+      var nextOpen = !block.open;
+      row.querySelectorAll('.activity-thought').forEach(function (thought) {
+        thought.open = nextOpen;
+      });
+    });
+    updateActivityThoughtSummary(block);
+    return block;
+  }
+  window.createActivityThoughtBlock = createActivityThoughtBlock;
+
+  function appendActivityThoughtText(block, text) {
+    var raw = String(text || '').trim();
+    if (!block || !raw) return;
+    var prior = block.getAttribute('data-thinking-text') || '';
+    block.setAttribute('data-thinking-text', [prior, raw].filter(Boolean).join('\n\n'));
+    var content = document.createElement('div');
+    content.className = 'reasoning-content activity-thought-chunk';
+    content.innerHTML = window.formatThinkingContent ? window.formatThinkingContent(raw) : window.renderMarkdown(raw);
+    block.appendChild(content);
+    updateActivityThoughtSummary(block);
+  }
+  window.appendActivityThoughtText = appendActivityThoughtText;
+
+  function ensureActivityThoughtBlock(runId, row) {
+    var container = ensureActivityNoteContainer(runId, row);
+    var block = container.querySelector(':scope > .activity-thought[data-activity-thought="true"]');
+    if (!block) {
+      block = createActivityThoughtBlock();
+      container.insertBefore(block, container.firstChild);
+    }
+    return block;
+  }
+  window.ensureActivityThoughtBlock = ensureActivityThoughtBlock;
+
   function appendActivityNotes(runId, deltaText, row) {
     if (!activityUsesUnifiedTimeline()) return;
     var delta = String(deltaText || '');
@@ -176,12 +243,8 @@
       parts = [state.buffer, ''];
     }
     state.buffer = parts.pop() || '';
-    var container = ensureActivityNoteContainer(runId, row);
     parts.map(function (part) { return String(part || '').trim(); }).filter(Boolean).forEach(function (part) {
-      var note = document.createElement('div');
-      note.className = 'activity-note';
-      note.innerHTML = window.renderMarkdown(part);
-      container.appendChild(note);
+      appendActivityThoughtText(ensureActivityThoughtBlock(runId, row), part);
     });
     activityNoteState.set(runId, state);
   }
@@ -190,11 +253,7 @@
   function flushActivityNotes(runId, row) {
     var state = activityNoteState.get(runId);
     if (!state || !state.buffer || !state.buffer.trim()) return;
-    var container = ensureActivityNoteContainer(runId, row);
-    var note = document.createElement('div');
-    note.className = 'activity-note';
-    note.innerHTML = window.renderMarkdown(state.buffer.trim());
-    container.appendChild(note);
+    appendActivityThoughtText(ensureActivityThoughtBlock(runId, row), state.buffer.trim());
     state.buffer = '';
     activityNoteState.set(runId, state);
   }
@@ -203,11 +262,7 @@
   function appendHistoryActivityNote(runId, text, row) {
     var noteText = String(text || '').trim();
     if (!noteText) return;
-    var container = ensureActivityNoteContainer(runId, row);
-    var note = document.createElement('div');
-    note.className = 'activity-note';
-    note.innerHTML = window.renderMarkdown(noteText);
-    container.appendChild(note);
+    appendActivityThoughtText(ensureActivityThoughtBlock(runId, row), noteText);
   }
   window.appendHistoryActivityNote = appendHistoryActivityNote;
 
@@ -226,12 +281,49 @@
       }
       if (entry.type === 'tool' && entry.toolCallId && window.renderToolHistoryItem) {
         var tool = toolsById.get(entry.toolCallId);
-        if (tool) window.renderToolHistoryItem(row, tool);
+        if (tool) {
+          window.renderToolHistoryItem(row, tool);
+          if (window.groupToolRows) window.groupToolRows(window.toolContainers.get(runId));
+        }
       }
     });
     if (window.groupToolRows) window.groupToolRows(window.toolContainers.get(runId));
   }
   window.renderActivityTimelineHistory = renderActivityTimelineHistory;
+
+  // Accordion-mode history replay: walk the ordered activityTimeline so thoughts
+  // and tools rebuild in the same chronological intersperse as the live stream.
+  // Reuses renderReasoning's segmentation by feeding cumulative thinking text and
+  // raising the interrupt flag whenever a tool has intervened since the last note.
+  function renderAccordionTimelineHistory(row, item) {
+    if (!row || !item || !item.activityTimeline || !item.activityTimeline.length) return false;
+    var runId = item.runId || row.getAttribute('data-run-id') || '';
+    var toolsById = new Map();
+    (item.tools || []).forEach(function (tool) {
+      if (tool && tool.toolCallId) toolsById.set(tool.toolCallId, tool);
+    });
+    if (window.reasoningInterrupted) window.reasoningInterrupted.delete(runId);
+    var running = '';
+    var sawTool = false;
+    var rendered = false;
+    item.activityTimeline.forEach(function (entry) {
+      if (!entry) return;
+      if (entry.type === 'note' && entry.text) {
+        if (sawTool && window.reasoningInterrupted) { window.reasoningInterrupted.add(runId); sawTool = false; }
+        running = running ? (running + '\n\n' + String(entry.text)) : String(entry.text);
+        window.renderReasoning(runId, running, { row: row, complete: true });
+        rendered = true;
+        return;
+      }
+      if (entry.type === 'tool' && entry.toolCallId && window.renderToolHistoryItem) {
+        var tool = toolsById.get(entry.toolCallId);
+        if (tool) { window.renderToolHistoryItem(row, tool); sawTool = true; rendered = true; }
+      }
+    });
+    if (window.groupToolRows) window.groupToolRows(window.toolContainers.get(runId));
+    return rendered;
+  }
+  window.renderAccordionTimelineHistory = renderAccordionTimelineHistory;
 
   // ── Share / export helpers ────────────────────────────────────────────────
   function escapeExportText(value) {
@@ -241,8 +333,8 @@
   function buildChatExportHtml() {
     var rows = document.querySelectorAll('#chat-messages .chat-row');
     var cs = getComputedStyle(document.body);
-    var bg = cs.backgroundColor || '#1e1e1e';
-    var fg = cs.color || '#ccc';
+    var bg = cs.backgroundColor || 'Canvas';
+    var fg = cs.color || 'CanvasText';
     var font = cs.fontFamily || 'monospace';
     var fontSize = cs.fontSize || '13px';
     var root = document.documentElement;
@@ -250,10 +342,10 @@
     function cv(n, fb) { return rcs.getPropertyValue(n).trim() || fb; }
     var userBg = cv('--vscode-sideBar-background', bg);
     var userFg = cv('--vscode-editor-foreground', fg);
-    var inputBorder = cv('--vscode-input-border', 'rgba(128,128,128,0.3)');
-    var focusBorder = cv('--vscode-focusBorder', '#10a37f');
-    var descFg = cv('--vscode-descriptionForeground', 'rgba(204,204,204,0.7)');
-    var codeBg = cv('--vscode-textCodeBlock-background', 'rgba(128,128,128,0.1)');
+    var inputBorder = cv('--vscode-input-border', 'transparent');
+    var focusBorder = cv('--vscode-focusBorder', fg);
+    var descFg = cv('--vscode-descriptionForeground', fg);
+    var codeBg = cv('--vscode-textCodeBlock-background', 'transparent');
     var toolBg = cv('--vscode-editor-background', bg);
     var toolBorder = cv('--vscode-widget-border', inputBorder);
     var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Chat Export</title><style>body{background:' + bg + ';color:' + fg + ';font-family:' + font + ';font-size:' + fontSize + ';padding:20px;max-width:800px;margin:0 auto;line-height:1.6;}h1{color:' + fg + ';border-bottom:1px solid ' + inputBorder + ';padding-bottom:8px;}.meta{color:' + descFg + ';font-size:0.8em;margin-bottom:16px;}.msg{margin-bottom:16px;padding:10px 14px;border-radius:6px;border:1px solid transparent;}.msg.user{background:' + userBg + ';color:' + userFg + ';}.msg.assistant{background:' + toolBg + ';}.role{font-weight:600;margin-bottom:4px;font-size:0.85em;color:' + descFg + ';}.msg.user .role,.msg.assistant .role{color:' + focusBorder + ';}.text{white-space:pre-wrap;word-break:break-word;}.tool{margin:8px 0;padding:8px 10px;background:' + codeBg + ';border:1px solid ' + toolBorder + ';border-radius:4px;font-family:' + font + ';font-size:0.85em;color:' + descFg + ';}.tool-name{color:' + focusBorder + ';font-weight:600;margin-bottom:4px;}.thinking{margin:8px 0;padding:8px 10px;border-left:2px solid ' + focusBorder + ';color:' + descFg + ';font-size:0.85em;font-style:italic;}</style></head><body><h1>Chat Export</h1><p class="meta">' + new Date().toLocaleString() + '</p>';
@@ -302,67 +394,57 @@
     URL.revokeObjectURL(a.href);
   }
 
+  function copyViaHost(text) {
+    vscode.postMessage({ type: 'copyToClipboard', text: String(text || '') });
+  }
+
   // ── Share popover ─────────────────────────────────────────────────────────
   function openShareForRow(row, triggerBtn) {
     if (!row) return;
-    var existing = document.getElementById('share-row-menu');
-    if (existing) { existing.remove(); return; }
-    var text = (row.querySelector('.msg-text') || {}).textContent || '';
+    var bubble = row.querySelector('.msg-text');
+    var text = bubble ? (bubble.dataset.rawText || bubble.textContent || '') : '';
     var role = row.classList.contains('user') ? 'You' : 'Assistant';
-    var menu = document.createElement('div');
-    menu.id = 'share-row-menu';
     var trigger = triggerBtn || row;
-    var btnRect = trigger.getBoundingClientRect();
-    var menuH = 160;
-    var top, left;
-    if (btnRect.bottom + menuH > window.innerHeight) {
-      top = btnRect.top - menuH - 4;
-    } else {
-      top = btnRect.bottom + 4;
-    }
-    left = btnRect.left;
-    menu.style.cssText = 'position:fixed;top:' + top + 'px;left:' + left + 'px;z-index:9999;padding:6px;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.3);min-width:180px;';
-    function addOpt(label, icon, fn) {
-      var b = document.createElement('button');
-      b.style.cssText = 'display:flex;align-items:center;gap:6px;width:100%;padding:6px 12px;border:none;background:none;color:var(--vscode-editor-foreground);cursor:pointer;font-size:12px;border-radius:3px;text-align:left;';
-      b.innerHTML = '<span class="codicon codicon-' + icon + '"></span>' + label;
-      b.addEventListener('mouseenter', function () { b.style.background = 'var(--vscode-list-hoverBackground)'; });
-      b.addEventListener('mouseleave', function () { b.style.background = 'none'; });
-      b.addEventListener('click', function () { menu.remove(); fn(); });
-      menu.appendChild(b);
-    }
-    addOpt('Copy as Markdown', 'markdown', function () { try { navigator.clipboard.writeText('**' + role + ':** ' + text); } catch (e) {} });
-    addOpt('Copy as Text', 'clipboard', function () { try { navigator.clipboard.writeText(text); } catch (e) {} });
-    addOpt('Export HTML', 'file', downloadChatExportHtml);
-    document.body.appendChild(menu);
-    setTimeout(function () {
-      document.addEventListener('click', function handler(ev) {
-        if (!menu.parentNode) { document.removeEventListener('click', handler); return; }
-        if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', handler); }
-      });
-    }, 0);
+    if (!window.choiceMenu) return;
+    window.choiceMenu.open(trigger, {
+      title: 'Share message',
+      items: [
+        { id: 'markdown', label: 'Copy as Markdown', icon: 'markdown', action: function () { copyViaHost('**' + role + ':** ' + text); } },
+        { id: 'text', label: 'Copy as Text', icon: 'clipboard', action: function () { copyViaHost(text); } },
+        { id: 'html', label: 'Export HTML', icon: 'file', action: downloadChatExportHtml },
+      ],
+    });
   }
 
   // ── Message actions bar ──────────────────────────────────────────────────
-  function buildMsgActions(messageId, isAssistant) {
+  window.betaForkRewind = false;
+
+  function buildMsgActions(messageId, isAssistant, hasCheckpoint) {
     var bar = document.createElement('div');
     bar.className = 'msg-actions';
     var actions = [
       { icon: 'copy', label: 'Copy', act: 'copy' },
       { icon: 'clippy', label: 'Share', act: 'share' },
-      { icon: 'git-branch', label: 'Fork conversation', act: 'fork' },
     ];
+    if (window.betaForkRewind) {
+      actions.push({ icon: 'git-branch', label: 'Fork conversation (OpenClaw beta)', act: 'fork' });
+      if (!isAssistant && hasCheckpoint) {
+        actions.push({ icon: 'history', label: 'Rewind code to here (OpenClaw beta)', act: 'rewind' });
+      }
+    }
     actions.forEach(function (a) {
       var b = document.createElement('button');
       b.className = 'msg-action codicon codicon-' + a.icon;
       b.title = a.label;
-      b.addEventListener('click', function () {
+      b.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
         if (a.act === 'copy') {
           var row = bar.parentElement;
           var t = row && row.querySelector('.msg-text');
           if (t) {
             var textToCopy = t.dataset.rawText || t.textContent || '';
-            vscode.postMessage({ type: 'copyToClipboard', text: textToCopy });
+            copyViaHost(textToCopy);
             b.classList.remove('codicon-copy');
             b.classList.add('codicon-check');
             setTimeout(function () { b.classList.remove('codicon-check'); b.classList.add('codicon-copy'); }, 1500);
@@ -371,6 +453,8 @@
         else if (a.act === 'fork') {
           window.showForkOverlay();
           vscode.postMessage({ type: 'forkConversation', messageId: messageId });
+        } else if (a.act === 'rewind') {
+          vscode.postMessage({ type: 'rewindToMessage', messageId: messageId });
         }
       });
       bar.appendChild(b);
@@ -382,8 +466,8 @@
       var currentReaction = row ? row.getAttribute('data-reaction') : null;
       var pair = window.getReactionPair();
       var reactions = [
-        { type: 'up', glyph: pair.up, label: 'Good response' },
-        { type: 'down', glyph: pair.down, label: 'Bad response' }
+        { type: 'down', glyph: pair.down, label: 'Bad response' },
+        { type: 'up', glyph: pair.up, label: 'Good response' }
       ];
       reactions.forEach(function (r) {
         var b = document.createElement('button');
@@ -417,10 +501,13 @@
     row.className = 'chat-row user';
     if (!window.isRestoringHistory) row.classList.add('rise-up-anim');
     if (messageId) row.setAttribute('data-message-id', messageId);
+    if (hasCheckpoint) row.setAttribute('data-has-checkpoint', 'true');
     if (isSteer) row.setAttribute('data-steer', 'true');
 
     var bubble = document.createElement('div');
     bubble.className = 'msg-text';
+    var tipVal = getComputedStyle(document.documentElement).getPropertyValue('--junction-bubble-tip').trim();
+    if (tipVal && tipVal !== 'none') bubble.setAttribute('data-tip', tipVal);
     bubble.dataset.rawText = text;
     bubble.innerHTML = window.renderMarkdown(text);
     row.appendChild(bubble);
@@ -428,12 +515,11 @@
     if (isSteer) {
       var steerBadge = document.createElement('span');
       steerBadge.className = 'steer-badge';
-      steerBadge.style.cssText = 'font-size:8px;font-weight:bold;color:var(--vscode-button-background);border:1px solid var(--vscode-button-background);border-radius:3px;padding:0px 3px;margin-right:6px;vertical-align:middle;display:inline-block;margin-bottom:2px;';
       steerBadge.textContent = 'STEER';
       bubble.insertBefore(steerBadge, bubble.firstChild);
     }
 
-    row.appendChild(buildMsgActions(messageId, false));
+    row.appendChild(buildMsgActions(messageId, false, hasCheckpoint));
 
     var mDiv = document.getElementById('chat-messages');
     if (window.historyFragment) {
@@ -508,18 +594,22 @@
       if (item.messageId) row.setAttribute('data-message-id', item.messageId);
       if (item.reaction) row.setAttribute('data-reaction', item.reaction);
       var bubble = row.querySelector('.msg-text');
-      var useUnifiedHistoryTimeline = activityUsesUnifiedTimeline() && item.activityTimeline && item.activityTimeline.length;
+      var hasTimeline = item.activityTimeline && item.activityTimeline.length;
+      var useUnifiedHistoryTimeline = activityUsesUnifiedTimeline() && hasTimeline;
+      var useAccordionHistoryTimeline = !useUnifiedHistoryTimeline && hasTimeline;
       bubble.dataset.rawText = item.content || '';
       bubble.innerHTML = window.renderMarkdown(item.content || '');
       if (useUnifiedHistoryTimeline) {
         renderActivityTimelineHistory(row, item);
+      } else if (useAccordionHistoryTimeline) {
+        renderAccordionTimelineHistory(row, item);
       } else if (item.thinking) {
         window.renderReasoning(runId, item.thinking, { row: row, complete: !!item.thinkingComplete, durationMs: item.thinkingDurationMs });
       }
-      if (!useUnifiedHistoryTimeline && item.tools && item.tools.length) {
+      if (!useUnifiedHistoryTimeline && !useAccordionHistoryTimeline && item.tools && item.tools.length) {
         window.renderToolHistory(row, item.tools);
       }
-      row.appendChild(buildMsgActions(item.messageId || runId, true));
+      row.appendChild(buildMsgActions(item.messageId || runId, true, item.hasCheckpoint));
       return row;
     } catch (e) {
       console.error('addAssistantHistoryRow failed:', e);
@@ -547,15 +637,7 @@
     var text = row.querySelector('.msg-text');
     if (!text) return;
 
-    if (activityUsesUnifiedTimeline() && row.classList.contains('running') && window.appendActivityNotes) {
-      var previous = activityTextState.get(runId) || '';
-      var next = String(fullText || '');
-      var delta = next.indexOf(previous) === 0 ? next.slice(previous.length) : next;
-      if (delta.trim()) window.appendActivityNotes(runId, delta, row);
-      activityTextState.set(runId, next);
-    } else {
-      activityTextState.set(runId, String(fullText || ''));
-    }
+    activityTextState.set(runId, String(fullText || ''));
 
     text.dataset.rawText = fullText;
     text.innerHTML = window.renderMarkdown(fullText || '');
@@ -642,25 +724,7 @@
 
   // ── Share/export chat ────────────────────────────────────────────────────
   function openShareMenu(trigger) {
-    var existing = document.getElementById('share-menu');
-    if (existing) { existing.remove(); return; }
-    var menu = document.createElement('div');
-    menu.id = 'share-menu';
     var anchor = trigger || document.getElementById('btn-menu') || document.body;
-    var btnRect = anchor.getBoundingClientRect();
-    var menuH = 160;
-    var top = (btnRect.bottom + menuH > window.innerHeight) ? (btnRect.top - menuH - 4) : (btnRect.bottom + 4);
-    var left = btnRect.left;
-    menu.style.cssText = 'position:fixed;top:' + top + 'px;left:' + left + 'px;z-index:9999;padding:6px;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.3);min-width:180px;';
-    function addOption(label, icon, fn) {
-      var btn = document.createElement('button');
-      btn.style.cssText = 'display:flex;align-items:center;gap:6px;width:100%;padding:6px 12px;border:none;background:none;color:var(--vscode-editor-foreground);cursor:pointer;font-size:12px;border-radius:3px;text-align:left;';
-      btn.innerHTML = '<span class="codicon codicon-' + icon + '"></span>' + label;
-      btn.addEventListener('mouseenter', function () { btn.style.background = 'var(--vscode-list-hoverBackground)'; });
-      btn.addEventListener('mouseleave', function () { btn.style.background = 'none'; });
-      btn.addEventListener('click', function () { menu.remove(); fn(); });
-      menu.appendChild(btn);
-    }
     function getMessages() {
       var msgs = [];
       document.querySelectorAll('#chat-messages .chat-row').forEach(function (row) {
@@ -670,22 +734,21 @@
       });
       return msgs;
     }
-    addOption('Copy as Markdown', 'markdown', function () {
-      var md = getMessages().map(function (m) { return (m.role === 'user' ? '**You:** ' : '**Assistant:** ') + m.text; }).join('\n\n');
-      navigator.clipboard.writeText(md).catch(function () {});
+    if (!window.choiceMenu) return;
+    window.choiceMenu.open(anchor, {
+      title: 'Share chat',
+      items: [
+        { id: 'markdown', label: 'Copy as Markdown', icon: 'markdown', action: function () {
+          var md = getMessages().map(function (m) { return (m.role === 'user' ? '**You:** ' : '**Assistant:** ') + m.text; }).join('\n\n');
+          copyViaHost(md);
+        } },
+        { id: 'text', label: 'Copy as Text', icon: 'clipboard', action: function () {
+          var txt = getMessages().map(function (m) { return (m.role === 'user' ? 'You: ' : 'Assistant: ') + m.text; }).join('\n\n');
+          copyViaHost(txt);
+        } },
+        { id: 'html', label: 'Export HTML', icon: 'file', action: downloadChatExportHtml },
+      ],
     });
-    addOption('Copy as Text', 'clipboard', function () {
-      var txt = getMessages().map(function (m) { return (m.role === 'user' ? 'You: ' : 'Assistant: ') + m.text; }).join('\n\n');
-      navigator.clipboard.writeText(txt).catch(function () {});
-    });
-    addOption('Export HTML', 'file', downloadChatExportHtml);
-    document.body.appendChild(menu);
-    setTimeout(function () {
-      document.addEventListener('click', function handler(ev) {
-        if (!menu.parentNode) { document.removeEventListener('click', handler); return; }
-        if (!menu.contains(ev.target) && ev.target !== anchor) { menu.remove(); document.removeEventListener('click', handler); }
-      });
-    }, 0);
   }
   window.openShareMenu = openShareMenu;
 

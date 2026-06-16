@@ -73,25 +73,26 @@ export class MessageProcessor {
             if (payload?.sessionKey && !connection.isWatchedSession(payload.sessionKey)) {
                 return;
             }
+            // Gateway nests tool data under payload.data
+            const data = payload?.data ?? payload;
+            const toolName = data.toolName || data.name;
+            if (!toolName) return;
             this.logger.info('Session tool event', {
-                phase: payload.phase,
-                toolCallId: payload.toolCallId,
-                toolName: payload.toolName || payload.name
+                phase: data.phase,
+                toolCallId: data.toolCallId,
+                toolName,
             });
-            // Transform into the same format as agent tool events
-            const toolName = payload.toolName || payload.name;
-            if (!toolName) return; // Skip malformed events without a tool name
             connection.emit('processed_event', {
                 type: 'tool_event',
-                runId: payload.runId || 'session-tool',
+                runId: payload.runId || data.runId || 'session-tool',
                 sessionKey: payload.sessionKey,
                 seq: payload.seq || 0,
-                phase: payload.phase || 'start',
-                toolCallId: payload.toolCallId,
-                toolName: toolName,
-                args: payload.args || {},
-                result: payload.result || '',
-                isError: payload.isError || false,
+                phase: data.phase || 'start',
+                toolCallId: data.toolCallId,
+                toolName,
+                args: data.args || {},
+                result: data.result || '',
+                isError: data.isError || false,
                 timestamp: payload.ts || Date.now()
             });
         });

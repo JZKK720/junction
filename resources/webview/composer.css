@@ -20,92 +20,16 @@
   border-color: var(--vscode-focusBorder);
 }
 
-.queued-followups {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: var(--space-small) var(--space-medium) 0;
+body.stream-layout-timeline #composer-shell {
+  border-color: var(--vscode-inlineChatInput-border, var(--vscode-input-border));
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--vscode-widget-shadow, transparent) 60%, transparent);
 }
 
-.queued-followups[hidden] {
-  display: none;
-}
-
-.queued-followup {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 3px 5px 3px 8px;
-  border: 1px solid var(--vscode-widget-border, var(--vscode-input-border));
-  border-radius: var(--corner-radius-small);
-  background: color-mix(in srgb, var(--vscode-input-background) 82%, var(--vscode-list-hoverBackground));
-  color: var(--vscode-editor-foreground);
-  font-size: 11px;
-}
-
-.queued-followup.grouped {
-  border-top-style: dashed;
-}
-
-.queued-followup-index {
-  color: var(--vscode-descriptionForeground);
-  font-variant-numeric: tabular-nums;
-}
-
-.queued-followup-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.queued-followup-edit {
-  grid-column: 1 / -1;
-  width: 100%;
-  min-height: 48px;
-  resize: vertical;
-  box-sizing: border-box;
-  border: 1px solid var(--vscode-input-border);
-  border-radius: var(--corner-radius-small);
-  background: var(--vscode-editor-background);
-  color: var(--vscode-editor-foreground);
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: var(--vscode-editor-font-size, 12px);
-  padding: 6px;
-}
-
-.queued-followup-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.queued-followup-actions button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: none;
-  border-radius: var(--corner-radius-small);
-  background: transparent;
-  color: var(--vscode-descriptionForeground);
-  cursor: pointer;
-  font-family: codicon;
-  font-size: 14px;
-}
-
-.queued-followup-actions button:hover,
-.queued-followup-actions button.active {
-  background: var(--vscode-list-hoverBackground);
-  color: var(--vscode-editor-foreground);
-}
-
-.queued-followup-actions button:disabled {
-  opacity: 0.35;
-  cursor: default;
+body.stream-layout-timeline #composer-shell:focus-within {
+  border-color: var(--junction-timeline-accent);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--junction-timeline-accent) 12%, transparent),
+    0 1px 2px color-mix(in srgb, var(--junction-timeline-accent) 20%, transparent);
 }
 
 .context-hints {
@@ -130,13 +54,6 @@
   font: inherit;
   font-size: 11px;
   cursor: pointer;
-}
-
-.context-hint[data-action="attach-current"] {
-  width: 24px;
-  justify-content: center;
-  padding: 0;
-  flex: 0 0 auto;
 }
 
 .context-hint:hover {
@@ -189,7 +106,6 @@
 
 /* ── Send / Stop buttons (icon buttons) ─────────────────────────────────── */
 
-#btn-attach-file,
 #btn-send {
   display: inline-flex;
   align-items: center;
@@ -209,8 +125,18 @@
 }
 
 #btn-attach-file {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-small);
+  min-width: 0;
+  max-width: 34%;
+  height: 32px;
+  padding: 0 var(--space-medium);
+  flex: 0 1 auto;
+  border-radius: var(--corner-radius-small);
   background: transparent;
   color: var(--vscode-descriptionForeground);
+  cursor: pointer;
 }
 
 #btn-attach-file:hover {
@@ -218,13 +144,39 @@
   color: var(--vscode-editor-foreground);
 }
 
+#btn-attach-file .attach-files-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 #btn-send {
   background: var(--vscode-button-background);
   color: var(--vscode-button-foreground);
 }
 
+#btn-send.codicon-send::before {
+  display: inline-block;
+  transform: rotate(-90deg);
+  transform-origin: center;
+}
+
+body.stream-layout-accordion #btn-send {
+  border-radius: 999px;
+}
+
+body.stream-layout-timeline #btn-send {
+  border-radius: var(--corner-radius-small);
+  background: var(--junction-timeline-accent);
+  color: var(--vscode-button-foreground);
+}
+
 #btn-send:hover {
   background: var(--vscode-button-hoverBackground);
+}
+
+body.stream-layout-timeline #btn-send:hover {
+  background: color-mix(in srgb, var(--junction-timeline-accent) 85%, var(--vscode-button-hoverBackground));
 }
 
 #btn-send:active {
@@ -280,6 +232,38 @@
   gap: var(--space-small);
   flex: 0 0 auto;
   margin-left: auto;
+}
+
+#composer-actions .sandbox-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 48px;
+  height: 32px;
+  flex: 0 0 auto;
+  max-width: none;
+  padding: 0;
+}
+
+#composer-actions .sandbox-chip .codicon {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--vscode-descriptionForeground);
+}
+
+#composer-actions .sandbox-chip:hover .codicon {
+  color: var(--vscode-editor-foreground);
+}
+
+#composer-actions .sandbox-separator {
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+  line-height: 1;
+}
+
+#composer-actions .sandbox-chip:hover .sandbox-separator {
+  color: var(--vscode-editor-foreground);
 }
 
 .composer-chip {
