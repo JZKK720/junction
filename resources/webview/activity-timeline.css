@@ -1,10 +1,11 @@
-/* Timeline activity mode: Claude Code-like chronological rail. */
+/* Timeline activity mode: chronological activity rail. */
 
 body.stream-layout-timeline {
   --junction-timeline-accent: #d97757;
   --junction-timeline-rail: var(--vscode-sideBarActivityBarTop-border, var(--vscode-panel-border, color-mix(in srgb, var(--vscode-descriptionForeground) 34%, transparent)));
   --junction-timeline-dot: var(--vscode-descriptionForeground);
   --junction-timeline-user-bg: var(--vscode-input-background, color-mix(in srgb, var(--vscode-editor-background) 72%, var(--vscode-sideBar-background)));
+  --junction-timeline-sticky-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
 }
 
 body.stream-layout-timeline #chat-messages .chat-row.user {
@@ -21,20 +22,56 @@ body.stream-layout-timeline #chat-messages .chat-row.user .msg-text {
   color: var(--vscode-input-foreground, var(--vscode-foreground));
 }
 
-/* Codex-like pinned user prompt while scrolling current timeline turn. */
+body.stream-layout-timeline #chat-messages .chat-row.assistant:has(> .msg-actions) {
+  padding-top: 12px;
+  padding-bottom: calc(12px + 30px);
+}
+
+body.stream-layout-timeline #chat-messages .chat-row.assistant > .msg-actions {
+  top: auto;
+  bottom: 4px;
+  left: 24px;
+  right: auto;
+}
+
+/* Pinned user prompt while scrolling timeline turns. */
 body.stream-layout-timeline #chat-messages {
   isolation: isolate;
+  padding-top: 0;
+  padding-bottom: 40px;
+}
+
+body.stream-layout-timeline #chat-messages::before {
+  content: "";
+  flex-shrink: 0;
+  height: 20px;
 }
 
 body.stream-layout-timeline #chat-messages .chat-row.user.timeline-sticky-user {
+  --sticky-bg: var(--junction-timeline-sticky-bg);
   position: sticky;
   top: 0;
-  z-index: 6;
-  background-image:
-    linear-gradient(to bottom, var(--vscode-sideBar-background, var(--vscode-editor-background)) calc(100% - 12px), transparent 100%),
-    linear-gradient(to bottom, var(--vscode-editor-background) calc(100% - 12px), transparent 100%);
+  z-index: 2;
+  align-items: stretch;
+  transform: none !important;
+  animation: none !important;
+  will-change: auto;
   padding-top: 14px;
   padding-bottom: 12px;
+  background-image:
+    linear-gradient(to bottom, var(--sticky-bg) calc(100% - 12px), transparent 100%),
+    linear-gradient(to bottom, var(--vscode-editor-background, var(--junction-timeline-sticky-bg)) calc(100% - 12px), transparent 100%);
+}
+
+body.stream-layout-timeline #chat-messages .chat-row.user.timeline-sticky-user:has(.msg-actions:hover),
+body.stream-layout-timeline #chat-messages .chat-row.user.timeline-sticky-user:has(.msg-actions:focus-within) {
+  z-index: 3;
+}
+
+body.stream-layout-timeline #chat-messages .chat-row.user.timeline-sticky-user .msg-text {
+  display: block;
+  max-width: none;
+  width: 100%;
 }
 
 body.stream-layout-timeline #chat-messages .activity-worklog {
@@ -43,6 +80,40 @@ body.stream-layout-timeline #chat-messages .activity-worklog {
 
 body.stream-layout-timeline #chat-messages .activity-worklog > summary {
   display: none;
+}
+
+body.stream-layout-timeline #chat-messages .activity-worklog.has-activity-thoughts > summary,
+body.stream-layout-timeline #chat-messages .activity-worklog.thinking > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 1.55em;
+  padding: 2px 0 6px 0;
+  list-style: none;
+  border: 0;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font-style: normal;
+  cursor: pointer;
+}
+
+body.stream-layout-timeline #chat-messages .activity-worklog > summary::-webkit-details-marker {
+  display: none;
+}
+
+body.stream-layout-timeline #chat-messages .activity-worklog > summary .activity-worklog-label {
+  font-weight: 500;
+}
+
+body.stream-layout-timeline #chat-messages .activity-worklog > summary .thinking-throbber {
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+body.stream-layout-timeline #chat-messages .activity-worklog > summary .activity-worklog-toggle {
+  margin-left: 0.2em;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.85;
 }
 
 body.stream-layout-timeline #chat-messages .activity-worklog-body {
@@ -215,8 +286,16 @@ body.stream-layout-timeline #chat-messages .activity-thought {
   cursor: pointer;
 }
 
+body.stream-layout-timeline #chat-messages .activity-thought-note {
+  cursor: default;
+}
+
+body.stream-layout-timeline #chat-messages .activity-thought-note .reasoning-content {
+  padding-top: 0 !important;
+}
+
 body.stream-layout-timeline #chat-messages .activity-thought > summary {
-  font-style: normal;
+  display: none;
 }
 
 body.stream-layout-timeline #chat-messages .tool-verb,
@@ -278,7 +357,7 @@ body.stream-layout-timeline #chat-messages .tool-group-body {
 body.stream-layout-timeline #chat-messages .reasoning-content {
   padding-top: 8px !important;
   max-height: none;
-  color: var(--vscode-descriptionForeground);
+  color: var(--vscode-foreground);
   font-family: inherit;
   font-size: 1em;
   line-height: 1.55;

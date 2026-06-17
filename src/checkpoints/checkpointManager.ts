@@ -41,17 +41,22 @@ export class CheckpointManager {
     }
 
     recordTouchedPath(filePath: string | undefined): void {
-        if (!filePath) return;
+        const rel = this.normalizeWorkspaceRelPath(filePath);
+        if (rel) this.touchedPaths.add(rel);
+    }
+
+    private normalizeWorkspaceRelPath(filePath: string | undefined): string | null {
+        if (!filePath) return null;
         const root = this.workspaceRoot();
         let rel = filePath.replace(/\\/g, '/').trim();
-        if (!rel) return;
+        if (!rel) return null;
         if (root && path.isAbsolute(rel)) {
             const relative = path.relative(root, rel).replace(/\\/g, '/');
-            if (relative.startsWith('..') || path.isAbsolute(relative)) return;
+            if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
             rel = relative;
         }
-        if (rel.startsWith('/') || rel.includes('..')) return;
-        this.touchedPaths.add(rel);
+        if (rel.startsWith('/') || rel.split('/').includes('..')) return null;
+        return rel;
     }
 
     recordTouchedPathsFromValue(value: any): void {
@@ -72,7 +77,7 @@ export class CheckpointManager {
         return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
     }
 
-    private run(args: string[]): Promise<string> {
+    private run(args: string[], trimOutput = true): Promise<string> {
         return new Promise((resolve, reject) => {
             if (!this.gitDir || !this.workTree) return reject(new Error('checkpoints not initialized'));
             const env = { ...process.env, GIT_DIR: this.gitDir, GIT_WORK_TREE: this.workTree };
@@ -81,9 +86,20 @@ export class CheckpointManager {
             exec('git ' + full.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' '), { env, cwd: this.workTree, maxBuffer: 64 * 1024 * 1024 },
                 (err, stdout, stderr) => {
                     if (err) reject(new Error(stderr || err.message));
-                    else resolve(stdout.trim());
+                    else resolve(trimOutput ? stdout.trim() : stdout);
                 });
         });
+    }
+
+    private diffScratchPath(kind: 'before' | 'current', sha: string, rel: string): string {
+        return path.join(this.context.globalStorageUri.fsPath, 'checkpoint-diffs', sha.slice(0, 12), kind, rel);
+    }
+
+    private writeScratchFile(kind: 'before' | 'current', sha: string, rel: string, content: string): string {
+        const target = this.diffScratchPath(kind, sha, rel);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, content, 'utf8');
+        return target;
     }
 
     /** Ensure the shadow repo exists for the current workspace. */
@@ -104,7 +120,7 @@ export class CheckpointManager {
                 // Honor .gitignore + always exclude heavy/irrelevant trees and our own dir.
                 const exclude = path.join(this.gitDir, 'info', 'exclude');
                 fs.mkdirSync(path.dirname(exclude), { recursive: true });
-                fs.writeFileSync(exclude, ['node_modules/', '.git/', '.openclaw/', '.agent-bridge/', ''].join('\n'));
+                fs.writeFileSync(exclude, ['node_modules/', '.git/', '.openclaw/', '.junction/', ''].join('\n'));
             }
             this.initialized = true;
             return true;
@@ -167,6 +183,71 @@ export class CheckpointManager {
             this.logger.error('checkpoint rewind failed', err);
             vscode.window.showErrorMessage('Rewind failed: ' + String(err));
             return false;
+        }
+    }
+
+    async reviewDiff(messageId: string | undefined, files?: string[]): Promise<void> {
+        if (!messageId) {
+            vscode.window.showWarningMessage('No checkpoint found for this edit summary.');
+            return;
+        }
+        if (!(await this.ensureInit())) return;
+        const sha = this.map[messageId];
+        if (!sha) {
+            vscode.window.showWarningMessage('No checkpoint found for this message.');
+            return;
+        }
+
+        let rels = Array.from(new Set(
+            (Array.isArray(files) ? files : [])
+                .map((file) => this.normalizeWorkspaceRelPath(file))
+                .filter((file): file is string => !!file)
+        ));
+
+        if (!rels.length) {
+            try {
+                const changed = await this.run(['diff', '--name-only', sha, '--', '.']);
+                rels = changed.split('\n').map((line) => line.trim()).filter(Boolean);
+            } catch (err) {
+                this.logger.warn('checkpoint diff file discovery failed', err);
+            }
+        }
+
+        if (!rels.length) {
+            vscode.window.showInformationMessage('No changed files found for this checkpoint.');
+            return;
+        }
+
+        const root = this.workTree!;
+        let opened = 0;
+        for (const rel of rels) {
+            let before = '';
+            try {
+                before = await this.run(['show', `${sha}:${rel}`], false);
+            } catch {
+                before = '';
+            }
+
+            const beforePath = this.writeScratchFile('before', sha, rel, before);
+            const currentPath = path.join(root, rel);
+            let rightUri: vscode.Uri;
+            if (fs.existsSync(currentPath) && fs.statSync(currentPath).isFile()) {
+                rightUri = vscode.Uri.file(currentPath);
+            } else {
+                rightUri = vscode.Uri.file(this.writeScratchFile('current', sha, rel, ''));
+            }
+
+            await vscode.commands.executeCommand(
+                'vscode.diff',
+                vscode.Uri.file(beforePath),
+                rightUri,
+                `${rel} (checkpoint <-> current)`
+            );
+            opened += 1;
+        }
+
+        if (!opened) {
+            vscode.window.showInformationMessage('No reviewable files found for this checkpoint.');
         }
     }
 }

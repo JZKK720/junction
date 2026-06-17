@@ -6,17 +6,14 @@ dist
 .cursor
 .agents
 .vscode
-.reference-addons/*
-!.reference-addons/.gitkeep
-!.reference-addons/README.md
+.gitignore
 
 # Private runtime/agent state — never commit (may contain tokens/session state)
-.openclaw/
-.claude/
-.archive/
 .futures/
 futures/
 agents/
+.archive/
+
 
 # Local working notes / scratch
-drone-summary.md
+MEATBAGS.md

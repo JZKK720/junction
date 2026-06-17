@@ -105,6 +105,11 @@
     var worklog = ensureWorklog(row);
     var label = worklog.querySelector('.activity-worklog-label');
     if (!label) return;
+    if (worklog.getAttribute('data-thinking-text')) {
+      updateActivityWorklogThoughtSummary(worklog);
+      worklog.classList.toggle('thinking', state !== 'done');
+      return;
+    }
     if (state === 'done') {
       worklog.classList.remove('thinking');
       var started = parseInt(row.getAttribute('data-run-start-ms') || '0', 10);
@@ -117,6 +122,23 @@
     }
   }
   window.setWorklogState = setWorklogState;
+
+  function updateActivityWorklogThoughtSummary(worklogOrRow) {
+    var worklog = worklogOrRow && worklogOrRow.classList && worklogOrRow.classList.contains('activity-worklog')
+      ? worklogOrRow
+      : (worklogOrRow && worklogOrRow.querySelector && worklogOrRow.querySelector('.activity-worklog'));
+    if (!worklog) return;
+    var raw = Array.prototype.slice.call(worklog.querySelectorAll('.activity-thought-chunk'))
+      .map(function (chunk) { return chunk.textContent || ''; })
+      .join('\n\n')
+      .trim();
+    if (!raw) return;
+    worklog.setAttribute('data-thinking-text', raw);
+    worklog.classList.add('has-activity-thoughts');
+    var label = worklog.querySelector('.activity-worklog-label');
+    if (label) label.textContent = 'Thought · ~' + window.approxTokens(raw).toLocaleString() + ' tokens';
+  }
+  window.updateActivityWorklogThoughtSummary = updateActivityWorklogThoughtSummary;
 
   function syncActivityLayoutForRow(row) {
     if (!row || !row.classList || !row.classList.contains('assistant')) return;
@@ -207,6 +229,17 @@
   function appendActivityThoughtText(block, text) {
     var raw = String(text || '').trim();
     if (!block || !raw) return;
+    if (block.classList && block.classList.contains('tool-calls')) {
+      var note = document.createElement('div');
+      note.className = 'activity-note activity-thought-note';
+      var contentNode = document.createElement('div');
+      contentNode.className = 'reasoning-content activity-thought-chunk';
+      contentNode.innerHTML = window.formatThinkingContent ? window.formatThinkingContent(raw) : window.renderMarkdown(raw);
+      note.appendChild(contentNode);
+      block.appendChild(note);
+      updateActivityWorklogThoughtSummary(block.closest('.activity-worklog'));
+      return;
+    }
     var prior = block.getAttribute('data-thinking-text') || '';
     block.setAttribute('data-thinking-text', [prior, raw].filter(Boolean).join('\n\n'));
     var content = document.createElement('div');
@@ -219,6 +252,7 @@
 
   function ensureActivityThoughtBlock(runId, row) {
     var container = ensureActivityNoteContainer(runId, row);
+    if (activityUsesUnifiedTimeline()) return container;
     var block = container.querySelector(':scope > .activity-thought[data-activity-thought="true"]');
     if (!block) {
       block = createActivityThoughtBlock();
@@ -398,21 +432,88 @@
     vscode.postMessage({ type: 'copyToClipboard', text: String(text || '') });
   }
 
+  function findMessageRow(messageId) {
+    if (!messageId) return null;
+    var rows = document.querySelectorAll('#chat-messages .chat-row');
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute('data-message-id') === messageId || rows[i].getAttribute('data-run-id') === messageId) {
+        return rows[i];
+      }
+    }
+    return null;
+  }
+
+  function getActionRow(bar, messageId) {
+    return (bar && bar.closest && bar.closest('.chat-row')) || findMessageRow(messageId);
+  }
+
+  function getRowCopyText(row) {
+    if (!row) return '';
+    var bubble = row.querySelector('.msg-text');
+    var text = bubble ? String(bubble.dataset.rawText || bubble.textContent || '').trim() : '';
+    if (text) return text;
+    var activity = row.querySelector('.assistant-activity');
+    text = activity ? String(activity.textContent || '').trim() : '';
+    if (text) return text;
+    return String(row.textContent || '').trim();
+  }
+
+  function canRewindRow(row, hasCheckpoint) {
+    return !!(hasCheckpoint || (row && row.getAttribute('data-has-checkpoint') === 'true') ||
+      (row && (row.getAttribute('data-message-id') || row.getAttribute('data-run-id'))));
+  }
+
+  function forkMessage(messageId) {
+    window.showForkOverlay();
+    vscode.postMessage({ type: 'forkConversation', messageId: messageId });
+  }
+
+  function forkAndRewindMessage(messageId) {
+    window.showForkOverlay();
+    vscode.postMessage({ type: 'forkAndRewind', messageId: messageId });
+  }
+
+  function openForkMenu(row, triggerBtn, messageId, hasCheckpoint) {
+    if (!window.choiceMenu) {
+      forkMessage(messageId);
+      return;
+    }
+    var items = [
+      { id: 'fork', label: 'Fork', icon: 'git-branch', action: function () { forkMessage(messageId); } },
+    ];
+    if (canRewindRow(row, hasCheckpoint)) {
+      items.push({ id: 'fork-rewind', label: 'Fork & rewind', icon: 'discard', action: function () { forkAndRewindMessage(messageId); } });
+    }
+    window.choiceMenu.open(triggerBtn || row, {
+      title: 'Fork',
+      items: items,
+      placement: row && document.body.classList.contains('stream-layout-timeline') ? 'above' : undefined,
+    });
+  }
+
   // ── Share popover ─────────────────────────────────────────────────────────
   function openShareForRow(row, triggerBtn) {
     if (!row) return;
-    var bubble = row.querySelector('.msg-text');
-    var text = bubble ? (bubble.dataset.rawText || bubble.textContent || '') : '';
+    var text = getRowCopyText(row);
     var role = row.classList.contains('user') ? 'You' : 'Assistant';
+    var messageId = row.getAttribute('data-message-id') || row.getAttribute('data-run-id') || '';
+    var canRewind = canRewindRow(row);
     var trigger = triggerBtn || row;
     if (!window.choiceMenu) return;
+    var items = [
+      { id: 'markdown', label: 'Copy as Markdown', icon: 'markdown', action: function () { copyViaHost('**' + role + ':** ' + text); } },
+      { id: 'text', label: 'Copy as Text', icon: 'clipboard', action: function () { copyViaHost(text); } },
+      { id: 'html', label: 'Export HTML', icon: 'file', action: downloadChatExportHtml },
+    ];
+    if (canRewind) {
+      items.push({ id: 'rewind', label: 'Rewind code to here', icon: 'history', action: function () { vscode.postMessage({ type: 'rewindToMessage', messageId: messageId }); } });
+    }
+    items.push({ id: 'fork', label: 'Fork', icon: 'git-branch', action: function () { forkMessage(messageId); } });
+    items.push({ id: 'fork-rewind', label: 'Fork & rewind', icon: 'discard', disabled: !canRewind, action: function () { forkAndRewindMessage(messageId); } });
     window.choiceMenu.open(trigger, {
-      title: 'Share message',
-      items: [
-        { id: 'markdown', label: 'Copy as Markdown', icon: 'markdown', action: function () { copyViaHost('**' + role + ':** ' + text); } },
-        { id: 'text', label: 'Copy as Text', icon: 'clipboard', action: function () { copyViaHost(text); } },
-        { id: 'html', label: 'Export HTML', icon: 'file', action: downloadChatExportHtml },
-      ],
+      title: 'Message actions',
+      items: items,
+      placement: row && document.body.classList.contains('stream-layout-timeline') ? 'above' : undefined,
     });
   }
 
@@ -422,16 +523,14 @@
   function buildMsgActions(messageId, isAssistant, hasCheckpoint) {
     var bar = document.createElement('div');
     bar.className = 'msg-actions';
+    var row = findMessageRow(messageId);
+    var canRewind = canRewindRow(row, hasCheckpoint);
     var actions = [
       { icon: 'copy', label: 'Copy', act: 'copy' },
       { icon: 'clippy', label: 'Share', act: 'share' },
+      { icon: 'git-branch', label: 'Fork', act: 'fork' },
     ];
-    if (window.betaForkRewind) {
-      actions.push({ icon: 'git-branch', label: 'Fork conversation (OpenClaw beta)', act: 'fork' });
-      if (!isAssistant && hasCheckpoint) {
-        actions.push({ icon: 'history', label: 'Rewind code to here (OpenClaw beta)', act: 'rewind' });
-      }
-    }
+    if (canRewind) actions.push({ icon: 'history', label: 'Rewind code to here', act: 'rewind' });
     actions.forEach(function (a) {
       var b = document.createElement('button');
       b.className = 'msg-action codicon codicon-' + a.icon;
@@ -440,19 +539,13 @@
         event.preventDefault();
         event.stopPropagation();
         if (a.act === 'copy') {
-          var row = bar.parentElement;
-          var t = row && row.querySelector('.msg-text');
-          if (t) {
-            var textToCopy = t.dataset.rawText || t.textContent || '';
-            copyViaHost(textToCopy);
-            b.classList.remove('codicon-copy');
-            b.classList.add('codicon-check');
-            setTimeout(function () { b.classList.remove('codicon-check'); b.classList.add('codicon-copy'); }, 1500);
-          }
-        } else if (a.act === 'share') { openShareForRow(bar.parentElement, b); }
+          copyViaHost(getRowCopyText(getActionRow(bar, messageId)));
+          b.classList.remove('codicon-copy');
+          b.classList.add('codicon-check');
+          setTimeout(function () { b.classList.remove('codicon-check'); b.classList.add('codicon-copy'); }, 1500);
+        } else if (a.act === 'share') { openShareForRow(getActionRow(bar, messageId), b); }
         else if (a.act === 'fork') {
-          window.showForkOverlay();
-          vscode.postMessage({ type: 'forkConversation', messageId: messageId });
+          openForkMenu(getActionRow(bar, messageId), b, messageId, canRewind);
         } else if (a.act === 'rewind') {
           vscode.postMessage({ type: 'rewindToMessage', messageId: messageId });
         }
@@ -461,8 +554,7 @@
     });
 
     if (isAssistant && messageId) {
-      var row = document.querySelector('[data-message-id="' + messageId + '"]') ||
-                document.querySelector('[data-run-id="' + messageId + '"]');
+      var row = findMessageRow(messageId);
       var currentReaction = row ? row.getAttribute('data-reaction') : null;
       var pair = window.getReactionPair();
       var reactions = [
@@ -499,6 +591,7 @@
     if (isWorkspaceContext(text)) return null;
     var row = document.createElement('div');
     row.className = 'chat-row user';
+    if (String(text || '').trim()) row.classList.add('timeline-sticky-user');
     if (!window.isRestoringHistory) row.classList.add('rise-up-anim');
     if (messageId) row.setAttribute('data-message-id', messageId);
     if (hasCheckpoint) row.setAttribute('data-has-checkpoint', 'true');
@@ -592,6 +685,7 @@
     try {
       var row = buildAssistantRow(runId, isActiveRun, insertTarget);
       if (item.messageId) row.setAttribute('data-message-id', item.messageId);
+      if (item.hasCheckpoint) row.setAttribute('data-has-checkpoint', 'true');
       if (item.reaction) row.setAttribute('data-reaction', item.reaction);
       var bubble = row.querySelector('.msg-text');
       var hasTimeline = item.activityTimeline && item.activityTimeline.length;

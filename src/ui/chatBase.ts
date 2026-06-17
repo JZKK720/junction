@@ -163,7 +163,9 @@ export abstract class ChatBase {
             handleOpenSettings: () => this.handleOpenSettings(),
             handleGetUsage: () => this.handleGetUsage(),
             handleForkConversation: (messageId) => this.handleForkConversation(messageId),
+            handleForkAndRewind: (messageId) => this.handleForkAndRewind(messageId),
             handleRewindToMessage: (messageId) => this.handleRewindToMessage(messageId),
+            handleReviewCheckpointDiff: (messageId, files) => this.handleReviewCheckpointDiff(messageId, files),
             handleOpenFile: (filePath) => this.handleOpenFile(filePath),
             handleSetReaction: (messageId, value) => this.handleSetReaction(messageId, value),
             postToWebview: (message) => this.postToWebview(message),
@@ -851,7 +853,7 @@ export abstract class ChatBase {
         await this.bridgeRegistry.selectEnvironmentChoice(data);
         this.currentAgentId = String(data.agentId ?? '') || undefined;
         this.pushEnvLabel();
-        this.pushModelDisplay();
+        await this.refreshModelDisplayFromChoices();
         await this.pushSessions();
     }
 
@@ -1005,6 +1007,11 @@ export abstract class ChatBase {
         vscode.window.showInformationMessage(structuralFork ? 'Conversation forked.' : 'Conversation forked with local transcript context.');
     }
 
+    protected async handleForkAndRewind(messageId?: string): Promise<void> {
+        await this.handleForkConversation(messageId);
+        await this.handleRewindToMessage(messageId);
+    }
+
     protected async handleRewindToMessage(messageId?: string): Promise<void> {
         if (!messageId) return;
         const pick = await vscode.window.showWarningMessage(
@@ -1017,6 +1024,10 @@ export abstract class ChatBase {
         if (ok) {
             vscode.window.showInformationMessage('Workspace rewound to checkpoint.');
         }
+    }
+
+    protected async handleReviewCheckpointDiff(messageId?: string, files?: string[]): Promise<void> {
+        await this.checkpoints.reviewDiff(messageId, files);
     }
 
     protected async handleOpenFile(filePath: string): Promise<void> {
@@ -1114,11 +1125,15 @@ export abstract class ChatBase {
     }
 
     protected pushModelDisplay(): void {
-        this.postToWebview({ type: 'modelDisplay', model: this.currentModelDisplay, reasoning: this.currentThinking });
+        const model = this.currentModelDisplay || this.currentModelId || '';
+        this.postToWebview({ type: 'modelDisplay', model, reasoning: this.currentThinking });
     }
 
     protected async refreshModelDisplayFromChoices(): Promise<void> {
         if (!this.bridge.capabilities.models) {
+            this.currentModelDisplay = '';
+            this.currentModelId = undefined;
+            this.currentThinking = undefined;
             this.pushModelDisplay();
             return;
         }
@@ -1136,11 +1151,12 @@ export abstract class ChatBase {
                 }
             };
             visit(choices);
-            const modelItem = selectedParent;
+            const modelItem = selectedParent ?? choices[0];
             if (modelItem) {
                 const label = String(modelItem.label || modelItem.model || modelItem.id || '').trim();
                 if (label) this.currentModelDisplay = label;
                 this.currentModelId = String(modelItem.model || modelItem.id || this.currentModelId || '').trim() || this.currentModelId;
+                if (modelItem.supportsReasoning === false) this.currentThinking = undefined;
             }
             if (selectedChild?.thinking !== undefined) {
                 this.currentThinking = String(selectedChild.thinking);
@@ -1249,7 +1265,7 @@ export abstract class ChatBase {
     }
 
     protected async handleSlashComplete(prefix: string): Promise<void> {
-        const suggestions = this.bridge.getSlashSuggestions(prefix);
+        const suggestions = await this.bridge.getSlashSuggestions(prefix);
         this.postToWebview({ type: 'slashSuggestions', suggestions });
     }
 

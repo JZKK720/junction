@@ -11,6 +11,8 @@
  */
 
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 import { config } from '../config/agentBridgeConfig';
 import { ChoiceMenuItem } from '../bridges/types';
 import type { WebviewConfigPayload } from './chatTypes';
@@ -43,6 +45,7 @@ export class ConfigManager {
             sendBehavior: this.getSendBehavior(),
             reasoningDisplay,
             extraRichText: config().get<boolean>('extraRichText', true),
+            goodFonts: config().get<boolean>('goodFonts', false),
             activityLayout: this.readActivityLayoutMode(),
             activityRail: config().get<boolean>('activityStream.rail', true),
             activityDots: config().get<string>('activityStream.dots', 'status'),
@@ -123,6 +126,30 @@ export class ConfigManager {
         });
     }
 
+    /** Write latest animation settings snapshot for UI debugging. */
+    async writeAnimDebugFile(data: {
+        config?: any;
+        mode?: string;
+        color?: string;
+        loaderColor?: string;
+        splashColor?: string;
+        activeTab?: string;
+    }): Promise<void> {
+        const dir = path.join(this.context.globalStorageUri.fsPath, 'debug-captures');
+        fs.mkdirSync(dir, { recursive: true });
+        const file = path.join(dir, 'animation-settings-debug.json');
+        const payload = {
+            savedAt: new Date().toISOString(),
+            activeTab: data.activeTab,
+            mode: data.mode,
+            color: data.color,
+            loaderColor: data.loaderColor,
+            splashColor: data.splashColor,
+            config: data.config ?? {},
+        };
+        fs.writeFileSync(file, JSON.stringify(payload, null, 2) + '\n', 'utf8');
+    }
+
     /** Build sandbox/approval choice items for the webview. */
     buildSandboxChoices(): ChoiceMenuItem[] {
         const sandbox = config().get<string>('sandboxMode', 'default');
@@ -186,6 +213,7 @@ export class ConfigManager {
             e.affectsConfiguration('junction.reasoningDisplay') ||
             e.affectsConfiguration('junction.sendBehavior') ||
             e.affectsConfiguration('junction.extraRichText') ||
+            e.affectsConfiguration('junction.goodFonts') ||
             e.affectsConfiguration('junction.showFullHistory') ||
             e.affectsConfiguration('junction.steerKeybinding') ||
             e.affectsConfiguration('editor.tokenColorCustomizations')

@@ -10,9 +10,9 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: var(--space-small);
-  height: 36px;
-  padding: 0 var(--space-medium);
+  gap: 2px;
+  height: 30px;
+  padding: 0 var(--space-small);
   background-color: var(--vscode-sideBar-background);
   border-bottom: 1px solid var(--vscode-input-border);
   box-sizing: border-box;
@@ -29,14 +29,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
   border-radius: var(--corner-radius-small);
   background: transparent;
   color: var(--vscode-descriptionForeground);
-  font-size: 16px;
+  font-size: 14px;
   cursor: pointer;
   transition: background-color 0.1s ease;
   flex-shrink: 0;
@@ -62,7 +62,7 @@
 #chat-title {
   flex: 1;
   min-width: 0;
-  padding: 2px var(--space-small);
+  padding: 1px var(--space-small);
   border-radius: var(--corner-radius-small);
   color: var(--vscode-editor-foreground);
   font-family: var(--vscode-chat-font-family, inherit);
@@ -88,8 +88,8 @@
 .title-edit {
   flex: 1;
   min-width: 0;
-  height: 28px;
-  padding: 2px var(--space-small);
+  height: 24px;
+  padding: 1px var(--space-small);
   border: 1px solid var(--vscode-focusBorder);
   border-radius: var(--corner-radius-small);
   background: var(--vscode-input-background);

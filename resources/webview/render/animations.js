@@ -15,8 +15,10 @@
     cjk: '天地玄黄宇宙洪荒日月盈昃辰宿列張寒來暑往秋收冬藏龍虎山川風火雷電零壹貳參肆伍陸柒捌玖拾',
     hangul: '가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허',
     binary: '010101110011001011010101',
-    symbols: '@#$%^&*()_+-=[]{}<>/\\\\|;:,.~`'
+    symbols: '@#$%^&*()_+-=[]{}<>/\\\\|;:,.~`',
+    emoji: '😀😃😄😁😆😅😂🤣🙂🙃😉😊😎🤔🤨😐😵‍💫🤖👾✨💫⭐🌙🔥💥🌈🍄🚀🛸🧠🌀'
   };
+  var SPLASH_RARE_EMOJI_CHANCE = 0.00001; // 0.001%
   var PretextAPI = window.Pretext || null;
   var extraRichEnabled = true; // default on
   var ZALGO_SPLASH_MARKS = ['̍','̎','̄','̅','̿','̑','̐','̒','̓','̔','̽','̾','̀','́','̂','̃','̆','̇','̈','̉','̊','̋','̌','̍','̎','̏','̐'];
@@ -39,11 +41,21 @@
     loaderLength: 2.0, loaderBgColor: 'theme', loaderBgAlpha: 0.0,
     loaderLoop: true, loaderWidthMode: 'text', loaderSizeOff: false, loaderMagic: false,
     loaderNoiseRes: 4, loaderTextFade: 0.5, loaderCooling: 0.65, loaderSpread: 0.3,
-    splashLength: 1.0, splashFade: 0.3, splashDisabled: false, splashFadeOnChatLoad: false,
+    splashLength: 1.0, splashFade: 0.3, splashBackgroundFade: 0.3, splashBackgroundFadeDelay: 0, splashDisabled: false, splashAutoClose: false,
+    splashExitMode: 'random', splashExitDuration: 1.9, splashExitForce: 3.5, splashExitSpread: 1.5, splashExitSpeed: 2.0, splashExitChaos: 0.7,
+    splashExitMomentumX: 1.0, splashExitMomentumY: 1.0,
+    splashExitStarwarsTargetY: -29,
+    splashExitSpiralRadius: 0.7,
+    splashExitFlattenHold: 55,
+    splashExitSpiralLength: 1.2,
+    splashExitExplode2Force: 1.0, splashExitExplode2Chaos: 0, splashExitExplode2HScale: 1.0, splashExitExplode2VScale: 1.0,
+    splashCanvasExitDuration: 1.2,
     splashCharsetPreset: 'katakana', splashCharsetCustom: '',
-    splashQuantity: 1.4, splashMinOpacity: 0.2, splashMaxOpacity: 0.9,
-    splashSizeVariance: 0.45, splashColorVariance: 0.32, splashBounce: 1.1,
-    splashWordmarkScale: 1.0,
+    splashEmojiMix: true, splashEmojiRarity: 10000000,
+    splashQuantity: 1.4, splashCharVariety: 1.0, splashMinOpacity: 0.2, splashMaxOpacity: 1.0,
+    splashSizeVariance: 0.45, splashColorVariance: 0.32, splashBounce: 1.3, splashGravity: 0.2,
+    splashRainDown: false, splashRainReverseChance: 0.0001, splashRainBounceSides: true,
+    splashWordmarkScale: 1.1, splashCollisionForce: 2.2, splashLogoLightness: 1.0,
     chatRiseDistance: 260, chatRiseDuration: 0.82, chatRiseTilt: 14, chatRiseBlur: 2,
     chatColorCustom: false,
     loaderColorCustom: false,
@@ -51,6 +63,15 @@
   };
   window.animConfig = animConfig;
   window.SPLASH_CHARSETS = splashCharsets;
+
+  // Warm the Good Fonts faces so canvas wordmark rendering (Comic Neue in emoji
+  // splash mode) doesn't fall back on first paint.
+  if (typeof document !== 'undefined' && document.fonts && document.fonts.load) {
+    try {
+      document.fonts.load('600 24px "Junction Comic Neue"');
+      document.fonts.load('400 16px "Junction Comic Mono"');
+    } catch (e) { /* non-fatal */ }
+  }
 
   var ANIM_MODES = ['matrix','zalgo','fire','bounce','spiral','galaxy','leak'];
   window.ANIM_MODES = ANIM_MODES;
@@ -80,13 +101,11 @@
   function uniqueChars(str) {
     var seen = Object.create(null);
     var out = '';
-    var i;
-    for (i = 0; i < str.length; i++) {
-      var ch = str.charAt(i);
-      if (seen[ch]) continue;
+    Array.from(str || '').forEach(function (ch) {
+      if (seen[ch]) return;
       seen[ch] = true;
       out += ch;
-    }
+    });
     return out;
   }
 
@@ -212,6 +231,9 @@
   function getAnimFontSize(localOpts) { return getAnimVal('fontSize', 1.0, localOpts); }
   function getAnimDensity(localOpts) { return getAnimVal('density', 1.0, localOpts); }
   function getAnimIntensity(localOpts) { return getAnimVal('intensity', 1.0, localOpts); }
+  function shouldLoopAnimation(localOpts) {
+    return !!(localOpts && localOpts.isSplash) || !!(localOpts && localOpts.loop) || !!getAnimVal('loop', false, localOpts);
+  }
 
   function getAnimColor(localOpts) {
     var bodyColor = getComputedStyle(document.body).color;
@@ -438,7 +460,7 @@
       if (progress < 1) {
         animId = requestAnimationFrame(frame);
       } else {
-        if (opts.loop || getAnimVal('loop', false, opts)) {
+        if (shouldLoopAnimation(opts)) {
           startTime = performance.now(); heat.fill(0); color.fill(0); seedText();
           animId = requestAnimationFrame(frame);
         } else {
@@ -545,7 +567,7 @@
       ctx.globalAlpha = 1;
       if (progress < 1) { animId = requestAnimationFrame(frame); }
       else {
-        if (opts.loop || getAnimVal('loop', false, opts)) { startTime = performance.now(); animId = requestAnimationFrame(frame); }
+        if (shouldLoopAnimation(opts)) { startTime = performance.now(); animId = requestAnimationFrame(frame); }
         else { done = true; ctx.clearRect(0, 0, tw, th); if (!opts.isSplash && !opts.unbounded) { ctx.font = fontStr; ctx.fillStyle = fgColor; lines.forEach(function (line, i) { ctx.fillText(line, 10, (i + 1) * lineHeight); }); } }
       }
     }
@@ -654,7 +676,7 @@
       ctx.globalAlpha = 1;
       if (progress < 1) { animId = requestAnimationFrame(frame); }
       else {
-        if (opts.loop || getAnimVal('loop', false, opts)) { startTime = performance.now(); animId = requestAnimationFrame(frame); }
+        if (shouldLoopAnimation(opts)) { startTime = performance.now(); animId = requestAnimationFrame(frame); }
         else { done = true; ctx.clearRect(0, 0, tw, th); if (!opts.isSplash && !opts.unbounded) { ctx.font = fontStr; ctx.fillStyle = fgColor; lines.forEach(function (line, i) { ctx.fillText(line, 10, (i + 1) * lineHeight); }); } }
       }
     }
@@ -739,7 +761,7 @@
       ctx.globalAlpha = 1;
       if (progress < 1) { animId = requestAnimationFrame(frame); }
       else {
-        if (opts.loop || getAnimVal('loop', false, opts)) {
+        if (shouldLoopAnimation(opts)) {
           startTime = performance.now();
           colStates.forEach(function (col) {
             col.phase = 'rain';
@@ -849,7 +871,7 @@
       ctx.globalAlpha = 1;
       if (progress < 1) { animId = requestAnimationFrame(frame); }
       else {
-        if (opts.loop || getAnimVal('loop', false, opts)) { startTime = performance.now(); initColumns(); animId = requestAnimationFrame(frame); }
+        if (shouldLoopAnimation(opts)) { startTime = performance.now(); initColumns(); animId = requestAnimationFrame(frame); }
         else { done = true; ctx.clearRect(0, 0, canvas.width, canvas.height); if (!opts.isSplash && !opts.unbounded) { ctx.font = fontStr; ctx.fillStyle = getAnimColor(opts); ctx.globalAlpha = 0.5; ctx.fillText(baselineText, 10, baselineY); ctx.globalAlpha = 1; } }
       }
     }
@@ -930,7 +952,7 @@
       ctx.globalAlpha = 1;
       if (progress < 1) { animId = requestAnimationFrame(frame); }
       else {
-        if (opts.loop || getAnimVal('loop', false, opts)) { startTime = performance.now(); animId = requestAnimationFrame(frame); }
+        if (shouldLoopAnimation(opts)) { startTime = performance.now(); animId = requestAnimationFrame(frame); }
         else { done = true; ctx.clearRect(0, 0, tw, th); if (!opts.isSplash && !opts.unbounded) { ctx.font = fontStr; ctx.fillStyle = fgColor; lines.forEach(function (line, i) { ctx.fillText(line, 10, (i + 1) * lineHeight); }); } }
       }
     }
@@ -946,7 +968,11 @@
     var bodyStyle = getComputedStyle(document.body);
     var scale = safeNumber(animConfig.splashWordmarkScale, 1);
     var fontSize = Math.round(Math.max(24, Math.min(96, canvas.width * 0.12, canvas.height * 0.2)) * scale);
-    var font = '600 ' + fontSize + 'px ' + (bodyStyle.fontFamily || 'sans-serif');
+    // Emoji splash mode always renders the "Junction" wordmark in Comic Neue.
+    var wordmarkFamily = animConfig.splashCharsetPreset === 'emoji'
+      ? '"Junction Comic Neue", ' + (bodyStyle.fontFamily || 'sans-serif')
+      : (bodyStyle.fontFamily || 'sans-serif');
+    var font = '600 ' + fontSize + 'px ' + wordmarkFamily;
     var measureCanvas = document.createElement('canvas');
     var measureCtx = measureCanvas.getContext('2d');
     if (!measureCtx) return null;
@@ -968,6 +994,15 @@
     offCtx.font = font;
     offCtx.fillText(wordmarkText, width / 2, height / 2);
     var data = offCtx.getImageData(0, 0, width, height).data;
+    var chars = [];
+    var startX = canvas.width / 2 - measured.width / 2;
+    var advance = 0;
+    for (var i = 0; i < wordmarkText.length; i++) {
+      var ch = wordmarkText.charAt(i);
+      var w = measureCtx.measureText(ch).width;
+      chars.push({ ch: ch, x: startX + advance + w / 2, y: canvas.height / 2 });
+      advance += w;
+    }
     return {
       left: left,
       top: top,
@@ -980,16 +1015,32 @@
       font: font,
       textX: canvas.width / 2,
       textY: canvas.height / 2,
+      chars: chars,
+      canvas: offscreen,
+      data: data,
       hit: function (x, y) {
         var lx = Math.floor(x - left);
         var ly = Math.floor(y - top);
         if (lx < 0 || ly < 0 || lx >= width || ly >= height) return false;
         return data[(ly * width + lx) * 4 + 3] > 24;
+      },
+      hitInfo: function (x, y) {
+        var lx = Math.floor(x - left);
+        var ly = Math.floor(y - top);
+        if (lx < 0 || ly < 0 || lx >= width || ly >= height) return null;
+        if (data[(ly * width + lx) * 4 + 3] <= 24) return null;
+        var nearest = 0;
+        var nearestDist = Infinity;
+        for (var c = 0; c < chars.length; c++) {
+          var d = Math.abs(chars[c].x - x);
+          if (d < nearestDist) { nearestDist = d; nearest = c; }
+        }
+        return { index: nearest, x: x, y: y };
       }
     };
   }
 
-  function drawSplashWordmark(ctx, mask, opts) {
+  function drawSplashWordmark(ctx, mask, opts, motion) {
     if (!ctx || !mask) return;
     ctx.save();
     ctx.globalAlpha = 1;
@@ -997,7 +1048,15 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = getAnimColor(opts);
-    ctx.fillText(mask.text, mask.textX, mask.textY);
+    if (motion && mask.chars && mask.chars.length === motion.length) {
+      for (var i = 0; i < mask.chars.length; i++) {
+        var glyph = mask.chars[i];
+        var m = motion[i];
+        ctx.fillText(glyph.ch, glyph.x + m.x, glyph.y + m.y);
+      }
+    } else {
+      ctx.fillText(mask.text, mask.textX, mask.textY);
+    }
     ctx.restore();
   }
 
@@ -1018,18 +1077,72 @@
     var cols = Math.max(2, Math.floor((canvas.width / fontSize) * getAnimDensity(opts) * splashQuantity));
     var wordmarkMask = opts.isSplash ? buildSplashWordmarkMask(canvas, opts.text || 'Junction') : null;
     var splashCharset = opts.isSplash ? getSplashCharset() : matrixChars;
+    var splashCharsetChars = Array.from(splashCharset);
+    var splashCharVariety = clamp(safeNumber(animConfig.splashCharVariety, 1.0), 0.05, 1);
+    var splashVarietyLength = Math.max(1, Math.ceil(splashCharsetChars.length * splashCharVariety));
+    var splashVarietyCharset = splashCharsetChars.slice(0, splashVarietyLength);
+    var rareEmojiCharset = Array.from(splashCharsets.emoji);
     var splashEffect = opts.splashEffect || 'matrix';
     var splashMinOpacity = clamp(safeNumber(animConfig.splashMinOpacity, 0.2), 0.02, 1);
     var splashMaxOpacity = clamp(safeNumber(animConfig.splashMaxOpacity, 0.9), splashMinOpacity, 1);
     var splashSizeVariance = clamp(safeNumber(animConfig.splashSizeVariance, 0.45), 0, 1.4);
     var splashColorVariance = clamp(safeNumber(animConfig.splashColorVariance, 0.32), 0, 1);
     var splashBounce = clamp(safeNumber(animConfig.splashBounce, 1.1), 0, 3);
+    var splashGravity = clamp(safeNumber(animConfig.splashGravity, 1.0), 0.1, 4);
+    var splashCollisionForce = clamp(safeNumber(animConfig.splashCollisionForce, 1.4), 0, 4);
+    var splashLogoLightness = clamp(safeNumber(animConfig.splashLogoLightness, 1.0), 0.05, 4);
     var splashColorBase = parseRgbaColor(getAnimColor(opts));
     var drops = [];
+    var wordmarkMotion = [];
+    var splashExit = null;
+    var exitGlyphs = [];
+    var exitParticles = [];
     var i;
 
+    function syncWordmarkMotion(mask) {
+      var count = mask && mask.chars ? mask.chars.length : 0;
+      while (wordmarkMotion.length < count) wordmarkMotion.push({ x: 0, y: 0, vx: 0, vy: 0 });
+      if (wordmarkMotion.length > count) wordmarkMotion.length = count;
+    }
+
+    function applyWordmarkPhysics() {
+      for (var i = 0; i < wordmarkMotion.length; i++) {
+        var m = wordmarkMotion[i];
+        m.vx += -m.x * 0.08 / splashLogoLightness;
+        m.vy += -m.y * 0.08 / splashLogoLightness;
+        m.vx *= 0.82;
+        m.vy *= 0.82;
+        m.x += m.vx;
+        m.y += m.vy;
+        var limit = fontSize * 0.32 * splashLogoLightness;
+        m.x = clamp(m.x, -limit, limit);
+        m.y = clamp(m.y, -limit, limit);
+      }
+    }
+
+    function hitWordmark(drop, hit) {
+      if (!hit || !wordmarkMotion[hit.index]) return;
+      var m = wordmarkMotion[hit.index];
+      var mass = splashCollisionForce * (drop.scale || 1);
+      var light = splashLogoLightness;
+      var side = hit.x < wordmarkMask.centerX ? -1 : 1;
+      m.vx += side * mass * light * 0.55;
+      m.vy += Math.max(-1.8, drop.vy) * mass * light * 0.45;
+    }
+
     function randomSplashChar() {
-      var ch = splashCharset.charAt(Math.floor(Math.random() * splashCharset.length));
+      if (animConfig.splashEmojiMix) {
+        var rarity = Math.max(1, Math.round(animConfig.splashEmojiRarity || 100));
+        if (Math.random() < 1 / rarity) {
+          return rareEmojiCharset[Math.floor(Math.random() * rareEmojiCharset.length)];
+        }
+      } else if (Math.random() < SPLASH_RARE_EMOJI_CHANCE) {
+        // The rare emoji roll also lights up the Good Fonts pack for this session.
+        try { document.body.classList.add('good-fonts'); } catch (e) {}
+        return rareEmojiCharset[Math.floor(Math.random() * rareEmojiCharset.length)];
+      }
+      var ch = splashVarietyCharset[Math.floor(Math.random() * splashVarietyCharset.length)];
+      if (animConfig.splashCharsetPreset === 'emoji') return ch;
       if (splashEffect === 'zalgo') {
         var count = 1 + Math.floor(Math.random() * 3);
         for (var i = 0; i < count; i++) ch += ZALGO_SPLASH_MARKS[Math.floor(Math.random() * ZALGO_SPLASH_MARKS.length)];
@@ -1048,11 +1161,14 @@
 
     for (i = 0; i < cols; i++) {
       var laneX = (i + 0.5) * (canvas.width / cols);
+      var initDown = !!animConfig.splashRainDown;
+      var initRev = clamp(safeNumber(animConfig.splashRainReverseChance, 0.0001), 0, 100);
+      if (Math.random() < initRev / 100) initDown = !initDown;
       var drop = {
         x: laneX,
         laneX: laneX,
-        y: canvas.height + Math.random() * canvas.height * 0.3,
-        vy: -(0.8 + Math.random() * 1.6) * getAnimIntensity(opts),
+        y: initDown ? (-fontSize * (0.5 + Math.random() * 0.5)) : (canvas.height + Math.random() * canvas.height * 0.3),
+        vy: (initDown ? 1 : -1) * (0.8 + Math.random() * 1.6) * getAnimIntensity(opts) * splashGravity,
         vx: (Math.random() - 0.5) * 0.04,
         speed: (0.5 + Math.random() * 1.5) * getAnimIntensity(opts),
         ch: opts.isSplash ? randomSplashChar() : matrixChars[Math.floor(Math.random() * matrixChars.length)],
@@ -1066,62 +1182,387 @@
     }
 
     function resetSplashDrop(drop) {
+      if (splashExit && splashExit.rainPushDone) { drop.dead = true; return; }
       drop.x = drop.laneX + (Math.random() - 0.5) * fontSize * 0.12;
-      drop.y = canvas.height + Math.random() * canvas.height * 0.25;
+      var goesDown = !!animConfig.splashRainDown;
+      var revChance = clamp(safeNumber(animConfig.splashRainReverseChance, 0.0001), 0, 100);
+      if (Math.random() < revChance / 100) goesDown = !goesDown;
+      if (goesDown) {
+        drop.y = -fontSize * (0.5 + Math.random() * 0.5);
+        drop.vy = (0.8 + Math.random() * 1.4) * splashGravity;
+      } else {
+        drop.y = canvas.height + Math.random() * canvas.height * 0.25;
+        drop.vy = -(0.8 + Math.random() * 1.4) * splashGravity;
+      }
       drop.vx = (Math.random() - 0.5) * 0.04;
-      drop.vy = -(0.8 + Math.random() * 1.4);
       drop.ch = randomSplashChar();
       assignSplashStyle(drop);
     }
 
-    function drawSplashLoader() {
-      if (canvas.closest && canvas.closest('#startup-loader.dismissed')) return;
+    function exitValue(key, fallback, min, max) {
+      return clamp(safeNumber(animConfig[key], fallback), min, max);
+    }
+
+    function buildExitGlyphs(mask, exit) {
+      var chars = mask && mask.chars ? mask.chars : [];
+      var count = Math.max(1, chars.length - 1);
+      return chars.map(function (glyph, index) {
+        var dx = glyph.x - mask.centerX;
+        var spreadAngle = -Math.PI + (Math.PI * 2 * index / count);
+        var baseAngle = Math.atan2((Math.random() - 0.5) * mask.height * exit.chaos, dx || (Math.random() - 0.5));
+        var angle = (baseAngle * 0.65) + (spreadAngle * 0.35);
+        var power = exit.force * (0.7 + Math.random() * 0.65);
+        return {
+          ch: glyph.ch,
+          baseX: glyph.x,
+          baseY: glyph.y,
+          x: glyph.x,
+          y: glyph.y,
+          vx: Math.cos(angle) * 360 * power * exit.spread,
+          vy: Math.sin(angle) * 260 * power * exit.spread - 80 * exit.force,
+          rot: 0,
+          vrot: (Math.random() - 0.5) * 8 * exit.chaos,
+          phase: Math.random() * Math.PI * 2,
+          spreadSlot: (index + 0.5) / chars.length,
+          angle: angle
+        };
+      });
+    }
+
+    function buildMaskParticles(mask, exit, mode) {
+      if (!mask || !mask.data) return [];
+      var particles = [];
+      var maxParticles = mode === 'explode3' ? 2600 : 340;
+      var step = mode === 'explode3'
+        ? Math.max(2, Math.ceil(Math.sqrt((mask.width * mask.height) / maxParticles)))
+        : Math.max(2, Math.ceil(mask.width / 80));
+      for (var y = 0; y < mask.height; y += step) {
+        for (var x = 0; x < mask.width; x += step) {
+          var alpha = mask.data[(y * mask.width + x) * 4 + 3];
+          if (alpha <= 24) continue;
+          if (mode !== 'explode3') {
+            var edge = Math.min(x, mask.width - x);
+            if (edge > mask.width * 0.22 && Math.random() > 0.18) continue;
+          }
+          var sx = mask.left + x;
+          var sy = mask.top + y;
+          var dx = sx - mask.centerX;
+          var dy = sy - (mask.top + mask.height / 2);
+          var angle = Math.atan2(dy, dx || (Math.random() - 0.5));
+          if (mode === 'melt') angle = Math.PI / 2 + (Math.random() - 0.5) * 0.9;
+          var force = exit.force * (0.45 + Math.random() * 0.85);
+          var vy = Math.sin(angle) * 320 * force * exit.spread;
+          if (mode === 'melt') vy = Math.max(vy, 120) + 90;
+          particles.push({
+            x: sx,
+            y: sy,
+            baseX: sx,
+            baseY: sy,
+            vx: Math.cos(angle) * 420 * force * exit.spread + (Math.random() - 0.5) * 90 * exit.chaos,
+            vy: vy,
+            size: mode === 'explode3' ? Math.max(1, step) : Math.max(1, step * 0.7),
+            delay: Math.random() * (mode === 'melt' ? 0.4 : 0.18),
+            alpha: 1
+          });
+          if (particles.length >= maxParticles) return particles;
+        }
+      }
+      return particles;
+    }
+
+    function startSplashExit(request) {
+      if (!opts.isSplash || splashExit) return;
+      var mode = (request && request.mode) || animConfig.splashExitMode || 'random';
+      if (mode === 'random') {
+        var modes = ['spiral-out', 'spiral-in', 'explode', 'explode2', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3', 'rain-push', 'rain-push', 'rain-push', 'rain-push'];
+        mode = modes[Math.floor(Math.random() * modes.length)];
+      }
       wordmarkMask = buildSplashWordmarkMask(canvas, opts.text || 'Junction') || wordmarkMask;
+      splashExit = {
+        mode: mode,
+        start: performance.now(),
+        last: performance.now(),
+        duration: exitValue('splashExitDuration', 1.6, 0.3, 4),
+        force: exitValue('splashExitForce', 1.0, 0.1, 4),
+        spread: exitValue('splashExitSpread', 1.0, 0.1, 4),
+        speed: exitValue('splashExitSpeed', 1.0, 0.1, 4),
+        chaos: exitValue('splashExitChaos', 1.0, 0, 4)
+      };
+      exitGlyphs = buildExitGlyphs(wordmarkMask, splashExit);
+      exitParticles = (mode === 'explode3') ? buildMaskParticles(wordmarkMask, splashExit, mode) : [];
+      if (mode === 'rain-push') {
+        splashExit.rainPushDone = false;
+        exitGlyphs.forEach(function (g) {
+          g.x = g.baseX;
+          g.y = g.baseY;
+          g.vx = (Math.random() - 0.5) * 8;
+          g.vy = (Math.random() - 0.5) * 8;
+        });
+      }
+      canvas.setAttribute('data-splash-exit-mode', mode);
+    }
+    canvas._startSplashExit = startSplashExit;
+
+    canvas._isSplashExitComplete = function () {
+      if (splashExit === false) return true;
+      if (!splashExit) return false;
+      return (splashExit.progress || 0) >= 1 && splashExit.visible === false;
+    };
+
+    function drawExitGlyph(ctx, glyph, x, y, scaleX, scaleY, rotation, alpha, exit) {
+      if (alpha <= 0 || scaleX <= 0 || scaleY <= 0) return;
+      ctx.save();
+      ctx.globalAlpha = clamp(alpha, 0, 1);
+      ctx.translate(x, y);
+      ctx.rotate(rotation || 0);
+      ctx.scale(scaleX, scaleY);
+      ctx.fillText(glyph.ch, 0, 0);
+      ctx.restore();
+    }
+
+    function drawSplashExit(ctx, mask) {
+      if (!splashExit || !mask) return false;
+      var now = performance.now();
+      var raw = ((now - splashExit.start) / 1000) * splashExit.speed / splashExit.duration;
+      splashExit.progress = raw;
+      splashExit.visible = false;
+      var ease = 1 - Math.exp(-raw * 3);
+      var p = ease;
+      var travel = raw;
+      ctx.save();
+      ctx.font = mask.font;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = getAnimColor(opts);
+
+      if (splashExit.mode === 'explode3') {
+        var momX = clamp(safeNumber(animConfig.splashExitMomentumX, 1.0), 0, 4);
+        var momY = clamp(safeNumber(animConfig.splashExitMomentumY, 1.0), 0, 4);
+        ctx.fillStyle = getAnimColor(opts);
+        exitParticles.forEach(function (part) {
+          var tp = clamp((p - part.delay) / Math.max(0.001, 1 - part.delay), 0, 1);
+          if (tp <= 0) return;
+          var travel3 = Math.max(tp, raw);
+          var px = part.baseX + part.vx * travel3 * splashExit.speed * momX;
+          var py = part.baseY + part.vy * travel3 * splashExit.speed * momY + (Math.random() - 0.5) * splashExit.chaos;
+          if (px > -part.size && px < canvas.width + part.size && py > -part.size && py < canvas.height + part.size) splashExit.visible = true;
+          ctx.globalAlpha = 1;
+          ctx.fillRect(
+            px,
+            py,
+            part.size,
+            part.size
+          );
+        });
+        ctx.restore();
+        if (!splashExit.visible) {
+          splashExit._offCount = (splashExit._offCount || 0) + 1;
+        } else {
+          splashExit._offCount = 0;
+        }
+        if (splashExit._offCount > 30) splashExit = false;
+        return true;
+      }
+
+      exitGlyphs.forEach(function (glyph, index) {
+        var x = glyph.baseX;
+        var y = glyph.baseY;
+        var sx = 1;
+        var sy = 1;
+        var rot = glyph.vrot * p * 0.18;
+        var alpha = 1;
+        if (splashExit.mode === 'spiral-out') {
+          var radius = (20 + 520 * splashExit.spread * travel) * (0.65 + Math.abs(index - exitGlyphs.length / 2) / exitGlyphs.length);
+          var angle = glyph.angle + travel * Math.PI * 4 * splashExit.speed;
+          x = mask.centerX + Math.cos(angle) * radius;
+          y = mask.textY + Math.sin(angle) * radius;
+        } else if (splashExit.mode === 'spiral-in') {
+          var radiusScale = clamp(safeNumber(animConfig.splashExitSpiralRadius, 1.0), 0.1, 4);
+          var lengthScale = clamp(safeNumber(animConfig.splashExitSpiralLength, 1.0), 0, 2);
+          var startRadius = (Math.abs(glyph.baseX - mask.centerX) + mask.width * 0.45) * radiusScale;
+          var convergence = ease * lengthScale;
+          var inAngle = glyph.angle + ease * Math.PI * 5 * splashExit.speed;
+          x = mask.centerX + Math.cos(inAngle) * startRadius * (1 - convergence);
+          y = mask.textY + Math.sin(inAngle) * startRadius * (1 - convergence);
+          sx = sy = Math.max(0.005, Math.pow(1 - ease, 1.8));
+        } else if (splashExit.mode === 'explode') {
+          x += glyph.vx * travel * 0.9 + Math.sign(glyph.vx || (glyph.baseX - mask.centerX) || 1) * canvas.width * 0.5 * travel * travel;
+          y += glyph.vy * travel * 0.9 + 150 * travel * travel;
+        } else if (splashExit.mode === 'explode2') {
+          if (!glyph._e2Init) {
+            glyph._e2Init = true;
+            var hScale = clamp(safeNumber(animConfig.splashExitExplode2HScale, 1.0), 0, 4);
+            var vScale = clamp(safeNumber(animConfig.splashExitExplode2VScale, 1.0), 0, 4);
+            glyph.vx *= hScale;
+            glyph.vy *= vScale;
+          }
+          var e2Force = clamp(safeNumber(animConfig.splashExitExplode2Force, 1.0), 0.1, 4);
+          var e2Chaos = clamp(safeNumber(animConfig.splashExitExplode2Chaos, 0), 0, 4);
+          var dt = Math.min(0.05, (now - splashExit.last) / 1000) * splashExit.speed;
+          glyph.vy += 520 * dt * e2Force;
+          glyph.vx += (Math.random() - 0.5) * e2Chaos * dt * 100;
+          glyph.vy += (Math.random() - 0.5) * e2Chaos * dt * 50;
+          glyph.x += glyph.vx * dt;
+          glyph.y += glyph.vy * dt;
+          if (glyph.x < 8 || glyph.x > canvas.width - 8) {
+            glyph.x = clamp(glyph.x, 8, canvas.width - 8);
+            glyph.vx *= -0.78;
+          }
+          x = glyph.x;
+          y = glyph.y;
+          alpha = y > canvas.height + 40 ? 0 : 1;
+        } else if (splashExit.mode === 'float-away') {
+          var dxTravel = Math.cos(travel * 9 + glyph.phase) * 55 * splashExit.spread * splashExit.chaos;
+          var dyTravel = -(canvas.height + mask.height + 80 * splashExit.force);
+          x += dxTravel + (glyph.spreadSlot - 0.5) * 90 * travel;
+          y += dyTravel * travel;
+          var dirAngle = Math.atan2(dyTravel, dxTravel + (glyph.spreadSlot - 0.5) * 90);
+          rot = dirAngle * 0.35 * clamp(splashExit.chaos, 0.2, 1) + Math.sin(travel * 8 + glyph.phase) * 0.15 * splashExit.chaos;
+        } else if (splashExit.mode === 'horizontal-flatten') {
+          var holdMs = clamp(safeNumber(animConfig.splashExitFlattenHold, 0), 0, 100);
+          x = glyph.baseX + ((canvas.width * glyph.spreadSlot) - glyph.baseX) * ease;
+          sx = 1 + splashExit.spread * ease * 0.7;
+          sy = Math.max(0.0001, 1 - ease);
+          rot = 0;
+          if (sy < 0.002 && !splashExit._flattenMinAt) splashExit._flattenMinAt = now;
+          if (splashExit._flattenMinAt && (now - splashExit._flattenMinAt) < holdMs) {
+            splashExit.visible = true;
+          }
+        } else if (splashExit.mode === 'explode-weak') {
+          x += glyph.vx * travel * 0.18;
+          y += Math.abs(glyph.vy) * travel * 0.15 + (canvas.height + mask.height) * travel * travel * 0.75;
+          rot = glyph.vrot * travel * 0.08;
+        } else if (splashExit.mode === 'starwars-crawl') {
+          var targetX = canvas.width / 2;
+          var targetYAdd = safeNumber(animConfig.splashExitStarwarsTargetY, 0);
+          var targetY = clamp(targetYAdd, -100, 100) / 100 * canvas.height;
+          x = glyph.baseX + (targetX - glyph.baseX) * ease;
+          y = glyph.baseY + (targetY - glyph.baseY) * ease;
+          sx = sy = Math.max(0.015, Math.pow(1 - ease, 2.2));
+          rot = -0.18 * ease;
+        } else if (splashExit.mode === 'rain-push') {
+          if (!glyph._rpInit) {
+            glyph._rpInit = true;
+            glyph.x = glyph.baseX;
+            glyph.y = glyph.baseY;
+            glyph.vx = (Math.random() - 0.5) * 8;
+            glyph.vy = (Math.random() - 0.5) * 8;
+          }
+          var dt = Math.min(0.05, (now - (splashExit.last || splashExit.start)) / 1000);
+          drops.forEach(function (drop) {
+            if (drop.dead) return;
+            var dx = glyph.x - drop.x;
+            var dy = glyph.y - drop.y;
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            var pushRadius = fontSize * 1.2;
+            if (dist < pushRadius && dist > 0.1) {
+              var force = (1 - dist / pushRadius) * 60 * splashExit.force;
+              glyph.vx += (dx / dist) * force * dt;
+              glyph.vy += (dy / dist) * force * dt;
+            }
+          });
+          glyph.vx *= 0.985;
+          glyph.vy *= 0.985;
+          glyph.x += glyph.vx * dt * 60;
+          glyph.y += glyph.vy * dt * 60;
+          x = glyph.x;
+          y = glyph.y;
+          alpha = (y >= 0 && y <= canvas.height && x >= 0 && x <= canvas.width) ? 1 : 0;
+        }
+        if (splashExit.mode === 'rain-push') {
+          if (alpha > 0) splashExit.visible = true;
+        } else if (alpha > 0 && sx > 0.02 && sy > 0.02 && x > -mask.height && x < canvas.width + mask.height && y > -mask.height && y < canvas.height + mask.height) {
+          splashExit.visible = true;
+        }
+        drawExitGlyph(ctx, glyph, x, y, sx, sy, rot, alpha, splashExit);
+      });
+      splashExit.last = now;
+      if (splashExit.mode === 'rain-push') {
+        if (!splashExit.visible && raw > 1) {
+          if (!splashExit.rainPushDone) splashExit.rainPushDoneAt = now;
+          splashExit.rainPushDone = true;
+          var anyDropVisible = false;
+          for (var di = 0; di < drops.length; di++) {
+            if (!drops[di].dead && drops[di].y > -fontSize * 4 && drops[di].y < canvas.height + fontSize) {
+              anyDropVisible = true; break;
+            }
+          }
+          if (!anyDropVisible && (now - (splashExit.rainPushDoneAt || 0)) > 2000) splashExit = false;
+        }
+      } else {
+        if (!splashExit.visible) {
+          splashExit._offCount = (splashExit._offCount || 0) + 1;
+        } else {
+          splashExit._offCount = 0;
+        }
+        if (splashExit._offCount > 30) splashExit = false;
+      }
+      ctx.restore();
+      return true;
+    }
+
+    function drawSplashLoader() {
+      var dismissing = !!(canvas.closest && canvas.closest('#startup-loader.dismissed'));
+      wordmarkMask = buildSplashWordmarkMask(canvas, opts.text || 'Junction') || wordmarkMask;
+      if (!splashExit) {
+        syncWordmarkMotion(wordmarkMask);
+        applyWordmarkPhysics();
+      }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = getAnimationBgColor(0.08, opts);
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       drops.forEach(function (drop) {
         drop.ch = Math.random() < 0.16 ? randomSplashChar() : drop.ch;
-        drop.vy -= 0.015 * getAnimSpeed(opts);
+        drop.vy -= 0.015 * getAnimSpeed(opts) * splashGravity;
         drop.vx *= 0.88;
-        drop.vx += (drop.laneX - drop.x) * 0.0025;
+        if (!animConfig.splashRainBounceSides) drop.vx += (drop.laneX - drop.x) * 0.0025;
         var nextX = drop.x + drop.vx * fontSize;
         var nextY = drop.y + drop.vy * fontSize * 0.36 * getAnimSpeed(opts);
-        if (!drop.behind && wordmarkMask && wordmarkMask.hit(nextX, nextY)) {
+        var hit = (!drop.behind && wordmarkMask && wordmarkMask.hitInfo) ? wordmarkMask.hitInfo(nextX, nextY) : null;
+        if (hit) {
+          hitWordmark(drop, hit);
           var side = nextX < wordmarkMask.centerX ? -1 : 1;
           if (drop.y < wordmarkMask.top + wordmarkMask.height * 0.4) {
             nextY = wordmarkMask.top - 1;
-            drop.vy *= -(0.12 + splashBounce * 0.16);
-            drop.vx += side * (0.05 + splashBounce * (0.08 + Math.random() * 0.1));
+            drop.vy *= -(0.16 + splashBounce * 0.2);
+            drop.vx += side * (0.08 + splashCollisionForce * 0.04 + splashBounce * (0.09 + Math.random() * 0.12));
           } else {
-            drop.vx += side * (0.03 + splashBounce * (0.04 + Math.random() * 0.06));
-            nextX += side * fontSize * (0.03 + splashBounce * (0.03 + Math.random() * 0.04));
+            drop.vx += side * (0.05 + splashCollisionForce * 0.03 + splashBounce * (0.05 + Math.random() * 0.07));
+            nextX += side * fontSize * (0.05 + splashCollisionForce * 0.02 + splashBounce * (0.04 + Math.random() * 0.05));
             nextY = drop.y + Math.max(0.3, drop.vy * (0.14 + splashBounce * 0.04));
           }
         }
         drop.x = nextX;
         drop.y = nextY;
-        if (drop.x < -fontSize || drop.x > canvas.width + fontSize || drop.y > canvas.height + fontSize) {
-          resetSplashDrop(drop);
+        if (animConfig.splashRainBounceSides && !splashExit) {
+          if (drop.x < 0) { drop.x = 0; drop.vx = Math.abs(drop.vx) * 0.7; }
+          if (drop.x > canvas.width) { drop.x = canvas.width; drop.vx = -Math.abs(drop.vx) * 0.7; }
+          if (drop.y < -fontSize * 4 || drop.y > canvas.height + fontSize) {
+            resetSplashDrop(drop);
+          }
+        } else {
+          if (drop.x < -fontSize || drop.x > canvas.width + fontSize || drop.y < -fontSize * 4 || drop.y > canvas.height + fontSize) {
+            resetSplashDrop(drop);
+          }
         }
       });
 
       [true].forEach(function (behindLayer) {
         drops.forEach(function (drop) {
-          if (drop.behind !== behindLayer) return;
+          if (drop.behind !== behindLayer || drop.dead) return;
           ctx.globalAlpha = 1;
-          ctx.fillStyle = drop.fill;
+          ctx.fillStyle = (splashExit || dismissing) ? getAnimColor(opts) : drop.fill;
           ctx.font = Math.max(7, Math.round(fontSize * drop.scale)) + 'px monospace';
           ctx.fillText(drop.ch, drop.x, drop.y);
         });
       });
-      drawSplashWordmark(ctx, wordmarkMask, opts);
+      if (!drawSplashExit(ctx, wordmarkMask)) {
+        drawSplashWordmark(ctx, wordmarkMask, opts, wordmarkMotion);
+      }
       [false].forEach(function (behindLayer) {
         drops.forEach(function (drop) {
-          if (drop.behind !== behindLayer) return;
+          if (drop.behind !== behindLayer || drop.dead) return;
           ctx.globalAlpha = 1;
-          ctx.fillStyle = drop.fill;
+          ctx.fillStyle = (splashExit || dismissing) ? getAnimColor(opts) : drop.fill;
           ctx.font = Math.max(7, Math.round(fontSize * drop.scale)) + 'px monospace';
           ctx.fillText(drop.ch, drop.x, drop.y);
         });
@@ -1132,11 +1573,11 @@
 
     var animId = null;
     function draw() {
-      if (canvas.closest && canvas.closest('#startup-loader.dismissed')) return;
       if (opts.isSplash) {
         drawSplashLoader();
         return;
       }
+      if (canvas.closest && canvas.closest('#startup-loader.dismissed')) return;
       ctx.globalCompositeOperation = 'destination-out';
       ctx.fillStyle = getAnimationBgColor(0.08, opts);
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1162,6 +1603,7 @@
   // ── Dispatcher ────────────────────────────────────────────────────────────
   function createAnimatedCanvas(text, opts) {
     opts = opts || {};
+    if (opts.isSplash) opts = Object.assign({}, opts, { loop: true, loaderLoop: true });
     var mode = opts.mode || window._junctionAnimationMode || 'matrix';
     if (opts.loader) {
       var loaderMode = getAnimVal('loaderMode', 'default', opts);
@@ -1170,7 +1612,7 @@
     if (opts.loader) window._activeLoaderContext = true;
     var canvas = null;
     try {
-      if (opts.loader && opts.isSplash && (mode === 'matrix' || mode === 'zalgo')) {
+      if (opts.loader && opts.isSplash) {
         canvas = createMatrixLoader(opts.width, opts.height || 40, Object.assign({}, opts, { splashEffect: mode, text: text || 'Junction' }));
       }
       else if (opts.loader && mode === 'matrix') { canvas = createMatrixLoader(opts.width, opts.height || 40, opts); }
@@ -1200,7 +1642,7 @@
         canvas.style.pointerEvents = 'none';
         canvas.style.background = 'transparent';
       } else {
-        canvas.style.backgroundColor = (opts && opts.isSplash) ? 'var(--vscode-editor-background)' : getAnimationBgColor(undefined, opts);
+        canvas.style.backgroundColor = (opts && opts.isSplash) ? 'transparent' : getAnimationBgColor(undefined, opts);
       }
     }
     return canvas;

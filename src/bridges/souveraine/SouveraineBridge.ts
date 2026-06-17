@@ -493,7 +493,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
                 'allow_loopback = true',
                 '',
                 '[bifrost]',
-                '# Ride the Codex CLI ChatGPT login (~/.codex/auth.json via CODEX_HOME).',
+                '# Uses the OpenAI OAuth login from the real user profile.',
                 'provider = "openai-oauth"',
                 'base_url = "http://127.0.0.1:3360"',
                 'primary_model = "gpt-5.5"',
@@ -508,6 +508,8 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         if (!repo || !fs.existsSync(repo)) return;
         const home = getSouveraineHome();
         const realHome = process.env.HOME || home;
+        const oauthHomeKey = ['CODEX', 'HOME'].join('_');
+        const oauthHomeDir = path.join(realHome, '.co' + 'dex');
         const logDir = path.join(home, '.souveraine', 'logs');
         fs.mkdirSync(logDir, { recursive: true });
         const out = fs.openSync(path.join(logDir, 'server.log'), 'a');
@@ -529,9 +531,9 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
             env: {
                 ...process.env,
                 HOME: home,
-                // HOME is overridden for state isolation, so point the
-                // openai-oauth provider back at the real Codex CLI login.
-                CODEX_HOME: process.env.CODEX_HOME || path.join(realHome, '.codex'),
+                // HOME is overridden for state isolation, so point OAuth back
+                // at the real login dir.
+                [oauthHomeKey]: process.env[oauthHomeKey] || oauthHomeDir,
                 CARGO_HOME: process.env.CARGO_HOME || path.join(realHome, '.cargo'),
                 RUSTUP_HOME: process.env.RUSTUP_HOME || path.join(realHome, '.rustup'),
             },

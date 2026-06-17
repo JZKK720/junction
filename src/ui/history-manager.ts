@@ -192,7 +192,7 @@ export class HistoryManager {
     // ── session list ───────────────────────────────────────────────────────
 
     /**
-     * Partition flat sessions into collapsible groups (Codex-style): the current
+     * Partition flat sessions into collapsible groups: the current
      * workspace folder first + expanded, other folders collapsed, each sorted by
      * recency. Folderless bridges return a single "Recent" group.
      */
@@ -399,7 +399,7 @@ export class HistoryManager {
     // ── transcript rebuild ─────────────────────────────────────────────────
 
     /**
-     * Rebuild full transcript turns from gateway history, shaped like a Codex
+     * Rebuild full transcript turns from gateway history, shaped as a chat
      * transcript: one assistant turn per user→reply cycle.
      */
     rebuildTurnsFromGatewayHistory(messages: any[]): TranscriptTurn[] {

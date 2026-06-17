@@ -107,6 +107,9 @@ html, body {
   position: relative;
   padding: 12px 0;
 }
+.chat-row.assistant:has(> .msg-actions) {
+  padding-top: calc(12px + 26px);
+}
 .chat-row + .chat-row {
   border-top: none;
 }
@@ -338,7 +341,7 @@ textarea[data-has-canvas]::selection {
 .activity-worklog > summary::-webkit-details-marker { display: none; }
 .activity-worklog-label {
   flex: 0 1 auto;
-  font-size: 0.8em;
+  font-size: 0.85em;
   color: var(--vscode-foreground);
 }
 .activity-worklog-toggle {
@@ -402,7 +405,8 @@ textarea[data-has-canvas]::selection {
   transition: opacity 0.12s ease, transform 0.12s ease;
 }
 .chat-row.assistant .msg-actions {
-  right: 0;
+  right: auto;
+  left: 0;
 }
 .chat-row.running .msg-actions {
   display: none !important;
@@ -670,7 +674,7 @@ textarea[data-has-canvas]::selection {
   background: color-mix(in srgb, var(--vscode-textLink-foreground) 12%, transparent);
 }
 
-/* ── Tool action rows (Codex-style) ──────────────────────────────────────── */
+/* ── Tool action rows ─────────────────────────────────────────────────────── */
 .tool-calls {
   display: flex;
   flex-direction: column;
@@ -1117,6 +1121,17 @@ textarea[data-has-canvas]::selection {
 .tool-group-body {
   margin-left: 10px;
   padding-left: 6px;
+}
+
+/* Detail panels: no left-border rail — flatten all tool-pill leaf nesting.
+   Shared by both themes (moved out of accordion mode so timeline inherits it
+   too) so pill children render as clean leaf rows in every layout. */
+#chat-messages .tool-detail,
+#chat-messages .tool-group-body,
+#chat-messages .file-group .tool-group-body {
+  margin-left: 0;
+  border-left: none;
+  padding-left: 0;
 }
 
 /* ── Condensed file groups ─────────────────────────────────────────────── */

@@ -30,7 +30,7 @@ export interface GatewayCommand {
 // ────────────────────────────────────────
 
 export class CommandPalette {
-  private commands: GatewayCommand[] = [];
+  private commands: GatewayCommand[] = mergeCommands([]);
   private logger: Logger;
 
   constructor() {
@@ -78,8 +78,8 @@ export class CommandPalette {
 
     return this.commands.filter(
       (c) =>
-        c.name.startsWith(q) ||
-        c.aliases?.some((a) => a.startsWith(q)),
+        c.name.toLowerCase().startsWith(q) ||
+        c.aliases?.some((a) => a.toLowerCase().startsWith(q)),
     );
   }
 
@@ -109,11 +109,13 @@ interface RawCommand {
 function normalizeCommand(raw: unknown): GatewayCommand | null {
   const c = raw as RawCommand;
   if (!c?.name) return null;
+  const name = String(c.name).replace(/^\/+/, '');
+  if (!name) return null;
 
   return {
-    name: c.name,
+    name,
     description: c.description,
-    aliases: c.aliases ?? [],
+    aliases: (c.aliases ?? []).map((a) => String(a).replace(/^\/+/, '')).filter(Boolean),
     args: (c.args ?? []).map((a) => ({
       name: a.name ?? '',
       description: a.description,

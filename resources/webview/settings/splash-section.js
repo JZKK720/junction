@@ -2,10 +2,46 @@
    splash-section.js — Splash/bobber settings panel
    ==========================================================================
    Builds splash settings DOM and registers sync functions.
+   Per-mode exit sliders swap when the dropdown changes.
+   Non-exit settings split into two collapsible accordions.
    Exports: window.buildSplashSection()
    ========================================================================== */
 (function () {
   'use strict';
+
+  /* ---- per-mode slider definitions ----
+     Each mode lists only the sliders it actually uses.
+     Duration is always included. 'random' gets all sliders. */
+  var MODE_SLIDERS = {
+    'random':             ['Force','Spread','Speed','Chaos'],
+    'spiral-out':         ['Spread','Speed'],
+    'spiral-in':          ['Speed','Radius','Length'],
+    'explode':            ['Speed','Force'],
+    'explode2':           ['Speed','E2 Force','E2 Chaos','H Scale','V Scale'],
+    'float-away':         ['Speed','Force','Spread','Chaos'],
+    'horizontal-flatten': ['Speed','Spread','Hold ms'],
+    'explode-weak':       ['Speed','Force'],
+    'starwars-crawl':     ['Speed','Target Y'],
+    'explode3':           ['Speed','Chaos','Mom X','Mom Y'],
+    'rain-push':          ['Speed','Force']
+  };
+
+  var SLIDER_DEFS = {
+    'Force':    { key: 'splashExitForce',    min: 0.1, max: 4,   step: 0.1, fallback: 1.0 },
+    'Spread':   { key: 'splashExitSpread',   min: 0.1, max: 20,  step: 0.1, fallback: 1.0 },
+    'Speed':    { key: 'splashExitSpeed',    min: 0.1, max: 4,   step: 0.1, fallback: 1.0 },
+    'Chaos':    { key: 'splashExitChaos',    min: 0,   max: 4,   step: 0.1, fallback: 1.0 },
+    'Mom X':    { key: 'splashExitMomentumX', min: 0,   max: 4,   step: 0.1, fallback: 1.0 },
+    'Mom Y':    { key: 'splashExitMomentumY', min: 0,   max: 4,   step: 0.1, fallback: 1.0 },
+    'Target Y': { key: 'splashExitStarwarsTargetY', min: -100, max: 100, step: 1, fallback: 0 },
+    'Radius':   { key: 'splashExitSpiralRadius', min: 0.1, max: 4,   step: 0.1, fallback: 1.0 },
+    'Length':   { key: 'splashExitSpiralLength', min: 0,   max: 2,   step: 0.05, fallback: 1.0 },
+    'E2 Force': { key: 'splashExitExplode2Force', min: 0.1, max: 4,   step: 0.1, fallback: 1.0 },
+    'E2 Chaos': { key: 'splashExitExplode2Chaos', min: 0,   max: 4,   step: 0.1, fallback: 0 },
+    'H Scale':  { key: 'splashExitExplode2HScale', min: 0,   max: 4,   step: 0.1, fallback: 1.0 },
+    'V Scale':  { key: 'splashExitExplode2VScale', min: 0,   max: 4,   step: 0.1, fallback: 1.0 },
+    'Hold ms':  { key: 'splashExitFlattenHold', min: 0,   max: 100, step: 1,   fallback: 0 }
+  };
 
   window.buildSplashSection = function () {
     var section = document.createElement('div');
@@ -16,10 +52,10 @@
       if (typeof window.saveAnimSettings === 'function') window.saveAnimSettings();
     }
 
-    function makeRow() {
+    function makeRow(parent) {
       var row = document.createElement('div');
       row.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px;';
-      section.appendChild(row);
+      (parent || section).appendChild(row);
       return row;
     }
 
@@ -80,9 +116,47 @@
       return btn;
     }
 
-    var colorRow = makeRow();
+    /* ---- accordion helper ---- */
+    function makeAccordion(title, startOpen) {
+      var wrapper = document.createElement('div');
+      wrapper.style.cssText = 'margin-bottom:6px;border:1px solid var(--vscode-widget-border, transparent);border-radius:4px;overflow:hidden;';
 
-    // Custom color toggle for splash
+      var header = document.createElement('div');
+      header.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;cursor:pointer;user-select:none;background:var(--vscode-editor-background);';
+      var arrow = document.createElement('span');
+      arrow.style.cssText = 'font-size:9px;transition:transform 0.15s;color:var(--vscode-descriptionForeground);';
+      var titleSpan = document.createElement('span');
+      titleSpan.textContent = title;
+      titleSpan.style.cssText = 'font-size:10px;font-weight:600;color:var(--vscode-editor-foreground);';
+      header.appendChild(arrow);
+      header.appendChild(titleSpan);
+
+      var body = document.createElement('div');
+      body.style.cssText = 'padding:6px 8px;display:' + (startOpen ? 'block' : 'none') + ';';
+      arrow.style.transform = startOpen ? 'rotate(90deg)' : 'rotate(0deg)';
+
+      var open = !!startOpen;
+      header.addEventListener('click', function () {
+        open = !open;
+        body.style.display = open ? 'block' : 'none';
+        arrow.style.transform = open ? 'rotate(90deg)' : 'rotate(0deg)';
+      });
+
+      wrapper.appendChild(header);
+      wrapper.appendChild(body);
+      section.appendChild(wrapper);
+
+      return { wrapper: wrapper, header: header, body: body };
+    }
+
+    /* ============================================================
+       ACCORDION 1 — Appearance
+       ============================================================ */
+    var appearance = makeAccordion('Appearance', true);
+    var appBody = appearance.body;
+
+    var colorRow = makeRow(appBody);
+
     var splashCustomBtn = document.createElement('button');
     splashCustomBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:9px;border:1px solid var(--vscode-input-border);';
     function syncSplashCustom() {
@@ -148,11 +222,114 @@
     window.settingsSyncFunctions.push(syncSplashColorVisibility);
 
     makeSlider(colorRow, 'Length', 'splashLength', 1, 10, 0.5, 1.0, 64);
-    makeSlider(colorRow, 'Fade', 'splashFade', 0.1, 3, 0.1, 0.3, 64);
+    makeSlider(colorRow, 'Bg delay', 'splashBackgroundFadeDelay', 0, 5, 0.1, 0, 64);
+    makeSlider(colorRow, 'Bg fade', 'splashBackgroundFade', 0.1, 5, 0.1, 0.3, 64);
+    makeSlider(colorRow, 'Rain exit', 'splashCanvasExitDuration', 0.2, 6, 0.1, 1.2, 64);
     makeToggle(colorRow, 'splashDisabled', 'OFF', 'ON', 'Splash');
-    makeToggle(colorRow, 'splashFadeOnChatLoad', 'ON', 'OFF', 'Fade on chat');
+    makeToggle(colorRow, 'splashAutoClose', 'ON', 'OFF', 'Auto-close');
 
-    var charsetRow = makeRow();
+    var rainRow = makeRow(appBody);
+    var rainDirBtn = document.createElement('button');
+    rainDirBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);';
+    function syncRainDir() {
+      var down = !!window.animConfig.splashRainDown;
+      rainDirBtn.textContent = 'Rain ' + (down ? '\u25BC' : '\u25B2');
+      rainDirBtn.style.background = 'var(--vscode-input-background)';
+      rainDirBtn.style.color = 'var(--vscode-editor-foreground)';
+    }
+    rainDirBtn.addEventListener('click', function () {
+      window.animConfig.splashRainDown = !window.animConfig.splashRainDown;
+      syncRainDir();
+      saveAndRefresh(window.refreshPreview);
+    });
+    rainRow.appendChild(rainDirBtn);
+    syncRainDir();
+
+    var revWrap = document.createElement('div');
+    revWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:4px;';
+    var revLbl = document.createElement('span');
+    revLbl.textContent = 'Reverse %';
+    revLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
+    var revInput = document.createElement('input');
+    revInput.type = 'number';
+    revInput.min = '0';
+    revInput.max = '100';
+    revInput.step = '0.0001';
+    revInput.style.cssText = 'width:72px;font-size:10px;background:var(--vscode-input-background);color:var(--vscode-editor-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;padding:2px 4px;';
+    revInput.addEventListener('input', function () {
+      var v = Math.max(0, Math.min(100, parseFloat(this.value) || 0));
+      window.animConfig.splashRainReverseChance = v;
+      saveAndRefresh(window.refreshPreview);
+    });
+    revWrap.appendChild(revLbl);
+    revWrap.appendChild(revInput);
+    rainRow.appendChild(revWrap);
+
+    var bounceBtn = document.createElement('button');
+    bounceBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);margin-left:4px;';
+    function syncBounceSides() {
+      var on = !!window.animConfig.splashRainBounceSides;
+      bounceBtn.textContent = 'Bounce sides';
+      bounceBtn.style.background = on ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
+      bounceBtn.style.color = on ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
+    }
+    bounceBtn.addEventListener('click', function () {
+      window.animConfig.splashRainBounceSides = !window.animConfig.splashRainBounceSides;
+      syncBounceSides();
+      saveAndRefresh(window.refreshPreview);
+    });
+    rainRow.appendChild(bounceBtn);
+
+    window.settingsSyncFunctions.push(syncRainDir);
+    window.settingsSyncFunctions.push(syncBounceSides);
+    window.settingsSyncFunctions.push(function () {
+      revInput.value = window.animConfig.splashRainReverseChance !== undefined ? window.animConfig.splashRainReverseChance : 0.0001;
+    });
+
+    var emojiRow = makeRow(appBody);
+    var emojiToggle = document.createElement('button');
+    emojiToggle.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);';
+    function syncEmojiToggle() {
+      var on = !!window.animConfig.splashEmojiMix;
+      emojiToggle.textContent = 'Emoji chance';
+      emojiToggle.style.background = on ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
+      emojiToggle.style.color = on ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
+      emojiInputWrap.style.display = on ? 'flex' : 'none';
+    }
+    emojiToggle.addEventListener('click', function () {
+      window.animConfig.splashEmojiMix = !window.animConfig.splashEmojiMix;
+      syncEmojiToggle();
+      saveAndRefresh(window.refreshPreview);
+    });
+    emojiRow.appendChild(emojiToggle);
+
+    var emojiInputWrap = document.createElement('div');
+    emojiInputWrap.style.cssText = 'display:none;align-items:center;gap:4px;margin-left:4px;';
+    var emojiLbl = document.createElement('span');
+    emojiLbl.textContent = '1/';
+    emojiLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
+    var emojiInput = document.createElement('input');
+    emojiInput.type = 'number';
+    emojiInput.min = '1';
+    emojiInput.step = '1';
+    emojiInput.style.cssText = 'width:64px;font-size:10px;background:var(--vscode-input-background);color:var(--vscode-editor-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;padding:2px 4px;';
+    emojiInput.addEventListener('input', function () {
+      var v = Math.max(1, Math.round(parseFloat(this.value) || 100));
+      window.animConfig.splashEmojiRarity = v;
+      this.value = v;
+      saveAndRefresh(window.refreshPreview);
+    });
+    emojiInputWrap.appendChild(emojiLbl);
+    emojiInputWrap.appendChild(emojiInput);
+    emojiRow.appendChild(emojiInputWrap);
+
+    window.settingsSyncFunctions.push(syncEmojiToggle);
+    window.settingsSyncFunctions.push(function () {
+      emojiInput.value = Math.max(1, Math.round(window.animConfig.splashEmojiRarity || 100));
+    });
+    syncEmojiToggle();
+
+    var charsetRow = makeRow(appBody);
     var presetWrap = document.createElement('div');
     presetWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
     var presetLbl = document.createElement('span');
@@ -167,6 +344,7 @@
       ['hiragana', 'Hiragana'],
       ['cjk', 'CJK'],
       ['hangul', 'Hangul'],
+      ['emoji', 'Emoji'],
       ['binary', 'Binary'],
       ['symbols', 'Symbols'],
       ['custom', 'Custom only']
@@ -201,20 +379,96 @@
     extraWrap.appendChild(extraInput);
     charsetRow.appendChild(extraWrap);
 
-    var motionRow = makeRow();
+    /* ============================================================
+       ACCORDION 2 — Motion / Physics
+       ============================================================ */
+    var motion = makeAccordion('Motion', true);
+    var motBody = motion.body;
+
+    var motionRow = makeRow(motBody);
     makeSlider(motionRow, 'Quantity', 'splashQuantity', 0.4, 4, 0.1, 1.4, 72);
+    makeSlider(motionRow, 'Variety', 'splashCharVariety', 0.05, 1, 0.05, 1.0, 72);
     makeSlider(motionRow, 'Opacity min', 'splashMinOpacity', 0.05, 1, 0.05, 0.2, 72);
     makeSlider(motionRow, 'Opacity max', 'splashMaxOpacity', 0.05, 1, 0.05, 0.9, 72);
     makeSlider(motionRow, 'Size var', 'splashSizeVariance', 0, 1.4, 0.05, 0.45, 72);
     makeSlider(motionRow, 'Color var', 'splashColorVariance', 0, 1, 0.05, 0.32, 72);
+    makeSlider(motionRow, 'Gravity', 'splashGravity', 0.1, 4, 0.1, 1.0, 72);
     makeSlider(motionRow, 'Bounce', 'splashBounce', 0, 3, 0.1, 1.1, 72);
+    makeSlider(motionRow, 'Collision', 'splashCollisionForce', 0, 4, 0.1, 1.4, 72);
+    makeSlider(motionRow, 'Logo light', 'splashLogoLightness', 0.1, 4, 0.1, 1.0, 72);
     makeSlider(motionRow, 'Junction', 'splashWordmarkScale', 0.6, 2.4, 0.05, 1.0, 72, function () {
       if (typeof window.applySplashWordmarkScale === 'function') window.applySplashWordmarkScale();
     });
 
+    /* ============================================================
+       EXIT MODE — dropdown + per-mode slider row
+       ============================================================ */
+    var exitRow = makeRow();
+    var exitWrap = document.createElement('div');
+    exitWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
+    var exitLbl = document.createElement('span');
+    exitLbl.textContent = 'Exit:';
+    exitLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:56px;';
+    var exitSelect = document.createElement('select');
+    exitSelect.style.cssText = 'font-size:10px;background:var(--vscode-input-background);color:var(--vscode-editor-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;padding:1px 4px;cursor:pointer;';
+    [
+      ['random', 'Random'],
+      ['spiral-out', 'Spiral out'],
+      ['spiral-in', 'Spiral in'],
+      ['explode', 'Explode'],
+      ['explode2', 'Explode 2'],
+      ['float-away', 'Float away'],
+      ['horizontal-flatten', 'Horizontal flatten'],
+      ['explode-weak', 'Explode weak'],
+      ['starwars-crawl', 'Starwars crawl'],
+      ['explode3', 'Explode 3 pixels'],
+      ['rain-push', 'Rain push']
+    ].forEach(function (entry) {
+      var opt = document.createElement('option');
+      opt.value = entry[0];
+      opt.textContent = entry[1];
+      exitSelect.appendChild(opt);
+    });
+    exitWrap.appendChild(exitLbl);
+    exitWrap.appendChild(exitSelect);
+    exitRow.appendChild(exitWrap);
+
+    /* Per-mode slider container — swapped on dropdown change */
+    var exitSliderRow = document.createElement('div');
+    exitSliderRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px;margin-left:64px;';
+    section.appendChild(exitSliderRow);
+
+    var exitSliderEls = {};   // label -> { wrap, input, value, sync }
+
+    function buildExitSliders(mode) {
+      /* clear existing */
+      while (exitSliderRow.firstChild) exitSliderRow.removeChild(exitSliderRow.firstChild);
+      exitSliderEls = {};
+
+      var labels = MODE_SLIDERS[mode] || MODE_SLIDERS['random'];
+      labels.forEach(function (label) {
+        var def = SLIDER_DEFS[label];
+        if (!def) return;
+        var els = makeSlider(exitSliderRow, label, def.key, def.min, def.max, def.step, def.fallback, 72);
+        exitSliderEls[label] = els;
+      });
+    }
+
+    exitSelect.addEventListener('change', function () {
+      window.animConfig.splashExitMode = this.value;
+      buildExitSliders(this.value);
+      saveAndRefresh(window.refreshPreview);
+    });
+
+    /* initial build */
+    buildExitSliders(window.animConfig.splashExitMode || 'random');
+
+    /* ---- sync functions ---- */
     window.syncSplashConfig = function () {
       presetSelect.value = window.animConfig.splashCharsetPreset || 'katakana';
+      exitSelect.value = window.animConfig.splashExitMode || 'random';
       extraInput.value = window.animConfig.splashCharsetCustom || '';
+      buildExitSliders(exitSelect.value);
       if (typeof window.applySplashWordmarkScale === 'function') window.applySplashWordmarkScale();
     };
 

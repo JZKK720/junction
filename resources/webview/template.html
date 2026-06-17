@@ -17,8 +17,8 @@
   <link rel="stylesheet" href="${CODICON_CSS_URI}">
   <link rel="stylesheet" href="${CHAT_CSS_URI}">
   <!-- Startup chrome: inline so it paints before the module CSS/JS arrive
-       (pattern from the Codex/Claude Code webviews — instant feedback, and a
-       visible error instead of a blank panel if boot fails). -->
+       (instant feedback, and a visible error instead of a blank panel if boot
+       fails). -->
   <style>
     #startup-loader {
       position: fixed;
@@ -26,10 +26,19 @@
       z-index: 1000;
       display: block;
       overflow: hidden;
-      background: var(--vscode-sideBar-background, var(--vscode-editor-background));
-      transition: opacity 160ms ease-out;
+      background: transparent;
+      transition: opacity var(--junction-splash-fade-duration, 160ms) ease-out;
     }
-    #startup-loader.dismissed { opacity: 0; pointer-events: none; }
+    #startup-loader::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+      opacity: 1;
+      transition: opacity var(--junction-splash-fade-duration, 160ms) ease-out;
+    }
+    #startup-loader.dismissed { pointer-events: none; }
+    #startup-loader.dismissed::before { opacity: 0; }
     #startup-matrix {
       position: absolute;
       inset: 0;
@@ -38,6 +47,43 @@
       height: 100%;
       margin: 0;
       opacity: 1;
+    }
+    #startup-loader.loaded {
+      cursor: pointer;
+    }
+    #startup-start-prompt {
+      position: absolute;
+      left: 50%;
+      bottom: clamp(24px, 12vh, 96px);
+      z-index: 2;
+      transform: translateX(-50%);
+      color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: clamp(12px, 1.4vw, 16px);
+      font-weight: 600;
+      letter-spacing: 0;
+      text-transform: lowercase;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease-out;
+      animation: startup-prompt-throb 1.35s ease-in-out infinite;
+    }
+    #startup-loader.loaded #startup-start-prompt {
+      opacity: 0.88;
+    }
+    #startup-loader.dismissed #startup-start-prompt {
+      opacity: 1;
+      transition: none;
+      animation: none;
+    }
+    @keyframes startup-prompt-throb {
+      0%, 100% { opacity: 0.42; transform: translateX(-50%) scale(0.985); }
+      50% { opacity: 1; transform: translateX(-50%) scale(1.015); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #startup-start-prompt {
+        animation: none;
+      }
     }
     #boot-error {
       font-family: var(--vscode-editor-font-family, monospace);
@@ -59,6 +105,7 @@
        here instead of leaving a silent blank panel. -->
   <div id="startup-loader" aria-hidden="true">
     <canvas id="startup-matrix" width="240" height="36"></canvas>
+    <div id="startup-start-prompt">push any to start</div>
   </div>
   <pre id="boot-error"></pre>
 
@@ -137,7 +184,7 @@
           <span class="attach-files-label">Attach files</span>
           <span class="codicon codicon-chevron-down"></span>
         </button>
-        <!-- Environment switcher: bridge/runtime + agent (bottom-left, Codex "work locally" analog) -->
+        <!-- Environment switcher: bridge/runtime + agent (bottom-left "work locally" slot) -->
         <button id="env-switcher" class="env-switcher" title="Switch bridge / agent">
           <span class="codicon codicon-server-environment"></span>
           <span id="env-switcher-label">local</span>
@@ -260,13 +307,18 @@
           };
         }
         function draw() {
-          if (canvas.classList && canvas.closest('#startup-loader.dismissed')) return;
+          if (canvas._stopStartupDraw) return;
+          var dismissing = !!(canvas.classList && canvas.closest('#startup-loader.dismissed'));
           resize();
           var title = titleSpec();
-          ctx.globalAlpha = 0.08;
-          var loader = document.getElementById('startup-loader');
-          ctx.fillStyle = (loader ? getComputedStyle(loader).backgroundColor : '') || themedColor('--vscode-sideBar-background', '--vscode-editor-background');
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          if (dismissing) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+          } else {
+            ctx.globalAlpha = 0.08;
+            var loader = document.getElementById('startup-loader');
+            ctx.fillStyle = (loader ? getComputedStyle(loader).backgroundColor : '') || themedColor('--vscode-sideBar-background', '--vscode-editor-background');
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          }
           ctx.fillStyle = themedColor('--vscode-foreground', '--vscode-descriptionForeground');
           ctx.font = fontSize + 'px monospace';
           for (var i = 0; i < drops.length; i++) {

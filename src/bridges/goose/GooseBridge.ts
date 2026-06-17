@@ -6,14 +6,24 @@ import { spawn, type ChildProcess } from 'child_process';
 import { jsonRequest, streamSse, textRequest } from '../http';
 import {
     BridgeCapabilities, BridgeContext, BridgeSelectionState,
-    BridgeSession, ChatBridge, ChoiceMenuItem,
-    ModelChoice, ToolStatusView,
+    BridgeSession, ChatBridge, ChoiceMenuItem, HistoryMessage,
+    ModelChoice, ToolStatusView, OPENCLAW_THINKING_LEVELS,
 } from '../types';
 import { Logger } from '../../utils/logger';
 import { mapGooseSseEvent, GooseMapperState } from './events';
 
 function gooseConfig(): vscode.WorkspaceConfiguration {
     return vscode.workspace.getConfiguration('junction.goose');
+}
+
+function gooseSecretKey(): string {
+    return (gooseConfig().get<string>('secretKey') || '').trim();
+}
+
+/** goosed routes accept an optional X-Secret-Key; harmless when unset/ACP. */
+function gooseHeaders(): Record<string, string> {
+    const key = gooseSecretKey();
+    return key ? { 'x-secret-key': key } : {};
 }
 
 function gooseHome(): string {
@@ -49,7 +59,7 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
     readonly label = 'Goose';
     readonly capabilities: BridgeCapabilities = {
         sessions: true,
-        models: false,
+        models: true,
         agents: false,
         steering: false,
         usage: false,
@@ -63,6 +73,7 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
     private selection: BridgeSelectionState = {};
     private knownSessions = new Map<string, { title: string }>();
     private mapperState: GooseMapperState = { reasoningParts: new Set(), textAccum: new Map() };
+    private commandCache: Array<{ name: string; description?: string }> = [];
 
     constructor(readonly context: vscode.ExtensionContext) {
         super();
@@ -92,8 +103,19 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
             return false;
         }
 
+        this.loadCommands().catch(() => {});
         this.emit('connected');
         return true;
+    }
+
+    private async loadCommands(): Promise<void> {
+        try {
+            const wd = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            const url = `${this.baseUrl}/config/slash_commands` + (wd ? `?working_dir=${encodeURIComponent(wd)}` : '');
+            const res: any = await jsonRequest(url, { headers: gooseHeaders(), timeoutMs: 3000 });
+            const cmds: any[] = res?.commands || [];
+            this.commandCache = cmds.map((c) => ({ name: String(c.command || '').replace(/^\//, ''), description: c.help }));
+        } catch { /* ACP server or unavailable; leave cache empty */ }
     }
 
     disconnect(): void {
@@ -139,7 +161,7 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
 
     async createChat(_folderUri?: vscode.Uri): Promise<string> {
         try {
-            const res: any = await jsonRequest(`${this.baseUrl}/v1/sessions`, { method: 'POST', body: {} });
+            const res: any = await jsonRequest(`${this.baseUrl}/v1/sessions`, { method: 'POST', headers: gooseHeaders(), body: {} });
             const id = res?.id || res?.session_id || `goose-${Date.now()}`;
             this.activeSessionId = id;
             this.knownSessions.set(id, { title: 'New chat' });
@@ -164,7 +186,36 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
         if (entry) { entry.title = label; this.persistSessions(); }
     }
 
-    async getSessionHistory(limit?: number): Promise<any[]> { return []; }
+    async getSessionHistory(_limit?: number): Promise<HistoryMessage[]> {
+        const id = this.activeSessionId;
+        if (!id) return [];
+        try {
+            const res: any = await jsonRequest(`${this.baseUrl}/sessions/${encodeURIComponent(id)}`, { headers: gooseHeaders(), timeoutMs: 6000 });
+            const msgs: any[] = res?.messages || res?.conversation?.messages || res?.session?.messages || [];
+            const out: HistoryMessage[] = [];
+            for (const m of msgs) {
+                const role = m.role === 'user' ? 'user' : 'assistant';
+                const text = Array.isArray(m.content)
+                    ? m.content.map((c: any) => (typeof c === 'string' ? c : (c.text || c.Text || ''))).join('')
+                    : String(m.content || '');
+                if (!text) continue;
+                if (role === 'user') out.push({ role: 'user', content: text });
+                else out.push({ role: 'assistant', content: [{ type: 'text', text }] });
+            }
+            return out;
+        } catch { return []; }
+    }
+
+    async forkChat(parentSessionKey: string): Promise<string | null> {
+        try {
+            const res: any = await jsonRequest(`${this.baseUrl}/sessions/${encodeURIComponent(parentSessionKey)}/fork`, { method: 'POST', headers: gooseHeaders(), body: {} });
+            const id = res?.id || res?.session_id;
+            if (!id) return null;
+            this.knownSessions.set(id, { title: 'Fork' });
+            this.persistSessions();
+            return id;
+        } catch { return null; }
+    }
 
     async sendChatMessage(message: string, context?: BridgeContext): Promise<any> {
         const sessionId = this.activeSessionId || await this.createChat();
@@ -178,6 +229,7 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
                 `${this.baseUrl}/v1/sessions/${sessionId}/messages`,
                 {
                     method: 'POST',
+                    headers: gooseHeaders(),
                     body: { role: 'user', content: message },
                     timeoutMs: 300000,
                 },
@@ -211,8 +263,48 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
 
     setSelection(selection: BridgeSelectionState): void { this.selection = selection; }
 
-    async listModelChoices(): Promise<ModelChoice[]> { return []; }
-    async selectModelChoice(): Promise<any> {}
+    async listModelChoices(selectedModel?: string, selectedThinking?: string): Promise<ModelChoice[]> {
+        let providers: any[] = [];
+        try {
+            providers = await jsonRequest(`${this.baseUrl}/config/providers`, { headers: gooseHeaders(), timeoutMs: 4000 }) || [];
+        } catch { return []; }
+        const choices: ModelChoice[] = [];
+        for (const p of providers) {
+            if (p.is_configured === false) continue;
+            const provName = p.name || p.metadata?.name;
+            const models = p.metadata?.known_models || [];
+            for (const m of models) {
+                const id = `${provName}/${m.name}`;
+                const reasoning = !!m.reasoning;
+                const choice: ModelChoice = {
+                    id, label: m.name, description: p.metadata?.display_name || provName,
+                    provider: provName, model: m.name, supportsReasoning: reasoning,
+                    icon: 'lightbulb', checked: selectedModel === id,
+                };
+                if (reasoning) {
+                    choice.children = OPENCLAW_THINKING_LEVELS.map((level) => ({
+                        id: `${id}:thinking:${level}`, label: level, icon: 'thinking', thinking: level,
+                        checked: selectedThinking === level && selectedModel === id,
+                    }));
+                }
+                choices.push(choice);
+            }
+        }
+        return choices;
+    }
+
+    async selectModelChoice(data: any): Promise<{ display: string; modelId: string; thinking?: string } | null> {
+        const provider = String(data.provider ?? '');
+        const model = String(data.model ?? data.id ?? '').replace(/:thinking:.*$/, '').replace(/^.*\//, '');
+        if (!model) return null;
+        const modelId = provider ? `${provider}/${model}` : model;
+        const thinking = data.thinking !== undefined ? String(data.thinking) : this.selection.thinking;
+        this.setSelection({ ...this.selection, modelId, thinking });
+        if (provider) {
+            jsonRequest(`${this.baseUrl}/config/set_provider`, { method: 'POST', headers: gooseHeaders(), body: { provider, model } }).catch(() => {});
+        }
+        return { display: String(data.label ?? model), modelId, thinking };
+    }
 
     async listEnvironmentChoices(): Promise<ChoiceMenuItem[]> {
         const connected = this.isConnected();
@@ -253,7 +345,10 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
         return dirName;
     }
 
-    getSlashSuggestions(_prefix: string): Array<{ name: string; description?: string }> { return []; }
+    getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }> {
+        const p = prefix.replace(/^\//, '').toLowerCase();
+        return this.commandCache.filter((c) => !p || c.name.toLowerCase().startsWith(p));
+    }
 
     getToolStatus(): ToolStatusView | null { return null; }
 }

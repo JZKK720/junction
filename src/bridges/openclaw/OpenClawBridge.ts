@@ -74,7 +74,7 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
 
     async initializeWorkspace(): Promise<void> {
         await this.sessionManager.initializeFolderSessions();
-        await this.commandPalette.load(this.gateway).catch((e) => Logger.getInstance().error('commandPalette.load failed', e));
+        await this.commandPalette.load(this.gateway, this.selection.agentId || 'main').catch((e) => Logger.getInstance().error('commandPalette.load failed', e));
         await this.toolStatusManager.load(this.gateway).catch((e) => Logger.getInstance().error('toolStatusManager.load failed', e));
     }
 
@@ -98,7 +98,7 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
             title: 'OpenClaw config path',
             prompt: 'Optional openclaw.json path for this runtime',
             value: getOpenClawConfigPath(),
-            placeHolder: '/home/e/entities/ling/openclaw.json',
+            placeHolder: '~/.openclaw/openclaw.json',
         }) ?? '';
         if (targetUrl === current && targetConfigPath === getOpenClawConfigPath()) return;
 
@@ -506,7 +506,8 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         try { return new URL(url.replace(/^ws/, 'http')).port || ''; } catch { return ''; }
     }
 
-    getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }> {
+    async getSlashSuggestions(prefix: string): Promise<Array<{ name: string; description?: string }>> {
+        await this.commandPalette.load(this.gateway, this.selection.agentId || 'main').catch((e) => Logger.getInstance().error('commandPalette.load failed', e));
         return this.commandPalette.getSuggestions(prefix);
     }
 

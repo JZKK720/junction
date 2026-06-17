@@ -1,0 +1,37 @@
+/* ==========================================================================
+   good-fonts.css — optional "Good Fonts" pack.
+
+   Two bundled faces, loaded relative to this stylesheet (same approach as
+   codicon.css). The @font-face declarations load unconditionally so the splash
+   wordmark can use Comic Neue regardless of the toggle; the font *overrides*
+   only apply under body.good-fonts (driven by the junction.goodFonts setting).
+   ========================================================================== */
+
+@font-face {
+  font-family: "Junction Comic Neue";
+  font-display: swap;
+  src: url("./ComicNeue-Regular.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Junction Comic Mono";
+  font-display: swap;
+  src: url("./LigaComicMono.ttf") format("truetype");
+}
+
+/* When Good Fonts is on, override the regular (sans) and monospace families.
+   Most UI text reads --vscode-font-family / --vscode-editor-font-family, so
+   redefining the vars cascades to the whole webview. */
+body.good-fonts {
+  --vscode-font-family: "Junction Comic Neue", var(--vscode-font-family, sans-serif), sans-serif;
+  --vscode-editor-font-family: "Junction Comic Mono", var(--vscode-editor-font-family, monospace), monospace;
+}
+
+/* Catch elements that hardcode a monospace stack instead of the var. */
+body.good-fonts code,
+body.good-fonts pre,
+body.good-fonts .tool-target.mono,
+body.good-fonts .code-editor-body,
+body.good-fonts .msg-text code {
+  font-family: "Junction Comic Mono", var(--vscode-editor-font-family, monospace), monospace;
+}

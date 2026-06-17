@@ -38,6 +38,7 @@ export function buildWebviewHtml(
 
     // Component stylesheets beyond tokens/codicon (those have own placeholders).
     const cssFiles = [
+        'good-fonts.css',
         'view-router.css', 'choice-menu.css', 'chat-header.css', 'session-list.css',
         'attached-files-bar.css', 'composer.css', 'chat-stream.css',
         'activity-accordion.css', 'activity-timeline.css',

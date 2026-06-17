@@ -16,39 +16,101 @@
 
 // ── Startup loader dismissal (first real view wins) ────────────
 
-var splashStartTime = Date.now();
 var splashDismissed = false;
+var splashInputBound = false;
+var splashRareInputEaten = false;
+var SPLASH_RARE_INPUT_EAT_CHANCE = 0.00001; // 0.001%
+var splashExitModes = ['spiral-out', 'spiral-in', 'explode', 'explode2', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3'];
 
-function dismissStartupLoader(triggeredByChatLoad) {
+function ensureStartupPrompt(loader) {
+  var prompt = document.getElementById('startup-start-prompt');
+  if (!prompt && loader) {
+    prompt = document.createElement('div');
+    prompt.id = 'startup-start-prompt';
+    prompt.textContent = 'push any to start';
+    loader.appendChild(prompt);
+  }
+  return prompt;
+}
+
+function finishStartupLoader() {
   var loader = document.getElementById('startup-loader');
   if (!loader || loader.classList.contains('dismissed') || splashDismissed) return;
-
   var animConfig = window.animConfig || {};
-  var isDisabled = !!animConfig.splashDisabled;
-  var fadeOnChatLoad = !!animConfig.splashFadeOnChatLoad;
+  splashDismissed = true;
+  var selectedMode = animConfig.splashExitMode || 'random';
+  var exitMode = selectedMode === 'random'
+    ? splashExitModes[Math.floor(Math.random() * splashExitModes.length)]
+    : selectedMode;
+  var canvas = loader.querySelector('canvas');
+  if (canvas && typeof canvas._startSplashExit === 'function') {
+    try { canvas._startSplashExit({ mode: exitMode }); } catch (e) {}
+  }
+  loader.setAttribute('data-splash-exit-mode', exitMode);
+  loader.style.pointerEvents = 'none';
+  var splashFade = animConfig.splashBackgroundFade !== undefined
+    ? parseFloat(animConfig.splashBackgroundFade)
+    : (animConfig.splashFade !== undefined ? parseFloat(animConfig.splashFade) : 0.3);
+  if (!isFinite(splashFade)) splashFade = 0.3;
+  var splashDelay = animConfig.splashBackgroundFadeDelay !== undefined ? parseFloat(animConfig.splashBackgroundFadeDelay) : 0;
+  if (!isFinite(splashDelay)) splashDelay = 0;
+  splashDelay = Math.max(0, splashDelay);
+  loader.style.setProperty('--junction-splash-fade-duration', (splashFade * 1000) + 'ms');
+  setTimeout(function () {
+    loader.classList.add('dismissed');
+  }, splashDelay * 1000);
+  function cleanupWhenExitComplete() {
+    var fadeDoneAt = (splashDelay + splashFade) * 1000;
+    var startedAt = Date.now();
+    function tick() {
+      var fadeDone = Date.now() - startedAt >= fadeDoneAt;
+      var exitDone = !canvas || typeof canvas._isSplashExitComplete !== 'function' || canvas._isSplashExitComplete();
+      if (!fadeDone || !exitDone) {
+        setTimeout(tick, 80);
+        return;
+      }
+      if (!loader.parentNode) return;
+      if (canvas && typeof canvas._stopAnimation === 'function') {
+        try { canvas._stopAnimation(); } catch (e) {}
+      }
+      loader.remove();
+    }
+    tick();
+  }
+  cleanupWhenExitComplete();
+}
 
-  if (fadeOnChatLoad && !triggeredByChatLoad) {
+function bindStartupInput(loader) {
+  if (splashInputBound) return;
+  splashInputBound = true;
+  function handleStartupInput() {
+    if (!splashRareInputEaten && Math.random() < SPLASH_RARE_INPUT_EAT_CHANCE) {
+      splashRareInputEaten = true;
+      loader.setAttribute('data-rare-input-eaten', 'true');
+      return;
+    }
+    finishStartupLoader();
+  }
+  loader.addEventListener('click', handleStartupInput);
+  document.addEventListener('keydown', handleStartupInput);
+}
+
+function dismissStartupLoader() {
+  var loader = document.getElementById('startup-loader');
+  if (!loader || loader.classList.contains('dismissed') || splashDismissed) return;
+  var animConfig = window.animConfig || {};
+  if (animConfig.splashDisabled) {
+    finishStartupLoader();
     return;
   }
-
-  splashDismissed = true;
-
-  var splashLength = isDisabled ? 0.01 : (animConfig.splashLength !== undefined ? parseFloat(animConfig.splashLength) : 1.0);
-  var splashFade = isDisabled ? 0.01 : (animConfig.splashFade !== undefined ? parseFloat(animConfig.splashFade) : 0.3);
-
-  // Length floor is splashLength, with a hard minimum floor of 500ms
-  var floorMs = isDisabled ? 10 : Math.max(500, splashLength * 1000);
-
-  var elapsed = Date.now() - splashStartTime;
-  var remaining = Math.max(0, floorMs - elapsed);
-
-  setTimeout(function () {
-    loader.style.transition = 'opacity ' + splashFade + 's ease-out';
-    loader.classList.add('dismissed');
-    setTimeout(function () {
-      loader.remove();
-    }, splashFade * 1000 + 50);
-  }, remaining);
+  ensureStartupPrompt(loader);
+  loader.classList.add('loaded');
+  bindStartupInput(loader);
+  if (animConfig.splashAutoClose) {
+    var splashLength = animConfig.splashLength !== undefined ? parseFloat(animConfig.splashLength) : 1.0;
+    if (!isFinite(splashLength)) splashLength = 1.0;
+    setTimeout(finishStartupLoader, Math.max(500, splashLength * 1000));
+  }
 }
 window.dismissStartupLoader = dismissStartupLoader;
 
@@ -111,12 +173,12 @@ window.addEventListener('message', function (event) {
       break;
 
     case 'switchToChat':
-      dismissStartupLoader();
       window.setChatTitle?.(msg.title);
       showChatView();
       if (msg.history) {
         renderRouterHistory(msg.history, msg.activeRunId);
       }
+      dismissStartupLoader();
       break;
 
     // ── Data updates ────────────────────────────────────────────

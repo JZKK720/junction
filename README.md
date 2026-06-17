@@ -1,93 +1,118 @@
 # Junction
 
-A VS Code chat sidebar that bridges your editor to local AI coding agents —
-**OpenClaw**, **Hermes**, and **Souveraine** — through one unified UI.
+A VS Code chat sidebar that connects your editor to local AI coding agents.
+
+`7 backends` · `Chat sidebar` · `Workspace context` · `Animated splash` · `MIT License`
+
+![Two familiar themes](media/two_familiar_skins.png)
+
+Junction is a chat panel for VS Code that connects to local AI coding agents running on your machine.
+It speaks to multiple agent backends through one unified interface — switch between them without changing your workflow.
+
+## Supported Backends
+
+Junction connects to any of these local agent runtimes:
+
+- **OpenClaw** — WebSocket gateway integration with session and model management
+- **Hermes** — native dashboard WebSocket and REST API support
+- **Souveraine** — HTTP server integration with managed runtime spawning
+- **MiMoCode** — auto-spawned or pre-configured MiMo server connection
+- **Goose** — data directory and secret key configuration
+- **OpenCode** — binary path and config home settings
+- **OpenHands** — server launcher and home directory configuration
 
 ## Features
 
-- **Chat sidebar** — talk to the active agent bridge from VS Code's secondary sidebar
-- **Multi-bridge** — switch between OpenClaw, Hermes, and Souveraine runtimes
-- **Workspace context** — stages the active file/selection as context for the agent
-- **Model + reasoning picker** — pick a model and its reasoning effort per session
-- **Markdown rendering** — assistant responses, tool cards, and diffs render inline
-- **Auto-reconnection** — reconnects to the runtime if the connection drops
+### Chat Sidebar
+Talk to your active agent from VS Code's secondary sidebar. Open via Command Palette: `Junction: Open Sidebar`.
 
-## Requirements
+### Workspace Context
+Drag and drop files into the chat input, or right-click a file or selection to add it to the current thread.
 
-- A local agent runtime running (e.g. the OpenClaw Gateway on `ws://127.0.0.1:18789`)
-- VS Code 1.95.0 or higher
+### Model & Reasoning Picker
+Select a model and set reasoning effort per session from the sidebar header.
+
+### Markdown Rendering
+Assistant responses, tool call cards, reasoning blocks, and diffs render inline with syntax highlighting.
+
+### Chat Layouts
+Switch between compact mode (activity folded into accordions) and timeline mode (chronological reasoning flow with sticky user prompts).
+
+### Follow-Up Modes
+Queue messages for when the agent finishes, steer mid-turn, or interrupt and redirect. Configurable globally or per-bridge.
+
+### Auto-Reconnection
+Junction reconnects to the runtime automatically if the connection drops. No manual restart needed.
+
+## Themes
+
+Junction includes two built-in layouts. **Compact** mode folds activity into summary accordions for a dense view.
+**Timeline** mode shows a chronological activity rail with dot indicators, reasoning disclosure, and an orange accent theme.
+Both layouts adapt to your VS Code color theme.
+
+## Splash Screen & Animations
+
+Junction opens with an animated splash screen featuring a matrix-style rain effect behind the wordmark.
+The splash screen is fully customizable through the in-editor animation settings panel.
+
+### Character Sets
+The rain effect supports 10 character sets: Katakana, Matrix Latin, Latin, Hiragana, CJK, Hangul, Emoji, Binary, Symbols, and Custom.
+Mix in emoji drops at configurable rarity, or supply your own character set.
+
+### Rain Controls
+- **Direction** — toggle rain falling up or down
+- **Reverse chance** — set a percentage for drops to go the opposite direction
+- **Bounce sides** — rain bounces off left/right edges instead of falling off screen
+- **Gravity, bounce, collision, speed** — adjust how the drops move and interact with the wordmark
+- **Quantity, size variance, color variance, opacity range** — control the density and look of the rain
+- **Custom color** — pick a color and alpha for the rain and wordmark
+- **Emoji mixing** — toggle on and set rarity as 1/N (1 = all emoji, 1000000 = one in a million)
+
+### Exit Animations
+When the splash dismisses, the wordmark exits through one of 9 animation modes.
+Each mode has its own set of control sliders that swap in when you select it from the dropdown.
+
+- **Spiral out** — letters spiral outward from the center
+- **Spiral in** — letters converge into a tightening spiral with configurable radius and length
+- **Explode** — letters burst outward with gravity
+- **Explode 2** — physics-based explosion with bouncing off edges, configurable force, chaos, and per-axis momentum
+- **Float away** — letters drift upward with direction-based tilt
+- **Horizontal flatten** — letters spread horizontally and crush to a 1px line with configurable hold time
+- **Explode weak** — a softer explosion with less force
+- **Starwars crawl** — letters converge to a vanishing point with configurable target Y position
+- **Explode 3** — the wordmark shatters into individual pixels with per-axis momentum control
+- **Rain push** — letters detach and the rain physically pushes them off screen
+- **Random** — picks a different mode each time
+
+### Animation Settings Panel
+Open the animation settings from the chat header gear icon. It has three tabs — Chat, Bobber, and Splash.
+The Splash tab contains two collapsible accordions (Appearance and Motion), the exit mode dropdown with per-mode sliders, and a live preview canvas you can click to test animations.
+The panel is fully draggable and resizable with no height limit.
 
 ## Installation
 
-### Build + install locally
+### From source
 ```bash
 npm install
-./compile-and-install.sh   # builds and installs into ~/.vscode/extensions
-```
-Then run **Developer: Reload Window** in VS Code.
-
-### Debug
-Press `F5` in VS Code to launch the Extension Development Host.
-
-## Usage
-
-### Open the chat
-- Command Palette: `Junction: Open Sidebar` (`junction.openChat`)
-
-### File context
-- **Drag-and-drop** files from VS Code into the chat input to insert full paths
-  (multiple files land on separate lines).
-- Right-click a file/selection → **Add to Junction Thread** / **Add File to Junction Thread**.
-
-## Architecture
-
-```
-┌─────────────────────────────────────────┐
-│            Junction (VS Code)            │
-│  ┌────────────┐      ┌──────────────┐    │
-│  │ Chat UI    │      │ Context      │    │
-│  │ (Webview)  │      │ Tracker      │    │
-│  └─────┬──────┘      └──────┬───────┘    │
-│        └────────┬───────────┘            │
-│                 │  BridgeRegistry        │
-└─────────────────┼────────────────────────┘
-                  │
-     ┌────────────┼────────────┐
-     │            │            │
-┌────▼────┐  ┌────▼────┐  ┌────▼─────┐
-│ OpenClaw│  │ Hermes  │  │Souveraine│   ← agent backends
-└─────────┘  └─────────┘  └──────────┘
+./compile-and-install.sh
+# Then: Ctrl+Shift+P → Developer: Reload Window
 ```
 
-## Project structure
+### Requirements
+- VS Code 1.120.0 or higher
+- A local agent runtime running (e.g. OpenClaw Gateway, Hermes dashboard, Souveraine server)
 
-```
-src/
-├── extension.ts            # entry point, command + status bar wiring
-├── bridges/                # OpenClaw / Hermes / Souveraine bridge adapters
-├── gateway/                # OpenClaw WebSocket client, sessions, models
-├── ui/                     # ChatBase + sidebar/panel webview providers
-├── context/                # workspace + selection tracking, TODO CodeLens
-├── checkpoints/            # shadow-git workspace checkpoints
-└── config/                 # settings accessors (junction.* keys)
-resources/webview/          # modular webview UI (template + per-component JS/CSS)
-```
+---
 
-## Development
-
-```bash
-npm run build     # bundle to dist/extension.js
-npm run watch     # rebuild on change
-npm test          # typecheck + bridge-protocol tests
-```
+> There are easter eggs. They are not documented here. That is the point.
 
 ## Credits
 
-Junction began as a fork of [openclaw_vscode](https://github.com/Owen-Liuyuxuan/openclaw_vscode)
-by Owen-Liuyuxuan (MIT). The WebSocket/gateway plumbing traces back to that project; the
-multi-bridge architecture (OpenClaw / Hermes / Souveraine), the modular webview UI, checkpoints,
-and the model/session managers are original to Junction.
+Based on [openclaw_vscode](https://github.com/Owen-Liuyuxuan/openclaw_vscode) by Owen-Liuyuxuan (MIT).
+The WebSocket/gateway plumbing traces back to that project.
+The multi-bridge architecture, modular webview UI, animation engine, and model/session managers are original to Junction.
 
-## License
+---
 
-MIT. © Owen-Liuyuxuan (original openclaw_vscode), © Plaer1 (Junction). See [LICENSE](LICENSE).
+MIT License. © Owen-Liuyuxuan (original openclaw_vscode), © Plaer1 (Junction).
+[github.com/Plaer1/junction](https://github.com/Plaer1/junction)

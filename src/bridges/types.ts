@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as vscode from 'vscode';
 
-export type BridgeId = 'openclaw' | 'hermes' | 'souveraine' | 'mimocode' | 'goose' | (string & {});
+export type BridgeId = 'openclaw' | 'hermes' | 'souveraine' | 'mimocode' | 'goose' | 'opencode' | 'openhands' | (string & {});
 export type ChatScope = 'folder' | 'all';
 
 /**
@@ -184,6 +184,6 @@ export interface ChatBridge extends EventEmitter {
     listEnvironmentChoices(): Promise<ChoiceMenuItem[]>;
     selectEnvironmentChoice(data: any): Promise<void>;
     getEnvironmentLabel(): string;
-    getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }>;
+    getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }> | Promise<Array<{ name: string; description?: string }>>;
     getToolStatus(): ToolStatusView | null;
 }

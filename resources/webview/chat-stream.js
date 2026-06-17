@@ -236,7 +236,13 @@
     if (startupLoader && !startupLoader.classList.contains('dismissed')) {
       if (typeof window.applySplashWordmarkScale === 'function') window.applySplashWordmarkScale(startupLoader);
       var oldCanvas = document.getElementById('startup-matrix');
-      if (oldCanvas) { oldCanvas._stopStartupDraw = true; oldCanvas.remove(); }
+      if (oldCanvas) {
+        oldCanvas._stopStartupDraw = true;
+        if (typeof oldCanvas._stopAnimation === 'function') {
+          try { oldCanvas._stopAnimation(); } catch (e) {}
+        }
+        oldCanvas.remove();
+      }
       var w = window.innerWidth;
       var h = window.innerHeight;
       var canvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: w, height: h, loaderMagic: window.getAnimVal('loaderMagic', false) });
@@ -258,11 +264,42 @@
     var w = window.innerWidth, h = window.innerHeight;
     var canvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: w, height: h, loaderMagic: window.getAnimVal('loaderMagic', false) });
     if (canvas) { canvas.id = 'startup-matrix'; loader.insertBefore(canvas, loader.firstChild); }
-    setTimeout(function () {
-      loader.classList.add('dismissed'); loader.style.opacity = '0'; loader.style.pointerEvents = 'none';
-      if (canvas && typeof canvas._stopAnimation === 'function') { try { canvas._stopAnimation(); } catch (e) {} }
-      setTimeout(function () { if (isNew) { loader.remove(); } else { loader.style.display = 'none'; canvas.remove(); } }, 220);
-    }, 3000);
+    var prompt = document.createElement('div');
+    prompt.id = 'startup-start-prompt';
+    prompt.textContent = 'push any to start';
+    loader.appendChild(prompt);
+    loader.classList.add('loaded');
+    function dismissPreview() {
+      loader.removeEventListener('click', dismissPreview);
+      document.removeEventListener('keydown', dismissPreview);
+      var cfg = window.animConfig || {};
+      var modes = ['spiral-out', 'spiral-in', 'explode', 'explode2', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3'];
+      var selected = cfg.splashExitMode || 'random';
+      var mode = selected === 'random' ? modes[Math.floor(Math.random() * modes.length)] : selected;
+      if (canvas && typeof canvas._startSplashExit === 'function') { try { canvas._startSplashExit({ mode: mode }); } catch (e) {} }
+      loader.style.pointerEvents = 'none';
+      var delay = cfg.splashBackgroundFadeDelay !== undefined ? parseFloat(cfg.splashBackgroundFadeDelay) : 0;
+      if (!isFinite(delay)) delay = 0;
+      var fade = cfg.splashBackgroundFade !== undefined ? parseFloat(cfg.splashBackgroundFade) : 0.3;
+      if (!isFinite(fade)) fade = 0.3;
+      loader.style.setProperty('--junction-splash-fade-duration', (fade * 1000) + 'ms');
+      setTimeout(function () { loader.classList.add('dismissed'); }, Math.max(0, delay) * 1000);
+      var startedAt = Date.now();
+      var fadeDoneAt = (Math.max(0, delay) + fade) * 1000;
+      function cleanupPreviewWhenExitComplete() {
+        var fadeDone = Date.now() - startedAt >= fadeDoneAt;
+        var exitDone = !canvas || typeof canvas._isSplashExitComplete !== 'function' || canvas._isSplashExitComplete();
+        if (!fadeDone || !exitDone) {
+          setTimeout(cleanupPreviewWhenExitComplete, 80);
+          return;
+        }
+        if (canvas && typeof canvas._stopAnimation === 'function') { try { canvas._stopAnimation(); } catch (e) {} }
+        if (isNew) { loader.remove(); } else { loader.style.display = 'none'; if (canvas) canvas.remove(); }
+      }
+      cleanupPreviewWhenExitComplete();
+    }
+    loader.addEventListener('click', dismissPreview);
+    document.addEventListener('keydown', dismissPreview);
   }
   window.playSplashAnimationPreview = playSplashAnimationPreview;
 
@@ -284,6 +321,7 @@
         if (msg.activityRail !== undefined) window.streamCfg.rail = !!msg.activityRail;
         if (msg.activityDots) window.streamCfg.dots = msg.activityDots;
         if (msg.activityCondensed !== undefined) window.streamCfg.condensed = !!msg.activityCondensed;
+        if (msg.goodFonts !== undefined) document.body.classList.toggle('good-fonts', !!msg.goodFonts);
         if (msg.betaForkRewind !== undefined) window.betaForkRewind = !!msg.betaForkRewind;
         if (msg.bubbleRadius !== undefined) document.documentElement.style.setProperty('--junction-bubble-radius', msg.bubbleRadius + 'px');
         if (msg.bubbleTip !== undefined) document.documentElement.style.setProperty('--junction-bubble-tip', msg.bubbleTip);

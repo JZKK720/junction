@@ -49,6 +49,7 @@ export interface WebviewConfigPayload {
     sendBehavior: 'enter' | 'ctrlEnter' | 'smartEnter';
     reasoningDisplay: string;
     extraRichText: boolean;
+    goodFonts: boolean;
     activityLayout: string;
     activityRail: boolean;
     activityDots: string;

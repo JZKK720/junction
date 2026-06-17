@@ -154,9 +154,12 @@
     var left = Math.min(Math.max(8, rect.left), window.innerWidth - panelRect.width - 8);
     var aboveTop = rect.top - panelRect.height - 6;
     var belowTop = rect.bottom + 6;
-    var top = aboveTop >= 8 ? aboveTop : Math.min(belowTop, window.innerHeight - panelRect.height - 8);
+    var placement = activeOptions && activeOptions.placement;
+    var top = placement === 'above'
+      ? aboveTop
+      : (aboveTop >= 8 ? aboveTop : Math.min(belowTop, window.innerHeight - panelRect.height - 8));
     panel.style.left = left + 'px';
-    panel.style.top = Math.max(8, top) + 'px';
+    panel.style.top = Math.min(Math.max(8, top), window.innerHeight - panelRect.height - 8) + 'px';
   }
 
   function positionSubmenu(level, parentButton) {

@@ -10,17 +10,14 @@
   window.toggleChatPreviewPanel = function () {
     var existing = document.getElementById('anim-preview-box');
     if (existing) {
-      var oldCanvas = existing.querySelector('canvas.pretext-canvas');
-      if (oldCanvas && typeof oldCanvas._stopAnimation === 'function') {
-        oldCanvas._stopAnimation();
-      }
-      existing.remove();
+      if (typeof existing._closeAnimationSettings === 'function') existing._closeAnimationSettings();
+      else existing.remove();
       return;
     }
 
     var box = document.createElement('div');
     box.id = 'anim-preview-box';
-    box.style.cssText = 'position:fixed;bottom:60px;left:16px;right:16px;z-index:9000;max-height:60vh;display:flex;flex-direction:column;background:var(--vscode-editor-background);border:1px solid var(--vscode-widget-border, transparent);border-radius:8px;box-shadow:0 8px 32px var(--vscode-widget-shadow, transparent);overflow:hidden;';
+    box.style.cssText = 'position:fixed;bottom:60px;left:16px;right:16px;z-index:9000;display:flex;flex-direction:column;background:var(--vscode-editor-background);border:1px solid var(--vscode-widget-border, transparent);border-radius:8px;box-shadow:0 8px 32px var(--vscode-widget-shadow, transparent);overflow:hidden;';
 
     // Drag handle
     var handle = document.createElement('div');
@@ -53,14 +50,16 @@
       if (!dragging) return;
       if (dragDir === 'top') {
         var delta = startY - e.clientY;
-        var newH = Math.max(120, Math.min(window.innerHeight * 0.85, startH + delta));
+        var maxH = window.innerHeight - 12;
+        var newBottom = Math.max(0, startBottom - delta);
+        var newH = Math.max(120, Math.min(maxH, startH + delta));
+        newH = Math.min(newH, window.innerHeight - newBottom - 12);
         box.style.maxHeight = newH + 'px';
+        box.style.bottom = newBottom + 'px';
       } else {
         var delta = e.clientY - startY;
-        var newH = Math.max(120, Math.min(window.innerHeight * 0.85, startH - delta));
+        var newH = Math.max(120, Math.min(window.innerHeight - startBottom - 12, startH - delta));
         box.style.maxHeight = newH + 'px';
-        var newBottom = Math.max(0, Math.min(window.innerHeight * 0.5, startBottom - delta));
-        box.style.bottom = newBottom + 'px';
       }
     });
     document.addEventListener('mouseup', function () { dragging = false; });
@@ -102,11 +101,28 @@
     var closeBtn = document.createElement('button');
     closeBtn.innerHTML = '<span class="codicon codicon-close"></span>';
     closeBtn.style.cssText = 'background:transparent;border:none;color:var(--vscode-descriptionForeground);cursor:pointer;padding:2px 4px;font-size:14px;';
-    closeBtn.addEventListener('click', function () {
+    function writeAnimationDebugFile() {
+      try {
+        vscode.postMessage({
+          type: 'writeAnimDebugFile',
+          config: Object.assign({}, window.animConfig || {}),
+          mode: window._junctionAnimationMode || 'matrix',
+          color: window._junctionAnimColor,
+          loaderColor: window._junctionLoaderAnimColor,
+          splashColor: window._junctionSplashColor,
+          activeTab: activeTab
+        });
+      } catch (e) {}
+    }
+
+    function closePanel() {
       var c = box.querySelector('canvas.pretext-canvas');
       if (c && typeof c._stopAnimation === 'function') c._stopAnimation();
+      writeAnimationDebugFile();
       box.remove();
-    });
+    }
+    box._closeAnimationSettings = closePanel;
+    closeBtn.addEventListener('click', closePanel);
     header.appendChild(closeBtn);
     box.appendChild(header);
 
@@ -134,12 +150,41 @@
       btn.addEventListener('click', fn);
       actionsRow.appendChild(btn);
     }
+    function exportAnimationSettings() {
+      var config = Object.assign({}, window.animConfig || {});
+      var defaultsTemplate = Object.keys(config).sort().map(function (key) {
+        return '      ' + JSON.stringify(key) + ': ' + JSON.stringify(config[key]);
+      }).join(',\n');
+      var payload = {
+        exportedAt: new Date().toISOString(),
+        mode: window._junctionAnimationMode || 'matrix',
+        color: window._junctionAnimColor || null,
+        loaderColor: window._junctionLoaderAnimColor || null,
+        splashColor: window._junctionSplashColor || null,
+        config: config,
+        defaultsTemplate: defaultsTemplate
+      };
+      var json = JSON.stringify(payload, null, 2);
+      try { vscode.postMessage({ type: 'copyToClipboard', text: json }); } catch (e) {}
+      try {
+        var blob = new Blob([json], { type: 'application/json' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = 'junction-animation-settings-template.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      } catch (e) {}
+    }
     addAction('Play curtain', 'comment', function () {
       if (typeof window.playChatCurtainPreview === 'function') window.playChatCurtainPreview();
     });
     addAction('Play splash', 'rocket', function () {
       if (typeof window.playSplashAnimationPreview === 'function') window.playSplashAnimationPreview();
     });
+    addAction('Export settings', 'export', exportAnimationSettings);
     content.appendChild(actionsRow);
 
     // Preview area
@@ -173,11 +218,13 @@
 
     // Preview renderer
     window.refreshPreview = function () {
-      var oldCanvas = previewArea.querySelector('canvas.pretext-canvas');
-      if (oldCanvas) {
-        if (typeof oldCanvas._stopAnimation === 'function') oldCanvas._stopAnimation();
-        oldCanvas.remove();
-      }
+      // Stop + remove the entire previous render. The splash tab wraps its
+      // canvas in a div, so clearing only the canvas leaks the wrapper (and its
+      // wordmark/logo) on every change — clear the whole preview area instead.
+      previewArea.querySelectorAll('canvas.pretext-canvas').forEach(function (c) {
+        if (typeof c._stopAnimation === 'function') { try { c._stopAnimation(); } catch (e) {} }
+      });
+      while (previewArea.firstChild) previewArea.removeChild(previewArea.firstChild);
       var existingFullScreen = document.querySelectorAll('canvas.full-screen-anim');
       existingFullScreen.forEach(function (c) {
         if (c._stopAnimation) try { c._stopAnimation(); } catch (e) {}
@@ -216,10 +263,32 @@
         if (canvas) { canvas.style.maxWidth = '280px'; previewArea.appendChild(canvas); }
       } else {
         var splashPreview = document.createElement('div');
-        splashPreview.style.cssText = 'position:relative;width:300px;height:120px;overflow:hidden;border-radius:6px;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);';
+        var previewWidth = Math.max(300, Math.min(900, previewArea.clientWidth - 12 || 300));
+        var previewHeight = Math.max(120, Math.min(window.innerHeight - 180, Math.floor(box.clientHeight * 0.48) || 120));
+        splashPreview.style.cssText = 'position:relative;width:' + previewWidth + 'px;height:' + previewHeight + 'px;overflow:hidden;border-radius:6px;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);cursor:pointer;';
         if (typeof window.applySplashWordmarkScale === 'function') window.applySplashWordmarkScale(splashPreview);
-        var splashCanvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: 300, height: 120, loaderLoop: true, loaderElement: splashPreview });
-        if (splashCanvas) { splashCanvas.style.maxWidth = '300px'; splashCanvas.style.height = '120px'; splashPreview.insertBefore(splashCanvas, splashPreview.firstChild); }
+        var splashCanvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: previewWidth, height: previewHeight, loaderLoop: true, loaderElement: splashPreview });
+        if (splashCanvas) {
+          splashCanvas.style.maxWidth = previewWidth + 'px';
+          splashCanvas.style.width = previewWidth + 'px';
+          splashCanvas.style.height = previewHeight + 'px';
+          splashPreview.insertBefore(splashCanvas, splashPreview.firstChild);
+        }
+        splashPreview.addEventListener('click', function () {
+          if (!splashCanvas || typeof splashCanvas._startSplashExit !== 'function') return;
+          var modes = ['spiral-out', 'spiral-in', 'explode', 'explode2', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3'];
+          var selected = (window.animConfig && window.animConfig.splashExitMode) || 'random';
+          var mode = selected === 'random' ? modes[Math.floor(Math.random() * modes.length)] : selected;
+          splashCanvas._startSplashExit({ mode: mode });
+          function restoreWhenDone() {
+            if (typeof splashCanvas._isSplashExitComplete === 'function' && !splashCanvas._isSplashExitComplete()) {
+              setTimeout(restoreWhenDone, 80);
+              return;
+            }
+            if (activeTab === 'splash') window.refreshPreview();
+          }
+          restoreWhenDone();
+        });
         previewArea.appendChild(splashPreview);
       }
     };

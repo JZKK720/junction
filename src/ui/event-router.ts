@@ -27,9 +27,12 @@ const UI_ONLY_MESSAGE_TYPES = new Set([
     'copyToClipboard',
     'openFile',
     'forkConversation',
+    'forkAndRewind',
     'rewindToMessage',
+    'reviewCheckpointDiff',
     'setReaction',
     'openSettings',
+    'writeAnimDebugFile',
     'getUsage',
     'loadMoreHistory',
     'loadMoreHistoryFromJsonl',
@@ -79,7 +82,9 @@ export interface ChatBaseHandlers {
     handleOpenSettings(): Promise<void>;
     handleGetUsage(): Promise<void>;
     handleForkConversation(messageId?: string): Promise<void>;
+    handleForkAndRewind(messageId?: string): Promise<void>;
     handleRewindToMessage(messageId?: string): Promise<void>;
+    handleReviewCheckpointDiff(messageId?: string, files?: string[]): Promise<void>;
     handleOpenFile(filePath: string): Promise<void>;
     handleSetReaction(messageId: string, value: 'up' | 'down' | null): Promise<void>;
     postToWebview(message: any): void;
@@ -239,8 +244,17 @@ export class EventRouter {
                 case 'forkConversation':
                     await this.handlers.handleForkConversation(data.messageId);
                     break;
+                case 'forkAndRewind':
+                    await this.handlers.handleForkAndRewind(data.messageId);
+                    break;
                 case 'rewindToMessage':
                     await this.handlers.handleRewindToMessage(data.messageId);
+                    break;
+                case 'reviewCheckpointDiff':
+                    await this.handlers.handleReviewCheckpointDiff(
+                        data.messageId,
+                        Array.isArray(data.files) ? data.files.map(String) : undefined
+                    );
                     break;
                 case 'openFile':
                     await this.handlers.handleOpenFile(data.filePath);
@@ -254,6 +268,11 @@ export class EventRouter {
                 case 'saveAnimConfig':
                     if (this.configManager) {
                         await this.configManager.saveAnimConfig(data);
+                    }
+                    break;
+                case 'writeAnimDebugFile':
+                    if (this.configManager) {
+                        await this.configManager.writeAnimDebugFile(data);
                     }
                     break;
                 case 'saveBubbleConfig':

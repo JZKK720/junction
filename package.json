@@ -94,7 +94,9 @@
             "hermes",
             "souveraine",
             "mimocode",
-            "goose"
+            "goose",
+            "opencode",
+            "openhands"
           ],
           "default": "openclaw",
           "description": "Active local agent bridge.",
@@ -187,6 +189,12 @@
           "type": "boolean",
           "default": true,
           "description": "Enable Pretext-powered extra-rich text rendering with animated text effects (matrix scroll, typewriter, etc.). Uses canvas-based text layout for smoother animations.",
+          "order": 9
+        },
+        "junction.goodFonts": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use the bundled \"Good Fonts\" pack — Comic Neue for regular text and Liga Comic Mono for monospace/code.",
           "order": 9
         },
         "junction.todoCodeLensEnabled": {
@@ -414,6 +422,84 @@
           "default": "",
           "description": "Path to goose binary. Leave empty to auto-detect from PATH.",
           "order": 62
+        },
+        "junction.goose.secretKey": {
+          "type": "string",
+          "default": "",
+          "description": "Optional X-Secret-Key for a goosed server. Point junction.goose.serverUrl at a goosed instance for full model/command/history support.",
+          "order": 63
+        },
+        "junction.opencode.serverUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Connect to an already-running `opencode serve` (e.g. http://127.0.0.1:4096). Leave empty to let Junction spawn and manage its own opencode server.",
+          "order": 70
+        },
+        "junction.opencode.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the opencode binary. Leave empty to auto-detect (~/bin/opencode, then PATH).",
+          "order": 71
+        },
+        "junction.opencode.port": {
+          "type": "number",
+          "default": 0,
+          "description": "Port for the managed opencode server (0 = auto-assign). Ignored when junction.opencode.serverUrl is set.",
+          "order": 72
+        },
+        "junction.opencode.home": {
+          "type": "string",
+          "default": "",
+          "description": "opencode config home (sets OPENCODE_CONFIG). Leave empty for the opencode default (~/.config/opencode).",
+          "order": 73
+        },
+        "junction.opencode.followUpMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
+          "default": "default",
+          "description": "Follow-up mode for opencode. 'default' uses the global junction.followUpMode.",
+          "order": 74
+        },
+        "junction.openhands.serverUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:3000",
+          "description": "OpenHands app server URL. Junction will spawn the managed server (junction.openhands.binaryPath) if this URL is unreachable.",
+          "order": 80
+        },
+        "junction.openhands.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the openhands server launcher. Leave empty to auto-detect (~/bin/openhands).",
+          "order": 81
+        },
+        "junction.openhands.home": {
+          "type": "string",
+          "default": "",
+          "description": "OpenHands data/home directory (sets OPENHANDS_HOME). Leave empty for the OpenHands default (~/.openhands).",
+          "order": 82
+        },
+        "junction.openhands.repoPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the openhands repo for managed spawn (cwd for the launcher).",
+          "order": 83
+        },
+        "junction.openhands.followUpMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
+          "default": "default",
+          "description": "Follow-up mode for OpenHands. 'default' uses the global junction.followUpMode.",
+          "order": 84
         }
       }
     }

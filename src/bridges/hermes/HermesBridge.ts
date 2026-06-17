@@ -367,12 +367,38 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
     }
 
     getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }> {
+        // Mirrors Hermes' own COMMAND_REGISTRY (hermes_cli/commands.py).
         const base = [
-            { name: 'compact', description: 'Toggle compact display mode' },
-            { name: 'details', description: 'Control agent details' },
-            { name: 'logs', description: 'Show recent logs' },
+            { name: 'new', description: 'Start a new session (fresh session ID + history)' },
+            { name: 'model', description: 'Switch model for this session' },
+            { name: 'reasoning', description: 'Manage reasoning effort and display' },
+            { name: 'compress', description: 'Manually compress conversation context' },
+            { name: 'history', description: 'Show conversation history' },
+            { name: 'retry', description: 'Retry the last message' },
+            { name: 'undo', description: 'Remove the last user/assistant exchange' },
+            { name: 'branch', description: 'Branch the current session' },
+            { name: 'handoff', description: 'Hand off this session to a messaging platform' },
+            { name: 'steer', description: 'Inject a message after the next tool call without interrupting' },
+            { name: 'queue', description: "Queue a prompt for the next turn (doesn't interrupt)" },
+            { name: 'goal', description: 'Set a standing goal across turns' },
+            { name: 'agents', description: 'Show active agents and running tasks' },
+            { name: 'stop', description: 'Kill all running background processes' },
+            { name: 'sessions', description: 'Browse and resume previous sessions' },
+            { name: 'resume', description: 'Resume a previously-named session' },
+            { name: 'save', description: 'Save the current conversation' },
+            { name: 'title', description: 'Set a title for the current session' },
+            { name: 'tools', description: 'Manage tools: list / enable / disable' },
+            { name: 'skills', description: 'Search, install, inspect, or manage skills' },
+            { name: 'fast', description: 'Toggle fast mode' },
+            { name: 'yolo', description: 'Toggle YOLO mode (skip approvals)' },
+            { name: 'verbose', description: 'Cycle tool progress display' },
+            { name: 'config', description: 'Show current configuration' },
+            { name: 'status', description: 'Show session info' },
+            { name: 'commands', description: 'Browse all commands and skills (paginated)' },
+            { name: 'help', description: 'Show available commands' },
         ];
-        return base.filter((item) => item.name.startsWith(prefix));
+        const p = prefix.replace(/^\//, '');
+        return base.filter((item) => item.name.startsWith(p));
     }
 
     getToolStatus(): ToolStatusView | null {

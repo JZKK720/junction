@@ -55,7 +55,7 @@ export interface WorkspaceContext {
 // ────────────────────────────────────────
 
 export interface ModelEntry {
-    /** Model identifier (e.g. "claude-sonnet-4-20250514") */
+    /** Model identifier (provider-specific model id) */
     id: string;
     /** Display name (provider-specific model name) */
     name: string;
@@ -72,7 +72,7 @@ export interface ModelEntry {
     thinkingOptions?: string[];
     /**
      * Per-model reasoning vocabulary as advertised by the gateway/config — the
-     * model's own "lingua franca" (e.g. GPT-5 minimal/low/medium/high, Codex
+     * model's own "lingua franca" (e.g. minimal/low/medium/high, or
      * low/medium/high/xhigh). Preferred source for the reasoning submenu so each
      * model shows only its supported efforts, never a generic union.
      */
