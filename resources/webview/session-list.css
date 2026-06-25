@@ -15,6 +15,24 @@
   gap: 2px;
 }
 
+#session-list-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-small);
+  min-width: 0;
+  padding: var(--space-small) var(--space-medium);
+  border-bottom: 1px solid var(--vscode-input-border);
+  box-sizing: border-box;
+}
+
+#session-list-header .title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Collapsible groups ───────────────────────────────────────────── */
 
 .session-group {
@@ -82,6 +100,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  max-width: clamp(34px, 28vw, 8.5rem);
   padding: 3px 10px;
   border-radius: var(--corner-radius-medium);
   border: 1px solid var(--vscode-input-border);
@@ -90,6 +110,13 @@
   font-size: 12px;
   cursor: pointer;
   flex-shrink: 0;
+}
+
+.new-thread-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .new-thread-btn:hover {
@@ -216,4 +243,102 @@
 #session-list-input::placeholder {
   color: var(--vscode-descriptionForeground);
   opacity: 0.7;
+}
+
+/* ── Task history popover ─────────────────────────────────────────── */
+
+.task-history-popover {
+  position: fixed;
+  z-index: 900;
+  width: min(680px, calc(100vw - 18px));
+  max-height: min(420px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-input-border));
+  border-radius: 8px;
+  background: var(--vscode-quickInput-background, var(--vscode-editorWidget-background, var(--vscode-sideBar-background)));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-sizing: border-box;
+}
+
+.task-history-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 6px;
+  background: var(--vscode-input-background);
+}
+
+.task-history-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(3px, 1.4vw, 8px);
+  min-width: 0;
+  height: 30px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  font: inherit;
+  font-size: clamp(11px, 3.2vw, var(--junction-chat-font-size, 13px));
+  cursor: pointer;
+}
+
+.task-history-tab .codicon {
+  flex: 0 0 auto;
+}
+
+.task-history-tab span:not(.codicon) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-history-tab.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-editor-foreground));
+}
+
+.task-history-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 5px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-descriptionForeground);
+}
+
+.task-history-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--vscode-input-foreground, var(--vscode-editor-foreground));
+  font: inherit;
+}
+
+.task-history-list {
+  min-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.task-history-list .session-group-header {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.task-history-list .session-card {
+  padding: 7px 10px;
+  border-left-width: 0;
 }

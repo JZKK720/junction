@@ -48,8 +48,30 @@
       margin: 0;
       opacity: 1;
     }
-    #startup-loader.loaded {
+    #startup-loader.accepting-input,
+    #startup-loader.accepting-input * {
       cursor: pointer;
+    }
+    #startup-fallback-wordmark {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      z-index: 1;
+      transform: translate(-50%, -50%);
+      color: var(--vscode-foreground, var(--vscode-descriptionForeground));
+      font-family: var(--vscode-font-family, sans-serif);
+      font-size: calc(clamp(24px, min(12vw, 20vh), 96px) * var(--junction-splash-wordmark-scale, 1));
+      font-weight: 600;
+      line-height: 1;
+      letter-spacing: 0;
+      white-space: nowrap;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 180ms ease-out;
+    }
+    #startup-loader.real-splash-ready #startup-fallback-wordmark,
+    #startup-loader.dismissed #startup-fallback-wordmark {
+      opacity: 0;
     }
     #startup-start-prompt {
       position: absolute;
@@ -66,13 +88,14 @@
       opacity: 0;
       pointer-events: none;
       transition: opacity 180ms ease-out;
+      animation: none;
+    }
+    #startup-loader.accepting-input #startup-start-prompt {
+      opacity: 0.88;
       animation: startup-prompt-throb 1.35s ease-in-out infinite;
     }
-    #startup-loader.loaded #startup-start-prompt {
-      opacity: 0.88;
-    }
     #startup-loader.dismissed #startup-start-prompt {
-      opacity: 1;
+      opacity: 0;
       transition: none;
       animation: none;
     }
@@ -105,6 +128,7 @@
        here instead of leaving a silent blank panel. -->
   <div id="startup-loader" aria-hidden="true">
     <canvas id="startup-matrix" width="240" height="36"></canvas>
+    <div id="startup-fallback-wordmark">Junction</div>
     <div id="startup-start-prompt">push any to start</div>
   </div>
   <pre id="boot-error"></pre>
@@ -145,6 +169,7 @@
       <button id="btn-back" class="codicon codicon-arrow-left" title="Back to chats"></button>
       <span id="chat-title" class="title" title="Click to rename">New chat</span>
       <div class="header-spacer"></div>
+      <button id="btn-task-history" class="codicon codicon-history" title="Task history"></button>
       <button id="btn-menu" class="codicon codicon-menu" title="Chat actions"></button>
       <button id="btn-settings" class="codicon codicon-gear" title="Settings"></button>
       <button id="btn-new-chat-view" class="codicon codicon-plus" title="New chat"></button>
@@ -310,7 +335,6 @@
           if (canvas._stopStartupDraw) return;
           var dismissing = !!(canvas.classList && canvas.closest('#startup-loader.dismissed'));
           resize();
-          var title = titleSpec();
           if (dismissing) {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
           } else {
@@ -319,34 +343,11 @@
             ctx.fillStyle = (loader ? getComputedStyle(loader).backgroundColor : '') || themedColor('--vscode-sideBar-background', '--vscode-editor-background');
             ctx.fillRect(0, 0, canvas.width, canvas.height);
           }
-          ctx.fillStyle = themedColor('--vscode-foreground', '--vscode-descriptionForeground');
-          ctx.font = fontSize + 'px monospace';
-          for (var i = 0; i < drops.length; i++) {
-            var drop = drops[i];
-            drop.x += drop.vx * fontSize;
-            drop.y += drop.vy * fontSize * 0.45;
-            if (drop.x > title.left && drop.x < title.right && drop.y > title.top && drop.y < title.bottom) {
-              drop.y = title.top - 2;
-              drop.vy *= -0.5;
-              drop.vx += (drop.x < title.x ? -1 : 1) * 0.18;
-            }
-            ctx.globalAlpha = 0.4 + Math.random() * 0.6;
-            ctx.fillText(zalgoChar(), drop.x, drop.y);
-            if (drop.y > canvas.height + fontSize || drop.x < -fontSize || drop.x > canvas.width + fontSize) {
-              drop.x = (i + 0.5) * (canvas.width / cols);
-              drop.y = -Math.random() * canvas.height * 0.25;
-              drop.vy = 0.7 + Math.random() * 1.2;
-              drop.vx = (Math.random() - 0.5) * 0.15;
-            }
-          }
-          ctx.globalAlpha = 1;
-          ctx.font = title.font;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillStyle = themedColor('--vscode-foreground', '--vscode-descriptionForeground');
-          ctx.fillText('Junction', title.x, title.y);
-          ctx.textAlign = 'start';
-          ctx.textBaseline = 'alphabetic';
+          // Pre-module boot fallback: canvas paints only the background veil.
+          // The inline script can't know the user's saved charset yet, so any
+          // rain here would be the wrong glyphs and would visibly "snap out"
+          // when the real (config-driven) canvas takes over. The fallback
+          // wordmark is DOM text so it stays crisp until the real canvas lands.
           ctx.globalAlpha = 1;
           requestAnimationFrame(draw);
         }

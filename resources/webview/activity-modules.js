@@ -182,7 +182,7 @@
     meta.className = 'accordion-edit-summary-meta';
     var title = document.createElement('span');
     title.className = 'accordion-edit-summary-title';
-    title.textContent = 'Edited ' + files.length + ' file' + (files.length === 1 ? '' : 's') + ':';
+    title.textContent = window.junctionT('editedFilesCount', 'Edited {count} file(s):', { count: files.length });
     meta.appendChild(title);
     var diff = document.createElement('span');
     diff.className = 'accordion-edit-summary-diff';
@@ -204,8 +204,7 @@
     var actions = document.createElement('span');
     actions.className = 'accordion-edit-summary-actions';
     [
-      { label: 'Undo', type: 'rewindToMessage' },
-      { label: 'Review', type: 'reviewCheckpointDiff' },
+      { label: window.junctionT('review', 'Review'), type: 'reviewCheckpointDiff' },
     ].forEach(function (action) {
       var btn = document.createElement('button');
       btn.type = 'button';
@@ -254,7 +253,7 @@
     if (files.length > 4) {
       var more = document.createElement('div');
       more.className = 'accordion-edit-summary-more';
-      more.textContent = 'Show ' + (files.length - 4) + ' more file' + (files.length - 4 === 1 ? '' : 's');
+      more.textContent = window.junctionT('showMoreFiles', 'Show {count} more file(s)', { count: files.length - 4 });
       list.appendChild(more);
     }
     card.appendChild(list);

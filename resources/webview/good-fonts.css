@@ -35,3 +35,22 @@ body.good-fonts .code-editor-body,
 body.good-fonts .msg-text code {
   font-family: "Junction Comic Mono", var(--vscode-editor-font-family, monospace), monospace;
 }
+
+/* Locale fallback stacks. Stub strings are English for now, but real Chinese
+   and Hindi translations need glyph-safe families and slightly roomier layout. */
+body.locale-cjk {
+  --junction-locale-font: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+  --vscode-font-family: var(--junction-locale-font);
+  line-height: 1.55;
+}
+
+body.locale-devanagari {
+  --junction-locale-font: "Nirmala UI", "Kohinoor Devanagari", "Noto Sans Devanagari", "Mangal", sans-serif;
+  --vscode-font-family: var(--junction-locale-font);
+  line-height: 1.6;
+}
+
+body.good-fonts.locale-cjk,
+body.good-fonts.locale-devanagari {
+  --vscode-font-family: var(--junction-locale-font), "Junction Comic Neue", sans-serif;
+}

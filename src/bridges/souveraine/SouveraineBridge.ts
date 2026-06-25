@@ -5,9 +5,11 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import { getSouveraineBaseUrl, getSouveraineHome, souveraineConfig, updateSouveraineRuntime } from '../../config/agentBridgeConfig';
 import { jsonRequest, streamSse } from '../http';
-import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, ModelChoice, OPENCLAW_THINKING_LEVELS, ToolStatusView } from '../types';
+import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, ModelChoice, ToolStatusView } from '../types';
 import { Logger } from '../../utils/logger';
+import { captureBridgeDebug, captureBridgeHistoryDebug } from '../../utils/debugCapture';
 import { mapSouveraineSseEvent } from './events';
+import { listSouveraineModelChoices, selectSouveraineModelChoice } from './modelPicker';
 
 export class SouveraineBridge extends EventEmitter implements ChatBridge {
     readonly id = 'souveraine';
@@ -91,10 +93,6 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         await this.connect();
     }
 
-    getSettingsQuery(): string {
-        return 'junction.souveraine';
-    }
-
     setPendingFileContext(context: string): void {
         this.pendingFileContext = context;
     }
@@ -166,6 +164,12 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
                 method: 'GET',
             });
             const rawMessages = Array.isArray(res?.messages) ? res.messages : (Array.isArray(res) ? res : []);
+            captureBridgeHistoryDebug(this.id, 'history-native', {
+                operation: 'getSessionHistory.http',
+                sessionKey: this.activeConversationId,
+                inputCount: rawMessages.length,
+                inputMessages: rawMessages,
+            });
             const messages: any[] = [];
             for (const msg of rawMessages) {
                 if (!msg) continue;
@@ -201,6 +205,12 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
                     content,
                 });
             }
+            captureBridgeHistoryDebug(this.id, 'history-normalized', {
+                operation: 'getSessionHistory.http',
+                sessionKey: this.activeConversationId,
+                outputCount: messages.length,
+                outputMessages: messages,
+            });
             return { messages };
         } catch (err) {
             Logger.getInstance().warn('Failed to fetch Souveraine session history', err);
@@ -212,6 +222,13 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         await this.ensureAgent();
         if (!this.activeConversationId) await this.createChat();
         const runId = this.activeConversationId!;
+        captureBridgeDebug(this.id, 'request', {
+            operation: 'sendChatMessage',
+            sessionKey: runId,
+            runId,
+            message,
+            context,
+        });
         this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId });
         
         if (this.activeAbortController) {
@@ -239,7 +256,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         return { conversation_id: runId };
     }
 
-    async stopRun(): Promise<void> {
+    async stopRun(sessionKey?: string, runId?: string): Promise<void> {
         // SSE request cancellation: abort stream if active
         // Comment: Souveraine has no server-side run-cancel endpoint; the server may finish the turn internally.
         // We just stop listening by aborting the SSE request client-side.
@@ -247,7 +264,8 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
             this.activeAbortController.abort();
             this.activeAbortController = null;
         }
-        this.emit('stream', { type: 'agent_lifecycle', phase: 'cancelled', runId: this.activeConversationId || 'souveraine' });
+        const key = sessionKey || this.activeConversationId || 'souveraine';
+        this.emit('stream', { type: 'agent_lifecycle', phase: 'cancelled', runId: runId || key, sessionKey: key });
     }
 
     async getUsage(): Promise<any> {
@@ -281,41 +299,19 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         this.selection = { ...this.selection, ...selection };
     }
 
+    getSelection(): BridgeSelectionState {
+        const activeModel = this.activeConversationId ? this.knownConversations.get(this.activeConversationId)?.model : undefined;
+        return { ...this.selection, ...(activeModel ? { modelId: activeModel } : {}) };
+    }
+
     async listModelChoices(selectedModel?: string, selectedThinking?: string): Promise<ModelChoice[]> {
-        const models = ['openai/kimi-k2.6', 'openai/deepseek-v4-pro'];
-        // Souveraine exposes no per-model reasoning-effort catalog; its models reason
-        // via the OpenClaw level system, so offer the canonical levels (forced
-        // per-request). Swap in real per-model efforts if the API gains a caps endpoint.
-        return models.map((id) => {
-            const slash = id.indexOf('/');
-            const provider = slash > 0 ? id.slice(0, slash) : '';
-            const model = slash > 0 ? id.slice(slash + 1) : id;
-            return {
-                id,
-                label: model,
-                description: provider,
-                provider,
-                model,
-                supportsReasoning: true,
-                icon: 'lightbulb',
-                checked: selectedModel === id || selectedModel === model,
-                children: OPENCLAW_THINKING_LEVELS.map((level) => ({
-                    id: `${id}:thinking:${level}`,
-                    label: level,
-                    icon: 'thinking',
-                    thinking: level,
-                    checked: (selectedModel === id || selectedModel === model) && selectedThinking === level,
-                })),
-            };
-        });
+        return listSouveraineModelChoices(selectedModel, selectedThinking);
     }
 
     async selectModelChoice(data: any): Promise<{ display: string; modelId: string; thinking?: string } | null> {
-        const provider = String(data.provider ?? '');
-        const model = String(data.model ?? data.id ?? '').replace(/^.*:/, '');
-        if (!model) return null;
-        const modelId = provider ? `${provider}/${model}` : model;
-        const thinking = data.thinking !== undefined ? String(data.thinking) : this.selection.thinking;
+        const selected = selectSouveraineModelChoice(data, this.selection);
+        if (!selected) return null;
+        const { modelId, thinking } = selected;
         this.setSelection({ modelId, thinking });
         if (this.activeConversationId) {
             const known = this.knownConversations.get(this.activeConversationId) ?? { title: this.activeConversationId };
@@ -323,7 +319,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
             this.knownConversations.set(this.activeConversationId, known);
             this.persistSessions();
         }
-        return { display: String(data.label ?? model), modelId, thinking };
+        return selected;
     }
 
     async listEnvironmentChoices(): Promise<ChoiceMenuItem[]> {
@@ -398,7 +394,21 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
     }
 
     private mapSse(runId: string, eventName: string, data: string): void {
+        captureBridgeDebug(this.id, 'native', {
+            operation: 'mapSse',
+            sessionKey: runId,
+            runId,
+            eventName,
+            data,
+        });
         const mapped = mapSouveraineSseEvent(runId, eventName, data, this.buffers.get(runId) || '');
+        captureBridgeDebug(this.id, 'normalized', {
+            operation: 'mapSse',
+            sessionKey: runId,
+            runId,
+            eventName,
+            mapped,
+        });
         if (mapped.nextText !== undefined) this.buffers.set(runId, mapped.nextText);
         for (const event of mapped.events) this.emit('stream', event);
     }

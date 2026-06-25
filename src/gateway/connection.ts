@@ -12,6 +12,7 @@ import { MessageProcessor } from '../utils/messageProcessor';
 import { extractThinkingFromSessionMessage } from '../bridges/openclaw/events';
 import { GatewayCapabilities } from './capabilities';
 import { getOpenClawConfigPath, getOpenClawGatewayUrl } from '../config/agentBridgeConfig';
+import { t } from '../l10n';
 
 interface PendingRequest {
   resolve: (value: any) => void;
@@ -754,11 +755,11 @@ export class GatewayConnection extends EventEmitter {
     this.logger.warn('Approve command: ' + this.buildApproveCommand(requestId));
 
     vscode.window.showInformationMessage(
-      'OpenClaw: this device needs to be approved before it can connect.',
-      'Approve Pairing',
-      'Cancel',
+      t('OpenClaw: this device needs to be approved before it can connect.'),
+      t('Approve Pairing'),
+      t('Cancel'),
     ).then(action => {
-      if (action === 'Approve Pairing') {
+      if (action === t('Approve Pairing')) {
         this.runApprove(requestId);
       }
       // Cancel: leave isPairingPending=true, do nothing

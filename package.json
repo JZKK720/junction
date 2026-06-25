@@ -1,8 +1,9 @@
 {
   "name": "junction",
-  "displayName": "Junction",
-  "description": "Junction \u2014 local AI coding agent bridge for OpenClaw, Hermes, and Souveraine",
+  "displayName": "%junction.displayName.junction%",
+  "description": "%junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine%",
   "version": "0.0.1",
+  "preview": true,
   "publisher": "Plaer1",
   "icon": "resources/icon.png",
   "engines": {
@@ -10,7 +11,19 @@
   },
   "repository": "https://github.com/Plaer1/junction",
   "categories": [
+    "AI",
+    "Chat",
     "Other"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "chat",
+    "coding assistant",
+    "local",
+    "llm",
+    "openclaw",
+    "sidebar"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -21,7 +34,7 @@
       "secondarySidebar": [
         {
           "id": "junction-explorer",
-          "title": "Junction",
+          "title": "%junction.contributes.viewsContainers.secondarySidebar.0.title.junction%",
           "icon": "resources/icon.svg"
         }
       ]
@@ -31,7 +44,7 @@
         {
           "type": "webview",
           "id": "junction.chatView",
-          "name": "Junction",
+          "name": "%junction.contributes.views.junction-explorer.0.name.junction%",
           "icon": "resources/icon.svg"
         }
       ]
@@ -39,25 +52,25 @@
     "commands": [
       {
         "command": "junction.configureRuntime",
-        "title": "Junction: Configure Runtime"
+        "title": "%junction.contributes.commands.0.title.junction.configure.runtime%"
       },
       {
         "command": "junction.openChat",
-        "title": "Junction: Open Sidebar",
+        "title": "%junction.contributes.commands.1.title.junction.open.sidebar%",
         "icon": "resources/icon.svg"
       },
       {
         "command": "junction.showLogs",
-        "title": "Junction: Show Logs",
+        "title": "%junction.contributes.commands.2.title.junction.show.logs%",
         "icon": "resources/icon.svg"
       },
       {
         "command": "junction.addToThread",
-        "title": "Add to Junction Thread"
+        "title": "%junction.contributes.commands.3.title.add.to.junction.thread%"
       },
       {
         "command": "junction.addFileToThread",
-        "title": "Add File to Junction Thread"
+        "title": "%junction.contributes.commands.4.title.add.file.to.junction.thread%"
       }
     ],
     "keybindings": [],
@@ -85,7 +98,7 @@
       ]
     },
     "configuration": {
-      "title": "Junction",
+      "title": "%junction.contributes.configuration.title.junction%",
       "properties": {
         "junction.activeBridge": {
           "type": "string",
@@ -96,10 +109,11 @@
             "mimocode",
             "goose",
             "opencode",
+            "pi",
             "openhands"
           ],
           "default": "openclaw",
-          "description": "Active local agent bridge.",
+          "description": "%junction.contributes.configuration.properties.junction.activeBridge.description.active.local.agent.bridge%",
           "order": 1
         },
         "junction.sendBehavior": {
@@ -110,12 +124,12 @@
             "smartEnter"
           ],
           "enumDescriptions": [
-            "Enter sends; Shift+Enter inserts a newline",
-            "Ctrl/Cmd+Enter sends; Enter inserts a newline",
-            "Enter sends on a single line; multiline requires Ctrl/Cmd+Enter"
+            "%junction.contributes.configuration.properties.junction.sendBehavior.enumDescriptions.0.enter.sends.shift.enter.inserts.a.newline%",
+            "%junction.contributes.configuration.properties.junction.sendBehavior.enumDescriptions.1.ctrl.cmd.enter.sends.enter.inserts.a.newline%",
+            "%junction.contributes.configuration.properties.junction.sendBehavior.enumDescriptions.2.enter.sends.on.a.single.line.multiline.requires.ctrl.cmd.enter%"
           ],
           "default": "ctrlEnter",
-          "description": "How the chat composer submits a message.",
+          "description": "%junction.contributes.configuration.properties.junction.sendBehavior.description.how.the.chat.composer.submits.a.message%",
           "order": 2
         },
         "junction.followUpMode": {
@@ -127,13 +141,13 @@
             "interrupt"
           ],
           "enumDescriptions": [
-            "Use the per-bridge setting (or queue if not set)",
-            "Hold the message until the current run finishes, then send",
-            "Inject the message into the running turn (needs gateway support; falls back to queue)",
-            "Stop the current run, then send the new message"
+            "%junction.contributes.configuration.properties.junction.followUpMode.enumDescriptions.0.use.the.per.bridge.setting.or.queue.if.not.set%",
+            "%junction.contributes.configuration.properties.junction.followUpMode.enumDescriptions.1.hold.the.message.until.the.current.run.finishes.then.send%",
+            "%junction.contributes.configuration.properties.junction.followUpMode.enumDescriptions.2.inject.the.message.into.the.running.turn.needs.gateway.support.falls.back.to.que%",
+            "%junction.contributes.configuration.properties.junction.followUpMode.enumDescriptions.3.stop.the.current.run.then.send.the.new.message%"
           ],
           "default": "default",
-          "description": "Global follow-up mode. Per-bridge overrides: junction.openclaw.followUpMode, junction.hermes.followUpMode, junction.souveraine.followUpMode.",
+          "description": "%junction.contributes.configuration.properties.junction.followUpMode.description.global.follow.up.mode.per.bridge.overrides.junction.openclaw.followupmode.juncti%",
           "order": 3
         },
         "junction.lookAndFeel": {
@@ -143,23 +157,57 @@
             "timeline"
           ],
           "enumDescriptions": [
-            "Compact chat stream with activity folded into summary accordions.",
-            "Timeline chat stream with chronological reasoning/activity flow. Also enables the orange theme."
+            "%junction.contributes.configuration.properties.junction.lookAndFeel.enumDescriptions.0.compact.chat.stream.with.activity.folded.into.summary.accordions%",
+            "%junction.contributes.configuration.properties.junction.lookAndFeel.enumDescriptions.1.timeline.chat.stream.with.chronological.reasoning.activity.flow.also.enables.the%"
           ],
-          "default": "compact",
-          "description": "Chat look and feel.",
+          "default": "timeline",
+          "description": "%junction.contributes.configuration.properties.junction.lookAndFeel.description.chat.look.and.feel%",
           "order": 4
+        },
+        "junction.compactTimelineMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "%junction.contributes.configuration.properties.junction.compactTimelineMode.description.in.timeline.mode.collapse.the.timeline.pill.after.thinking.finishes.users.can.re%",
+          "order": 4
+        },
+        "junction.feedbackGlyphs": {
+          "type": "string",
+          "enum": [
+            "vector-arrows",
+            "arrow-caret",
+            "thumbs",
+            "arrows",
+            "faces",
+            "hearts",
+            "words",
+            "emoji-thumbs",
+            "wacky"
+          ],
+          "enumDescriptions": [
+            "%junction.contributes.configuration.properties.junction.feedbackGlyphs.enumDescriptions.0.chevron.up.down.codicons%",
+            "%junction.contributes.configuration.properties.junction.feedbackGlyphs.enumDescriptions.1.arrow.up.down.codicons%",
+            "%junction.contributes.configuration.properties.junction.feedbackGlyphs.enumDescriptions.2.thumbs.up.down.vector.line.art.matches.codex%",
+            "%junction.contributes.configuration.properties.junction.feedbackGlyphs.enumDescriptions.3.unicode.arrows%",
+            "%junction.contributes.configuration.properties.junction.feedbackGlyphs.enumDescriptions.4.faces%",
+            "%junction.contributes.configuration.properties.junction.feedbackGlyphs.enumDescriptions.5.hearts%",
+            "%junction.contributes.configuration.properties.junction.feedbackGlyphs.enumDescriptions.6.words.good.bad%",
+            "%junction.contributes.configuration.properties.junction.feedbackGlyphs.enumDescriptions.7.emoji.thumbs%",
+            "%junction.contributes.configuration.properties.junction.feedbackGlyphs.enumDescriptions.8.wacky.a.random.pair.each.session%"
+          ],
+          "default": "vector-arrows",
+          "description": "%junction.contributes.configuration.properties.junction.feedbackGlyphs.description.glyphs.for.the.assistant.message.feedback.up.down.vote.buttons.buttons.appear.on%",
+          "order": 5
         },
         "junction.checkpoints.enabled": {
           "type": "boolean",
-          "default": true,
-          "description": "Snapshot the workspace at each turn so you can 'Rewind code to here' (uses a shadow git repo in extension storage, never your real .git).",
+          "default": false,
+          "description": "%junction.contributes.configuration.properties.junction.checkpoints.enabled.description.temporarily.disabled.future.code.rewind.checkpoint.snapshots.will.live.behind.th%",
           "order": 5
         },
         "junction.beta.openclawForkRewind": {
           "type": "boolean",
           "default": false,
-          "description": "Show beta Fork and Rewind buttons. Tested only with OpenClaw; leave off for other bridges.",
+          "description": "%junction.contributes.configuration.properties.junction.beta.openclawForkRewind.description.temporarily.disabled.fork.stays.available.fork.rewind.is.hidden.until.code.rewin%",
           "order": 6
         },
         "junction.sandboxMode": {
@@ -171,7 +219,7 @@
             "full-access"
           ],
           "default": "default",
-          "description": "Local UI preference for agent sandbox display. Applied only when the active bridge supports a matching control surface.",
+          "description": "%junction.contributes.configuration.properties.junction.sandboxMode.description.local.ui.preference.for.agent.sandbox.display.applied.only.when.the.active.bridg%",
           "order": 7
         },
         "junction.approvalMode": {
@@ -182,37 +230,59 @@
             "never"
           ],
           "default": "default",
-          "description": "Local UI preference for approval display. Applied only when the active bridge supports a matching control surface.",
+          "description": "%junction.contributes.configuration.properties.junction.approvalMode.description.local.ui.preference.for.approval.display.applied.only.when.the.active.bridge.sup%",
           "order": 8
         },
         "junction.extraRichText": {
           "type": "boolean",
           "default": true,
-          "description": "Enable Pretext-powered extra-rich text rendering with animated text effects (matrix scroll, typewriter, etc.). Uses canvas-based text layout for smoother animations.",
+          "description": "%junction.contributes.configuration.properties.junction.extraRichText.description.enable.pretext.powered.extra.rich.text.rendering.with.animated.text.effects.matr%",
           "order": 9
         },
         "junction.goodFonts": {
           "type": "boolean",
           "default": false,
-          "description": "Use the bundled \"Good Fonts\" pack — Comic Neue for regular text and Liga Comic Mono for monospace/code.",
+          "description": "%junction.contributes.configuration.properties.junction.goodFonts.description.use.the.bundled.good.fonts.pack.comic.neue.for.regular.text.and.liga.comic.mono.%",
           "order": 9
+        },
+        "junction.toolOutputWordWrap": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "off",
+            "on"
+          ],
+          "enumDescriptions": [
+            "%junction.contributes.configuration.properties.junction.toolOutputWordWrap.enumDescriptions.0.follow.the.vs.code.editor.wordwrap.setting%",
+            "%junction.contributes.configuration.properties.junction.toolOutputWordWrap.enumDescriptions.1.never.wrap.tool.output.lines%",
+            "%junction.contributes.configuration.properties.junction.toolOutputWordWrap.enumDescriptions.2.always.wrap.tool.output.lines%"
+          ],
+          "default": "auto",
+          "description": "%junction.contributes.configuration.properties.junction.toolOutputWordWrap.description.word.wrapping.for.tool.pill.output%",
+          "order": 10
         },
         "junction.todoCodeLensEnabled": {
           "type": "boolean",
           "default": false,
-          "description": "Show CodeLens actions above TODO/FIXME/HACK comments to send them to Junction.",
-          "order": 10
+          "description": "%junction.contributes.configuration.properties.junction.todoCodeLensEnabled.description.show.codelens.actions.above.todo.fixme.hack.comments.to.send.them.to.junction%",
+          "order": 11
+        },
+        "junction.alwaysShowUsageChip": {
+          "type": "boolean",
+          "default": false,
+          "description": "%junction.contributes.configuration.properties.junction.alwaysShowUsageChip.description.always.show.the.context.usage.chip.gauge.even.at.low.usage.when.off.it.appears.o%",
+          "order": 11
         },
         "junction.activityStream.rail": {
           "type": "boolean",
           "default": true,
-          "description": "Show the vertical guide line beside activity rows in timeline mode.",
+          "description": "%junction.contributes.configuration.properties.junction.activityStream.rail.description.show.the.vertical.guide.line.beside.activity.rows.in.timeline.mode%",
           "order": 11
         },
         "junction.activityStream.condensed": {
           "type": "boolean",
           "default": true,
-          "description": "Group consecutive file edits into compact sections (one per file) instead of showing each edit as a separate row.",
+          "description": "%junction.contributes.configuration.properties.junction.activityStream.condensed.description.group.consecutive.file.edits.into.compact.sections.one.per.file.instead.of.showi%",
           "order": 12
         },
         "junction.activityStream.dots": {
@@ -222,11 +292,11 @@
             "minimal"
           ],
           "enumDescriptions": [
-            "Colored status dots (green success, red error, blinking while running)",
-            "Neutral dots with a spinner while running"
+            "%junction.contributes.configuration.properties.junction.activityStream.dots.enumDescriptions.0.colored.status.dots.green.success.red.error.blinking.while.running%",
+            "%junction.contributes.configuration.properties.junction.activityStream.dots.enumDescriptions.1.neutral.dots.with.a.spinner.while.running%"
           ],
           "default": "status",
-          "description": "Status indicator style on activity rows.",
+          "description": "%junction.contributes.configuration.properties.junction.activityStream.dots.description.status.indicator.style.on.activity.rows%",
           "order": 13
         },
         "junction.bubble.radius": {
@@ -234,56 +304,66 @@
           "minimum": 0,
           "maximum": 999,
           "default": 16,
-          "description": "User message bubble corner radius. 0 = hard edges, 16 = default round, 999 = fully circular.",
+          "description": "%junction.contributes.configuration.properties.junction.bubble.radius.description.user.message.bubble.corner.radius.0.hard.edges.16.default.round.999.fully.circul%",
           "order": 14
         },
         "junction.bubble.tip": {
           "type": "string",
-          "enum": ["none", "top-right", "bottom-right"],
+          "enum": [
+            "none",
+            "top-right",
+            "bottom-right"
+          ],
           "enumDescriptions": [
-            "No pointed tip — full round corners",
-            "Pointed tip at top-right corner",
-            "Pointed tip at bottom-right corner"
+            "%junction.contributes.configuration.properties.junction.bubble.tip.enumDescriptions.0.no.pointed.tip.full.round.corners%",
+            "%junction.contributes.configuration.properties.junction.bubble.tip.enumDescriptions.1.pointed.tip.at.top.right.corner%",
+            "%junction.contributes.configuration.properties.junction.bubble.tip.enumDescriptions.2.pointed.tip.at.bottom.right.corner%"
           ],
           "default": "none",
-          "description": "Position of the pointed tail on user message bubbles.",
+          "description": "%junction.contributes.configuration.properties.junction.bubble.tip.description.position.of.the.pointed.tail.on.user.message.bubbles%",
           "order": 15
         },
         "junction.steerKeybinding": {
           "type": "string",
           "default": "",
-          "description": "Custom keybinding to steer in-flight runs (e.g., 'Ctrl+Shift+Enter'). Left empty by default (unbound).",
+          "description": "%junction.contributes.configuration.properties.junction.steerKeybinding.description.custom.keybinding.to.steer.in.flight.runs.e.g.ctrl.shift.enter.left.empty.by.def%",
           "order": 16
         },
         "junction.showFullHistory": {
           "type": "boolean",
           "default": false,
-          "description": "Show full chat history on load (locally installed OpenClaw instances only). When enabled, loads up to 1000 messages instead of the default 200. May be slower on large sessions.",
+          "description": "%junction.contributes.configuration.properties.junction.showFullHistory.description.show.full.chat.history.on.load.locally.installed.openclaw.instances.only.when.en%",
           "order": 17
         },
         "junction.autoSendFileContext": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically stage active editor context when switching files. Explicit file pills are still sent normally.",
+          "description": "%junction.contributes.configuration.properties.junction.autoSendFileContext.description.automatically.stage.active.editor.context.when.switching.files.explicit.file.pil%",
           "order": 18
         },
         "junction.fileContextInterval": {
           "type": "number",
           "default": 5000,
-          "description": "Interval (in ms) for automatically staging editor context.",
+          "description": "%junction.contributes.configuration.properties.junction.fileContextInterval.description.interval.in.ms.for.automatically.staging.editor.context%",
           "order": 19
         },
         "junction.openclaw.gatewayUrl": {
           "type": "string",
           "default": "ws://127.0.0.1:18789",
-          "description": "WebSocket URL of the OpenClaw runtime.",
+          "description": "%junction.contributes.configuration.properties.junction.openclaw.gatewayUrl.description.websocket.url.of.the.openclaw.runtime%",
           "order": 20
         },
         "junction.openclaw.configPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the openclaw.json config file for the selected OpenClaw runtime.",
+          "description": "%junction.contributes.configuration.properties.junction.openclaw.configPath.description.path.to.the.openclaw.json.config.file.for.the.selected.openclaw.runtime%",
           "order": 21
+        },
+        "junction.openclaw.showAllAgents": {
+          "type": "boolean",
+          "default": false,
+          "description": "%junction.contributes.configuration.properties.junction.openclaw.showAllAgents.description.show.every.configured.agent.in.the.environment.picker.when.off.default.only.each%",
+          "order": 23
         },
         "junction.openclaw.followUpMode": {
           "type": "string",
@@ -294,38 +374,61 @@
             "interrupt"
           ],
           "default": "default",
-          "description": "Follow-up mode for OpenClaw. 'default' uses the global junction.followUpMode.",
+          "description": "%junction.contributes.configuration.properties.junction.openclaw.followUpMode.description.follow.up.mode.for.openclaw.default.uses.the.global.junction.followupmode%",
           "order": 22
         },
         "junction.hermes.dashboardUrl": {
           "type": "string",
           "default": "http://127.0.0.1:9119",
-          "description": "Local Hermes dashboard URL used for native WebSocket integration.",
+          "description": "%junction.contributes.configuration.properties.junction.hermes.dashboardUrl.description.local.hermes.dashboard.url.used.for.native.websocket.integration%",
           "order": 30
         },
         "junction.hermes.wsUrl": {
           "type": "string",
           "default": "ws://127.0.0.1:9119/api/ws",
-          "description": "Local Hermes dashboard JSON-RPC WebSocket URL.",
+          "description": "%junction.contributes.configuration.properties.junction.hermes.wsUrl.description.local.hermes.dashboard.json.rpc.websocket.url%",
           "order": 31
         },
         "junction.hermes.apiBaseUrl": {
           "type": "string",
           "default": "http://127.0.0.1:8642",
-          "description": "Local Hermes API server URL for REST fallback/status.",
+          "description": "%junction.contributes.configuration.properties.junction.hermes.apiBaseUrl.description.local.hermes.api.server.url.for.explicit.apiserver.mode.status%",
           "order": 32
         },
         "junction.hermes.home": {
           "type": "string",
           "default": "~/.hermes-hermling",
-          "description": "Hermes home used for the managed hermling test runtime.",
+          "description": "%junction.contributes.configuration.properties.junction.hermes.home.description.hermes.home.used.for.the.managed.hermling.test.runtime%",
           "order": 33
         },
         "junction.hermes.repoPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the hermes-agent repo for managed spawn (leave empty to disable managed spawn).",
+          "description": "%junction.contributes.configuration.properties.junction.hermes.repoPath.description.path.to.the.hermes.agent.repo.for.managed.spawn.leave.empty.to.disable.managed.s%",
           "order": 34
+        },
+        "junction.hermes.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "%junction.contributes.configuration.properties.junction.hermes.cliPath.description.path.to.a.built.hermes.cli.to.spawn.the.dashboard.with.e.g.bin.hermes.empty.auto%",
+          "order": 35
+        },
+        "junction.hermes.mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "dashboard",
+            "apiserver"
+          ],
+          "default": "auto",
+          "description": "%junction.contributes.configuration.properties.junction.hermes.mode.description.which.hermes.surface.to.use.auto.uses.the.dashboard.full.native.features.dashboa%",
+          "order": 36
+        },
+        "junction.hermes.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "%junction.contributes.configuration.properties.junction.hermes.apiKey.description.api.server.key.override.empty.read.from.the.hermes.config.yaml.platforms.api.ser%",
+          "order": 37
         },
         "junction.hermes.followUpMode": {
           "type": "string",
@@ -336,25 +439,25 @@
             "interrupt"
           ],
           "default": "default",
-          "description": "Follow-up mode for Hermes. 'default' uses the global junction.followUpMode.",
+          "description": "%junction.contributes.configuration.properties.junction.hermes.followUpMode.description.follow.up.mode.for.hermes.default.uses.the.global.junction.followupmode%",
           "order": 35
         },
         "junction.souveraine.baseUrl": {
           "type": "string",
           "default": "http://127.0.0.1:8484",
-          "description": "Local Souveraine HTTP server URL.",
+          "description": "%junction.contributes.configuration.properties.junction.souveraine.baseUrl.description.local.souveraine.http.server.url%",
           "order": 40
         },
         "junction.souveraine.home": {
           "type": "string",
           "default": "~/.souveraine-souvieling-home",
-          "description": "HOME directory used for the managed souvieling test runtime.",
+          "description": "%junction.contributes.configuration.properties.junction.souveraine.home.description.home.directory.used.for.the.managed.souvieling.test.runtime%",
           "order": 41
         },
         "junction.souveraine.repoPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the Souveraine repo for managed spawn (leave empty to disable managed spawn).",
+          "description": "%junction.contributes.configuration.properties.junction.souveraine.repoPath.description.path.to.the.souveraine.repo.for.managed.spawn.leave.empty.to.disable.managed.spa%",
           "order": 42
         },
         "junction.souveraine.followUpMode": {
@@ -366,31 +469,31 @@
             "interrupt"
           ],
           "default": "default",
-          "description": "Follow-up mode for Souveraine. 'default' uses the global junction.followUpMode.",
+          "description": "%junction.contributes.configuration.properties.junction.souveraine.followUpMode.description.follow.up.mode.for.souveraine.default.uses.the.global.junction.followupmode%",
           "order": 43
         },
         "junction.mimocode.serverUrl": {
           "type": "string",
           "default": "",
-          "description": "Connect to an already-running MiMoCode server (e.g. http://127.0.0.1:8080). Leave empty to let Junction spawn and manage its own instance.",
+          "description": "%junction.contributes.configuration.properties.junction.mimocode.serverUrl.description.connect.to.an.already.running.mimocode.server.e.g.http.127.0.0.1.8080.leave.empt%",
           "order": 50
         },
         "junction.mimocode.binaryPath": {
           "type": "string",
           "default": "mimo",
-          "description": "Path to the mimo binary. Use \"mimo\" if it is on PATH, or set the full path (e.g. /home/user/bin/mimo).",
+          "description": "%junction.contributes.configuration.properties.junction.mimocode.binaryPath.description.path.to.the.mimo.binary.use.mimo.if.it.is.on.path.or.set.the.full.path.e.g.home.%",
           "order": 51
         },
         "junction.mimocode.port": {
           "type": "number",
           "default": 0,
-          "description": "Port for the managed MiMoCode server (0 = auto-assign random port). Ignored when junction.mimocode.serverUrl is set.",
+          "description": "%junction.contributes.configuration.properties.junction.mimocode.port.description.port.for.the.managed.mimocode.server.0.auto.assign.random.port.ignored.when.junc%",
           "order": 52
         },
         "junction.mimocode.home": {
           "type": "string",
-          "default": "~/.mimocode-junction",
-          "description": "Data directory for Junction-managed MiMoCode state",
+          "default": "",
+          "description": "%junction.contributes.configuration.properties.junction.mimocode.home.description.mimocode.data.directory.empty.auto.discovers.the.installed.mimocode.profile%",
           "order": 53
         },
         "junction.mimocode.followUpMode": {
@@ -402,55 +505,61 @@
             "interrupt"
           ],
           "default": "default",
-          "description": "MiMoCode follow-up mode preference (overrides junction.followUpMode when active bridge is MiMoCode)",
+          "description": "%junction.contributes.configuration.properties.junction.mimocode.followUpMode.description.mimocode.follow.up.mode.preference.overrides.junction.followupmode.when.active.b%",
           "order": 54
         },
         "junction.goose.serverUrl": {
           "type": "string",
           "default": "",
-          "description": "Goose ACP server URL. Leave empty to auto-detect from localhost:3284.",
+          "description": "%junction.contributes.configuration.properties.junction.goose.serverUrl.description.legacy.goosed.server.url.native.goose.support.uses.the.cli.transport%",
           "order": 60
         },
         "junction.goose.home": {
           "type": "string",
           "default": "",
-          "description": "Goose data directory. Leave empty for auto-detection (~/.goose).",
+          "description": "%junction.contributes.configuration.properties.junction.goose.home.description.goose.data.directory.leave.empty.for.auto.detection.goose%",
           "order": 61
         },
         "junction.goose.binaryPath": {
           "type": "string",
           "default": "",
-          "description": "Path to goose binary. Leave empty to auto-detect from PATH.",
+          "description": "%junction.contributes.configuration.properties.junction.goose.binaryPath.description.path.to.goose.binary.leave.empty.to.auto.detect.from.path%",
           "order": 62
+        },
+        "junction.goose.envFile": {
+          "type": "string",
+          "default": "",
+          "description": "%junction.contributes.configuration.properties.junction.goose.envFile.description.optional.dotenv.file.loaded.into.managed.goose.cli.runs.leave.empty.to.auto.dete%",
+          "order": 63
         },
         "junction.goose.secretKey": {
           "type": "string",
           "default": "",
-          "description": "Optional X-Secret-Key for a goosed server. Point junction.goose.serverUrl at a goosed instance for full model/command/history support.",
-          "order": 63
+          "description": "%junction.contributes.configuration.properties.junction.goose.secretKey.description.legacy.goosed.secret.key.native.goose.support.uses.the.cli.transport%",
+          "order": 64
         },
         "junction.opencode.serverUrl": {
           "type": "string",
           "default": "",
-          "description": "Connect to an already-running `opencode serve` (e.g. http://127.0.0.1:4096). Leave empty to let Junction spawn and manage its own opencode server.",
+          "description": "%junction.contributes.configuration.properties.junction.opencode.serverUrl.description.connect.to.an.already.running.opencode.serve.e.g.http.127.0.0.1.4096.leave.empty%",
           "order": 70
         },
         "junction.opencode.binaryPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the opencode binary. Leave empty to auto-detect (~/bin/opencode, then PATH).",
+          "description": "%junction.contributes.configuration.properties.junction.opencode.binaryPath.description.path.to.the.opencode.binary.leave.empty.to.auto.detect.bin.opencode.then.path%",
           "order": 71
         },
         "junction.opencode.port": {
           "type": "number",
           "default": 0,
-          "description": "Port for the managed opencode server (0 = auto-assign). Ignored when junction.opencode.serverUrl is set.",
+          "description": "%junction.contributes.configuration.properties.junction.opencode.port.description.port.for.the.managed.opencode.server.0.auto.assign.ignored.when.junction.opencod%",
           "order": 72
         },
         "junction.opencode.home": {
           "type": "string",
           "default": "",
-          "description": "opencode config home (sets OPENCODE_CONFIG). Leave empty for the opencode default (~/.config/opencode).",
+          "description": "%junction.contributes.configuration.properties.junction.opencode.home.description.opencode.config.home.sets.opencode.config.leave.empty.for.the.opencode.default.c%",
           "order": 73
         },
         "junction.opencode.followUpMode": {
@@ -462,31 +571,55 @@
             "interrupt"
           ],
           "default": "default",
-          "description": "Follow-up mode for opencode. 'default' uses the global junction.followUpMode.",
+          "description": "%junction.contributes.configuration.properties.junction.opencode.followUpMode.description.follow.up.mode.for.opencode.default.uses.the.global.junction.followupmode%",
           "order": 74
+        },
+        "junction.pi.cliPath": {
+          "type": "string",
+          "default": "",
+          "description": "%junction.contributes.configuration.properties.junction.pi.cliPath.description.path.to.the.built.pi.coding.agent.cli.entrypoint.dist.cli.js.empty.auto.detects.%",
+          "order": 76
+        },
+        "junction.pi.home": {
+          "type": "string",
+          "default": "",
+          "description": "%junction.contributes.configuration.properties.junction.pi.home.description.home.directory.for.managed.pi.rpc.runs.empty.uses.the.current.process.home%",
+          "order": 77
+        },
+        "junction.pi.followUpMode": {
+          "type": "string",
+          "enum": [
+            "default",
+            "queue",
+            "steer",
+            "interrupt"
+          ],
+          "default": "default",
+          "description": "%junction.contributes.configuration.properties.junction.pi.followUpMode.description.follow.up.mode.for.pi.default.uses.the.global.junction.followupmode%",
+          "order": 78
         },
         "junction.openhands.serverUrl": {
           "type": "string",
           "default": "http://127.0.0.1:3000",
-          "description": "OpenHands app server URL. Junction will spawn the managed server (junction.openhands.binaryPath) if this URL is unreachable.",
+          "description": "%junction.contributes.configuration.properties.junction.openhands.serverUrl.description.openhands.app.server.url.junction.will.spawn.the.managed.server.junction.openhan%",
           "order": 80
         },
         "junction.openhands.binaryPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the openhands server launcher. Leave empty to auto-detect (~/bin/openhands).",
+          "description": "%junction.contributes.configuration.properties.junction.openhands.binaryPath.description.path.to.the.openhands.server.launcher.leave.empty.to.auto.detect.bin.openhands%",
           "order": 81
         },
         "junction.openhands.home": {
           "type": "string",
           "default": "",
-          "description": "OpenHands data/home directory (sets OPENHANDS_HOME). Leave empty for the OpenHands default (~/.openhands).",
+          "description": "%junction.contributes.configuration.properties.junction.openhands.home.description.openhands.data.home.directory.sets.openhands.home.leave.empty.for.the.openhands.%",
           "order": 82
         },
         "junction.openhands.repoPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the openhands repo for managed spawn (cwd for the launcher).",
+          "description": "%junction.contributes.configuration.properties.junction.openhands.repoPath.description.path.to.the.openhands.repo.for.managed.spawn.cwd.for.the.launcher%",
           "order": 83
         },
         "junction.openhands.followUpMode": {
@@ -498,7 +631,7 @@
             "interrupt"
           ],
           "default": "default",
-          "description": "Follow-up mode for OpenHands. 'default' uses the global junction.followUpMode.",
+          "description": "%junction.contributes.configuration.properties.junction.openhands.followUpMode.description.follow.up.mode.for.openhands.default.uses.the.global.junction.followupmode%",
           "order": 84
         }
       }

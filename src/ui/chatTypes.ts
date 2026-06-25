@@ -1,3 +1,5 @@
+import type { BridgeMessageReactionTarget } from '../bridges/types';
+
 /**
  * Shared types used by ChatBase and its extracted modules.
  */
@@ -25,6 +27,7 @@ export interface TranscriptTurn {
     tools?: TranscriptTool[];
     activityTimeline?: TranscriptActivityItem[];
     reaction?: 'up' | 'down' | null;
+    reactionTarget?: BridgeMessageReactionTarget;
     isSteer?: boolean;
 }
 
@@ -46,11 +49,16 @@ export interface TranscriptActivityItem {
 
 export interface WebviewConfigPayload {
     type: 'config';
+    activeBridge?: string;
     sendBehavior: 'enter' | 'ctrlEnter' | 'smartEnter';
     reasoningDisplay: string;
     extraRichText: boolean;
     goodFonts: boolean;
+    toolOutputWordWrap: 'off' | 'on';
+    alwaysShowUsageChip: boolean;
+    compactTimelineMode: boolean;
     activityLayout: string;
+    feedbackGlyphs?: string;
     activityRail: boolean;
     activityDots: string;
     activityCondensed: boolean;
@@ -65,6 +73,8 @@ export interface WebviewConfigPayload {
     loaderColor?: string;
     splashColor?: string;
     tokenColors?: Record<string, string>;
+    messageReactions?: boolean;
+    interleaveTimeline?: boolean;
 }
 
 export const LEGACY_VSCODE_WORKSPACE_CONTEXT_PREFIX = 'This session is driven from the VS Code extension.';

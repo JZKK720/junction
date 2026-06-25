@@ -7,10 +7,24 @@ import { jsonRequest, streamSse } from '../http';
 import {
     BridgeCapabilities, BridgeContext, BridgeSelectionState,
     BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem,
-    ModelChoice, OPENCLAW_THINKING_LEVELS, ToolStatusView,
+    ModelChoice, ToolStatusView,
 } from '../types';
 import { Logger } from '../../utils/logger';
+import { captureBridgeDebug, captureBridgeHistoryDebug } from '../../utils/debugCapture';
 import { mapMiMoCodeSseEvent, MiMoCodeMapperState } from './events';
+import { listMiMoCodeModelChoices, organizeMiMoCodeModelChoices, selectMiMoCodeModelChoice } from './modelPicker';
+import { normalizeMiMoToolPart } from './toolParts';
+import { listOpenCodeModelChoices } from '../opencode/modelPicker';
+import { parseSlashCommand } from '../slashCommands';
+import {
+    bindMiMoCodeSessionWorkspace,
+    boundMiMoCodeSessionWorkspace,
+    decorateMiMoCodeSessions,
+    KnownMiMoCodeSession,
+    listMiMoCodeSessions,
+    withDirectory,
+    workspaceDirectory,
+} from './sessionApi';
 
 function mimoConfig(): vscode.WorkspaceConfiguration {
     return vscode.workspace.getConfiguration('junction.mimocode');
@@ -49,6 +63,63 @@ function mimoServerUrl(): string {
     return (mimoConfig().get<string>('serverUrl') || '').trim();
 }
 
+function stripJsonComments(text: string): string {
+    return text
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+function readJsonLike(file: string): any | null {
+    try {
+        return JSON.parse(stripJsonComments(fs.readFileSync(file, 'utf8')));
+    } catch {
+        return null;
+    }
+}
+
+function addProviderKeysFromFile(out: Set<string>, file: string): void {
+    const data = readJsonLike(file);
+    const provider = data?.provider;
+    if (provider && typeof provider === 'object') {
+        for (const id of Object.keys(provider)) out.add(id);
+    }
+}
+
+function addAuthKeysFromFile(out: Set<string>, file: string): void {
+    const data = readJsonLike(file);
+    if (data && typeof data === 'object') {
+        for (const id of Object.keys(data)) out.add(id);
+    }
+}
+
+function manualMimoProviderIds(): Set<string> {
+    const out = new Set<string>();
+    const home = mimoHome();
+    const xdgConfig = process.env.XDG_CONFIG_HOME || path.join(process.env.HOME || '~', '.config');
+    for (const file of [
+        path.join(home, 'config', 'mimocode.json'),
+        path.join(home, 'config', 'mimocode.jsonc'),
+        path.join(xdgConfig, 'mimocode', 'mimocode.json'),
+        path.join(xdgConfig, 'mimocode', 'mimocode.jsonc'),
+    ]) {
+        addProviderKeysFromFile(out, file);
+    }
+    for (const file of [
+        path.join(home, 'auth.json'),
+        path.join(xdgConfig, 'mimocode', 'auth.json'),
+    ]) {
+        addAuthKeysFromFile(out, file);
+    }
+    return out;
+}
+
+/** Sync best-effort: is MiMoCode usable (resolvable binary to `serve`)? Lets a
+ *  configured-but-not-running mimo read "Switch bridge" instead of "setup
+ *  required" — connect() spawns the server on switch. Not in isConnected(). */
+function mimoInstalled(): boolean {
+    try { const b = mimoBinaryPath(); return path.isAbsolute(b) && fs.existsSync(b); } catch { return false; }
+}
+
 export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
     readonly id = 'mimocode';
     readonly label = 'MiMoCode';
@@ -59,6 +130,7 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         steering: false,
         usage: false,
         tools: true,
+        timelineInterleaves: true,
     };
 
     private serverUrl: string | null = null;
@@ -68,17 +140,18 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
     private activeSessionId: string | null = null;
     private pendingFileContext: string | null = null;
     private selection: BridgeSelectionState = {};
-    private knownSessions = new Map<string, { title: string; model?: string }>();
+    private knownSessions = new Map<string, KnownMiMoCodeSession>();
     private buffers = new Map<string, string>();
     private activeAbortController: AbortController | null = null;
     private sessionContextInjected = new Set<string>();
-    private _mapperState: MiMoCodeMapperState = { reasoningParts: new Set(), textAccum: new Map() };
+    private _mapperState: MiMoCodeMapperState = { reasoningParts: new Set(), reasoningAccum: new Map(), textAccum: new Map() };
     private _lastUsage?: { inputTokens?: number; outputTokens?: number };
+    private commandCache: Array<{ name: string; description?: string }> = [];
 
     constructor(readonly context: vscode.ExtensionContext) {
         super();
         // Restore known sessions from workspaceState
-        const saved = this.context.workspaceState.get<Array<[string, { title: string; model?: string }]>>(
+        const saved = this.context.workspaceState.get<Array<[string, KnownMiMoCodeSession]>>(
             'junction.mimocode.knownSessions',
         );
         if (saved) {
@@ -95,6 +168,7 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
     async connect(): Promise<boolean> {
         try {
             await this.ensureServer();
+            this.loadCommands().catch(() => {});
             this.emit('connected');
             return true;
         } catch (err) {
@@ -122,15 +196,7 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
     }
 
     async configure(): Promise<void> {
-        // Open VS Code settings for MiMoCode config
-        await vscode.commands.executeCommand(
-            'workbench.action.openSettings',
-            'junction.mimocode',
-        );
-    }
-
-    getSettingsQuery(): string {
-        return 'junction.mimocode | junction.activeBridge';
+        await vscode.commands.executeCommand('junction.openSettings');
     }
 
     // ── File context ───────────────────────────────────────────────────────
@@ -165,11 +231,22 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         this.persistSessions();
     }
 
-    async createChat(): Promise<string> {
+    bindSessionWorkspace(sessionKey: string | null | undefined, folderUri?: vscode.Uri): void {
+        bindMiMoCodeSessionWorkspace(this.context, this.id, sessionKey, folderUri);
+    }
+
+    boundSessionWorkspace(sessionKey: string | null | undefined): vscode.Uri | undefined {
+        return boundMiMoCodeSessionWorkspace(this.context, this.id, sessionKey);
+    }
+
+    async createChat(folderUri?: vscode.Uri): Promise<string> {
         await this.ensureServer();
-        const res = await jsonRequest<any>(`${this.serverUrl}/session`, {
+        const res = await jsonRequest<any>(withDirectory(this.serverUrl!, 'session', folderUri), {
             method: 'POST',
-            body: {},
+            body: {
+                ...(this.selection.modelId ? { model: this.selection.modelId } : {}),
+                metadata: { junctionBridge: this.id },
+            },
             timeoutMs: 15000,
         });
         const id = String(res?.id || res?.session?.id || '');
@@ -178,6 +255,7 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         this.knownSessions.set(id, {
             title: `Chat ${new Date().toISOString().replace('T', ' ').slice(0, 19)}`,
             model: this.selection.modelId,
+            workspaceUri: folderUri?.fsPath || workspaceDirectory(),
         });
         this.persistSessions();
         return id;
@@ -190,20 +268,18 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
     ): Promise<BridgeSession[]> {
         if (this.serverUrl) {
             try {
-                const serverSessions = await jsonRequest<any[]>(`${this.serverUrl}/session`, { timeoutMs: 3000 });
-                if (Array.isArray(serverSessions)) {
-                    for (const s of serverSessions) {
-                        if (s?.id && s?.title) {
-                            const existing = this.knownSessions.get(s.id);
-                            this.knownSessions.set(s.id, { title: s.title, model: existing?.model });
-                        }
-                    }
+            const sessions = await listMiMoCodeSessions({
+                    baseUrl: this.serverUrl,
+                    bridgeId: this.id,
+                    activeSessionId: this.activeSessionId,
+                    includeArchived,
+                    archivedKeys,
+                    knownSessions: this.knownSessions,
+                });
+                if (sessions.length > 0) {
+                    if (!this.activeSessionId || !sessions.some((s) => s.key === this.activeSessionId)) this.activeSessionId = sessions[0].key;
                     this.persistSessions();
-                    // Set active to most recent if we have none or current is gone
-                    if (serverSessions.length > 0 && (!this.activeSessionId || !serverSessions.some((s) => s.id === this.activeSessionId))) {
-                        this.activeSessionId = serverSessions[0].id;
-                        this.persistSessions();
-                    }
+                    return sessions;
                 }
             } catch {
                 // Fall through to local
@@ -219,11 +295,30 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
                 isArchived: archivedKeys.has(key),
                 groupId: 'recent',
                 groupLabel: 'Recent',
-                isCurrentGroup: true,
+                workspaceUri: value.workspaceUri,
+                workspaceName: value.workspaceName,
             }));
     }
 
+    async listWorkspaceSessions(scope: ChatScope, includeArchived: boolean, archivedKeys: ReadonlySet<string>, currentFolder?: vscode.Uri): Promise<BridgeSession[]> {
+        const sessions = await this.listSessions('all', includeArchived, archivedKeys);
+        return decorateMiMoCodeSessions({
+            context: this.context,
+            bridgeId: this.id,
+            sessions,
+            scope,
+            currentFolder,
+        });
+    }
+
     async renameSession(key: string, label: string): Promise<void> {
+        if (this.serverUrl) {
+            await jsonRequest(withDirectory(this.serverUrl, `session/${encodeURIComponent(key)}`), {
+                method: 'PATCH',
+                body: { title: label },
+                timeoutMs: 5000,
+            }).catch(() => undefined);
+        }
         const existing = this.knownSessions.get(key) ?? { title: label, model: this.selection.modelId };
         existing.title = label;
         this.knownSessions.set(key, existing);
@@ -235,11 +330,17 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         try {
             await this.ensureServer();
             const res = await jsonRequest<any>(
-                `${this.serverUrl}/session/${encodeURIComponent(this.activeSessionId)}/message`,
+                withDirectory(this.serverUrl!, `session/${encodeURIComponent(this.activeSessionId)}/message`),
                 { timeoutMs: 10000 },
             );
             // MiMoCode returns [{ info: { role }, parts: [...] }] (flat array)
             const rawMessages = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : []);
+            captureBridgeHistoryDebug(this.id, 'history-native', {
+                operation: 'getSessionHistory.http',
+                sessionKey: this.activeSessionId,
+                inputCount: rawMessages.length,
+                inputMessages: rawMessages,
+            });
             const messages: any[] = [];
             for (const msg of rawMessages) {
                 if (!msg) continue;
@@ -268,11 +369,14 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
                         } else if (part.type === 'text' && part.text) {
                             content.push({ type: 'text', text: part.text });
                         } else if (part.type === 'tool') {
+                            const tool = normalizeMiMoToolPart(part);
                             content.push({
                                 type: 'toolCall',
-                                name: part.tool || part.name || '',
-                                toolCallId: part.callID || part.call_id || '',
-                                arguments: part.input || part.args || {},
+                                name: tool.name,
+                                toolCallId: tool.callId,
+                                arguments: tool.args,
+                                result: tool.result,
+                                isError: tool.isError,
                             });
                         }
                     }
@@ -281,6 +385,12 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
                     }
                 }
             }
+            captureBridgeHistoryDebug(this.id, 'history-normalized', {
+                operation: 'getSessionHistory.http',
+                sessionKey: this.activeSessionId,
+                outputCount: messages.length,
+                outputMessages: messages,
+            });
             return { messages };
         } catch (err) {
             Logger.getInstance().warn('Failed to fetch MiMoCode session history', err);
@@ -292,9 +402,18 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
 
     async sendChatMessage(message: string, context?: BridgeContext): Promise<any> {
         await this.ensureServer();
-        if (!this.activeSessionId) await this.createChat();
+        if (!this.activeSessionId) await this.createChat(context?.workspaceFolder ? vscode.Uri.file(context.workspaceFolder) : undefined);
         const runId = this.activeSessionId!;
         const sessionKey = runId;
+        captureBridgeDebug(this.id, 'request', {
+            operation: 'sendChatMessage',
+            sessionKey,
+            runId,
+            message,
+            context,
+            modelId: this.selection.modelId,
+            thinking: this.selection.thinking,
+        });
         this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId, sessionKey });
 
         if (this.activeAbortController) this.activeAbortController.abort();
@@ -314,7 +433,7 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
             const needsContext = directory && !this.sessionContextInjected.has(runId);
             if (needsContext) this.sessionContextInjected.add(runId);
             const res = await jsonRequest<any>(
-                `${this.serverUrl}/session/${encodeURIComponent(runId)}/message`,
+                withDirectory(this.serverUrl!, `session/${encodeURIComponent(runId)}/message`, context?.workspaceFolder ? vscode.Uri.file(context.workspaceFolder) : undefined),
                 {
                     method: 'POST',
                     body: {
@@ -356,12 +475,64 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         return { session_id: runId };
     }
 
-    private subscribeEventStream(runId: string, sessionKey: string, signal: AbortSignal): Promise<void> {
-        const state: MiMoCodeMapperState = { reasoningParts: new Set(), textAccum: new Map() };
+    async executeSlashCommand(command: string, context?: BridgeContext): Promise<any> {
+        const parsed = parseSlashCommand(command);
+        if (!parsed) return this.sendChatMessage(command, context);
+        await this.ensureServer();
+        if (!this.activeSessionId) await this.createChat(context?.workspaceFolder ? vscode.Uri.file(context.workspaceFolder) : undefined);
+        const runId = this.activeSessionId!;
+        const sessionKey = runId;
+        captureBridgeDebug(this.id, 'request', {
+            operation: 'executeSlashCommand',
+            sessionKey,
+            runId,
+            command,
+            parsed,
+            context,
+        });
+        this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId, sessionKey });
+        if (this.activeAbortController) this.activeAbortController.abort();
+        this.activeAbortController = new AbortController();
+        const signal = this.activeAbortController.signal;
+        const eventsDone = this.subscribeEventStream(runId, sessionKey, signal, parsed.name);
+        let cancelled = false;
+        try {
+            await jsonRequest<any>(
+                withDirectory(this.serverUrl!, `session/${encodeURIComponent(runId)}/command`, context?.workspaceFolder ? vscode.Uri.file(context.workspaceFolder) : undefined),
+                {
+                    method: 'POST',
+                    body: { command: parsed.name, arguments: parsed.args || '' },
+                    signal,
+                    timeoutMs: 300000,
+                },
+            );
+        } catch {
+            cancelled = true;
+        } finally {
+            if (!signal.aborted) this.activeAbortController?.abort();
+            if (this.activeAbortController?.signal === signal) this.activeAbortController = null;
+            await eventsDone.catch(() => {});
+        }
+        if (!cancelled) {
+            this.emit('stream', { type: 'agent_lifecycle', phase: 'completed', runId, sessionKey, usage: this._lastUsage || { inputTokens: 0, outputTokens: 0 } });
+            this._lastUsage = undefined;
+        }
+        return { session_id: runId };
+    }
+
+    private subscribeEventStream(runId: string, sessionKey: string, signal: AbortSignal, commandName?: string): Promise<void> {
+        const state: MiMoCodeMapperState = { reasoningParts: new Set(), reasoningAccum: new Map(), textAccum: new Map(), commandName };
         return streamSse(
             `${this.serverUrl}/event`,
             { method: 'GET', signal, timeoutMs: 0 },
             (event) => {
+                captureBridgeDebug(this.id, 'native', {
+                    operation: 'subscribeEventStream.sse',
+                    sessionKey,
+                    runId,
+                    eventName: event.event,
+                    data: event.data,
+                });
                 const mapped = mapMiMoCodeSseEvent(runId, '', event.data, state);
                 // Session-gate: skip events for other sessions
                 let payload: any = {};
@@ -370,6 +541,13 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
                 if (props.sessionID && props.sessionID !== runId) return;
 
                 if (mapped.usage) this._lastUsage = mapped.usage;
+                captureBridgeDebug(this.id, 'normalized', {
+                    operation: 'subscribeEventStream.sse',
+                    sessionKey,
+                    runId,
+                    eventName: event.event,
+                    mapped,
+                });
                 for (const evt of mapped.events) {
                     this.emit('stream', { ...evt, sessionKey });
                 }
@@ -377,12 +555,12 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         ).catch(() => {});
     }
 
-    async stopRun(): Promise<void> {
+    async stopRun(sessionKeyArg?: string, runIdArg?: string): Promise<void> {
         if (this.activeAbortController) {
             this.activeAbortController.abort();
             this.activeAbortController = null;
         }
-        const sessionKey = this.activeSessionId;
+        const sessionKey = sessionKeyArg || this.activeSessionId;
         if (sessionKey) {
             // Best-effort server-side abort — ignore errors
             jsonRequest(`${this.serverUrl}/session/${encodeURIComponent(sessionKey)}/abort`, {
@@ -392,7 +570,7 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
             this.emit('stream', {
                 type: 'agent_lifecycle',
                 phase: 'cancelled',
-                runId: sessionKey,
+                runId: runIdArg || sessionKey,
                 sessionKey,
             });
         }
@@ -422,47 +600,25 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         this.selection = { ...this.selection, ...selection };
     }
 
+    getSelection(): BridgeSelectionState {
+        const activeModel = this.activeSessionId ? this.knownSessions.get(this.activeSessionId)?.model : undefined;
+        return { ...this.selection, ...(activeModel ? { modelId: activeModel } : {}) };
+    }
+
     async listModelChoices(
         selectedModel?: string,
         selectedThinking?: string,
     ): Promise<ModelChoice[]> {
-        const models = [
-            'mimo-auto',
-            'anthropic/claude-opus-5',
-            'anthropic/claude-sonnet-4.5',
-            'openai/gpt-5.2',
-            'openai/gpt-5.2-mini',
-            'openai/o4-mini',
-            'google/gemini-3-pro',
-            'deepseek/deepseek-v4-pro',
-            'deepseek/deepseek-v4-flash',
-            'xiaomi/mimo-v2.5-pro',
-        ];
-        return models.map((id) => {
-            const slash = id.indexOf('/');
-            const provider = slash > 0 ? id.slice(0, slash) : '';
-            const model = slash > 0 ? id.slice(slash + 1) : id;
-            return {
-                id,
-                label: model,
-                description: provider,
-                provider,
-                model,
-                supportsReasoning: true,
-                icon: 'lightbulb',
-                checked: !selectedModel
-                    ? id === 'anthropic/claude-opus-5'
-                    : (selectedModel === id || selectedModel === model),
-                children: OPENCLAW_THINKING_LEVELS.map((level) => ({
-                    id: `${id}:thinking:${level}`,
-                    label: level,
-                    icon: 'thinking',
-                    thinking: level,
-                    checked: selectedThinking === level
-                        && (selectedModel === id || selectedModel === model),
-                })),
-            };
-        });
+        try {
+            await this.ensureServer();
+            if (this.serverUrl) {
+                const live = await listOpenCodeModelChoices(this.serverUrl, selectedModel, selectedThinking);
+                if (live.length) return organizeMiMoCodeModelChoices(live, manualMimoProviderIds());
+            }
+        } catch (err) {
+            Logger.getInstance().warn('MiMoCode live model list failed; falling back to static list', err);
+        }
+        return listMiMoCodeModelChoices(selectedModel, selectedThinking);
     }
 
     async selectModelChoice(data: any): Promise<{
@@ -470,13 +626,9 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         modelId: string;
         thinking?: string;
     } | null> {
-        const provider = String(data.provider ?? '');
-        const model = String(data.model ?? data.id ?? '').replace(/^.*:/, '');
-        if (!model) return null;
-        const modelId = provider ? `${provider}/${model}` : model;
-        const thinking = data.thinking !== undefined
-            ? String(data.thinking)
-            : this.selection.thinking;
+        const selected = selectMiMoCodeModelChoice(data, this.selection);
+        if (!selected) return null;
+        const { modelId, thinking } = selected;
         this.setSelection({ modelId, thinking });
         if (this.activeSessionId) {
             const known = this.knownSessions.get(this.activeSessionId)
@@ -485,45 +637,45 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
             this.knownSessions.set(this.activeSessionId, known);
             this.persistSessions();
         }
-        return { display: String(data.label ?? model), modelId, thinking };
+        return selected;
     }
 
     // ── Environment / agent picker ─────────────────────────────────────────
 
     async listEnvironmentChoices(): Promise<ChoiceMenuItem[]> {
-        const available = this.isConnected();
+        const running = this.isConnected();
         const configured = mimoServerUrl();
+        const detected = configured !== '' || mimoInstalled();
+        const usable = running || detected;
         const port = this.serverPort ? String(this.serverPort) : '?';
-        if (!available) {
-            const items: ChoiceMenuItem[] = [];
-            if (!configured) {
-                items.push({
-                    id: 'mimocode:select-home',
-                    label: 'Set path manually…',
-                    description: 'Browse for the MiMoCode config directory',
-                    section: 'MiMoCode',
-                    icon: 'folder',
-                    setup: true,
-                });
-            }
-            items.push({
+        if (!usable) {
+            return [{
+                id: 'mimocode:select-home',
+                label: 'Set path manually…',
+                description: 'Browse for the MiMoCode config directory',
+                section: 'MiMoCode',
+                icon: 'folder',
+                setup: true,
+            }, {
                 id: 'mimocode:settings',
                 label: 'Configure MiMoCode…',
-                description: configured ? `External: ${configured}` : 'Bridge settings',
+                description: 'Bridge settings',
                 section: 'MiMoCode',
                 icon: 'gear',
                 setup: true,
-            });
-            return items;
+            }];
         }
         return [
             {
                 id: 'mimocode:managed',
-                label: configured ? `mimo@${new URL(configured).host}` : `ling@mimocode:${port}`,
-                description: configured ? `External server at ${configured}` : 'Managed server running',
+                label: configured ? `MiMo@${new URL(configured).host}` : (running ? `MiMo@mimocode:${port}` : 'MiMoCode ready'),
+                description: running
+                    ? (configured ? `External server at ${configured}` : 'Managed server running')
+                    : (configured ? `External: ${configured}` : 'Server starts on switch'),
                 section: 'MiMoCode',
                 icon: 'hubot',
-                checked: true,
+                checked: running,
+                setup: !detected,
             },
             {
                 id: 'mimocode:settings',
@@ -531,6 +683,7 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
                 description: 'Bridge settings',
                 section: 'MiMoCode',
                 icon: 'gear',
+                setup: true,
             },
         ];
     }
@@ -567,7 +720,7 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
                 const nameMatch = content.match(/^#\s*(\S+)/m);
                 if (nameMatch) return nameMatch[1];
             } catch {}
-            return 'ling';
+            return 'MiMo';
         }
         // Stripped prefix: ~/.mimocode-junction → junction
         const match = dirName.match(/^mimocode[_-]?(.+)/);
@@ -575,11 +728,14 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
     }
 
     getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }> {
-        return [
+        const p = prefix.replace(/^\//, '').toLowerCase();
+        const fallback = [
             { name: 'help', description: 'Show MiMoCode help' },
             { name: 'status', description: 'Show MiMoCode server status' },
             { name: 'config', description: 'Show MiMoCode bridge config' },
-        ].filter((item) => item.name.startsWith(prefix));
+        ];
+        const source = this.commandCache.length ? this.commandCache : fallback;
+        return source.filter((item) => !p || item.name.toLowerCase().startsWith(p));
     }
 
     getToolStatus(): ToolStatusView | null {
@@ -602,9 +758,35 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         return folder?.uri.fsPath || process.cwd();
     }
 
+    private async loadCommands(): Promise<void> {
+        if (!this.serverUrl) return;
+        try {
+            const list: any[] = await jsonRequest(`${this.serverUrl}/command`, { timeoutMs: 3000 }) || [];
+            this.commandCache = list
+                .map((c) => ({ name: String(c.name || '').replace(/^\//, ''), description: c.description }))
+                .filter((c) => c.name);
+        } catch {
+            this.commandCache = [];
+        }
+    }
+
     /** Returns true if the mapper signalled run completion (finish: stop/end). */
     private mapSse(runId: string, eventName: string, data: string): boolean {
+        captureBridgeDebug(this.id, 'native', {
+            operation: 'mapSse',
+            sessionKey: runId,
+            runId,
+            eventName,
+            data,
+        });
         const mapped = mapMiMoCodeSseEvent(runId, eventName, data, this._mapperState);
+        captureBridgeDebug(this.id, 'normalized', {
+            operation: 'mapSse',
+            sessionKey: runId,
+            runId,
+            eventName,
+            mapped,
+        });
         if (mapped.nextText !== undefined) {
             this.buffers.set(runId, mapped.nextText);
         }

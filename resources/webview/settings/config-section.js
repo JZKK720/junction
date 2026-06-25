@@ -1,7 +1,11 @@
 /* ==========================================================================
    config-section.js — Animation settings panel (mode buttons, sliders, toggles)
    ==========================================================================
-   Builds the DOM for the chat/bobber animation config sections.
+   [LEGACY / DORMANT] Builds the chat + bobber (loader) animation config UI.
+   Its only caller — preview.js — now invokes buildConfigSection() exclusively
+   when window.JUNCTION_SHOW_LEGACY_ANIM is true, so this whole module sits idle
+   while the legacy stack is hidden. Untouched and ready for revival; splash
+   settings live in splash-section.js.
    Exports: window.buildConfigSection(isLoader, refreshPreview, animModes)
    ========================================================================== */
 (function () {
@@ -20,12 +24,12 @@
     var modeRow = document.createElement('div');
     modeRow.style.cssText = 'display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;align-items:center;';
     var modeLabel = document.createElement('span');
-    modeLabel.textContent = isLoader ? 'Style:' : 'Mode:';
+    modeLabel.textContent = isLoader ? window.junctionT('style', 'Style:') : window.junctionT('mode', 'Mode:');
     modeLabel.style.cssText = 'font-size:10px;color:var(--vscode-editor-foreground);margin-right:4px;';
     modeRow.appendChild(modeLabel);
 
     var modesList = isLoader 
-      ? [{val:'default', label:'Same as Chat'}, {val:'matrix', label:'Matrix'}, {val:'zalgo', label:'Zalgo'}, {val:'fire', label:'Fire'}, {val:'bounce', label:'Bounce'}, {val:'spiral', label:'Spiral'}, {val:'galaxy', label:'Galaxy'}, {val:'leak', label:'Leak'}]
+      ? [{val:'default', label:window.junctionT('sameAsChat', 'Same as Chat')}, {val:'matrix', label:'Matrix'}, {val:'zalgo', label:'Zalgo'}, {val:'fire', label:'Fire'}, {val:'bounce', label:'Bounce'}, {val:'spiral', label:'Spiral'}, {val:'galaxy', label:'Galaxy'}, {val:'leak', label:'Leak'}]
       : animModes.map(function(m) { return {val: m, label: m.charAt(0).toUpperCase() + m.slice(1)}; });
 
     modesList.forEach(function (opt) {
@@ -153,7 +157,7 @@
     var loopKey = isLoader ? 'loaderLoop' : 'loop';
     var loopBtn = document.createElement('button');
     var isLoop = window.animConfig[loopKey] !== undefined ? window.animConfig[loopKey] : (isLoader ? true : false);
-    loopBtn.textContent = 'Loop: ' + (isLoop ? 'ON' : 'OFF');
+    loopBtn.textContent = window.junctionT('loopState', 'Loop: {state}', { state: isLoop ? window.junctionT('on', 'ON') : window.junctionT('off', 'OFF') });
     loopBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:' + (isLoop ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)') + ';color:' + (isLoop ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)') + ';';
     loopBtn.addEventListener('click', function () {
       window.animConfig[loopKey] = !window.animConfig[loopKey];
@@ -164,7 +168,7 @@
     });
     var syncLoop = function () {
       var isLoopVal = window.animConfig[loopKey] !== undefined ? window.animConfig[loopKey] : (isLoader ? true : false);
-      loopBtn.textContent = 'Loop: ' + (isLoopVal ? 'ON' : 'OFF');
+      loopBtn.textContent = window.junctionT('loopState', 'Loop: {state}', { state: isLoopVal ? window.junctionT('on', 'ON') : window.junctionT('off', 'OFF') });
       loopBtn.style.background = isLoopVal ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
       loopBtn.style.color = isLoopVal ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
     };
@@ -180,7 +184,7 @@
     customBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:9px;border:1px solid var(--vscode-input-border);';
     function syncCustomBtn() {
       var active = !!window.animConfig[colorCustomKey];
-      customBtn.textContent = 'Custom color';
+      customBtn.textContent = window.junctionT('customColor', 'Custom color');
       customBtn.style.background = active ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
       customBtn.style.color = active ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
     }
@@ -259,7 +263,7 @@
     var bgWrap = document.createElement('div');
     bgWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;';
     var bgLabel = document.createElement('span');
-    bgLabel.textContent = 'BG:';
+    bgLabel.textContent = window.junctionT('bg', 'BG:');
     bgLabel.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
     bgWrap.appendChild(bgLabel);
 
@@ -267,10 +271,10 @@
     bgSelect.style.cssText = 'font-size:10px;background:var(--vscode-input-background);color:var(--vscode-editor-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;padding:1px 2px;cursor:pointer;';
     var optTheme = document.createElement('option');
     optTheme.value = 'theme';
-    optTheme.textContent = 'Theme';
+    optTheme.textContent = window.junctionT('theme', 'Theme');
     var optCustom = document.createElement('option');
     optCustom.value = 'custom';
-    optCustom.textContent = 'Custom';
+    optCustom.textContent = window.junctionT('custom', 'Custom');
     bgSelect.appendChild(optTheme);
     bgSelect.appendChild(optCustom);
     bgWrap.appendChild(bgSelect);
@@ -347,7 +351,7 @@
     var sizeOffKey = isLoader ? 'loaderSizeOff' : 'sizeOff';
     function updateSizeOffButton() {
       var active = !!(window.animConfig && window.animConfig[sizeOffKey]);
-      sizeOffBtn.textContent = 'Burst: ' + (active ? 'ON' : 'OFF');
+      sizeOffBtn.textContent = window.junctionT('burstState', 'Burst: {state}', { state: active ? window.junctionT('on', 'ON') : window.junctionT('off', 'OFF') });
       if (active) {
         sizeOffBtn.style.background = 'var(--vscode-button-background)';
         sizeOffBtn.style.color = 'var(--vscode-button-foreground)';
@@ -373,7 +377,7 @@
     var magicKey = isLoader ? 'loaderMagic' : 'magic';
     function updateMagicButton() {
       var active = !!(window.animConfig && window.animConfig[magicKey]);
-      magicBtn.textContent = 'TV Magic: ' + (active ? 'ON' : 'OFF');
+      magicBtn.textContent = window.junctionT('tvMagicState', 'TV Magic: {state}', { state: active ? window.junctionT('on', 'ON') : window.junctionT('off', 'OFF') });
       if (active) {
         magicBtn.style.background = 'var(--vscode-button-background)';
         magicBtn.style.color = 'var(--vscode-button-foreground)';
@@ -398,7 +402,7 @@
       reactionWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;';
       
       var reactionLbl = document.createElement('span');
-      reactionLbl.textContent = 'Reactions:';
+      reactionLbl.textContent = window.junctionT('reactions', 'Reactions:');
       reactionLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
       
       var reactionSelect = document.createElement('select');

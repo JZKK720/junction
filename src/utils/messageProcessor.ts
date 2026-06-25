@@ -98,29 +98,9 @@ export class MessageProcessor {
         });
 
         // ── TASK 6: exec.approval.requested ──
-        connection.on('exec.approval.requested', async (payload: any) => {
-            this.logger.info('Exec approval requested', payload);
-            if (!connection.authScopes?.includes('operator.approvals')) {
-                this.logger.warn('exec.approval.requested: missing operator.approvals scope');
-                return;
-            }
-            const cmd = payload.command || 'unknown command';
-            const choice = await vscode.window.showWarningMessage(
-                `OpenClaw exec approval: ${cmd.length > 80 ? cmd.substring(0, 80) + '...' : cmd}`,
-                { modal: true },
-                'Allow',
-                'Deny'
-            );
-            try {
-                await connection.sendRequest('exec.approval.resolve', {
-                    id: payload.requestId,
-                    decision: choice === 'Allow' ? 'allow-once' : 'deny'
-                });
-                this.logger.info(`Exec approval ${choice === 'Allow' ? 'allowed' : 'denied'}`);
-            } catch (error) {
-                this.logger.error('Failed to resolve exec approval', error);
-            }
-        });
+        // Handled by ApprovalRelay (src/gateway/approvalRelay.ts), wired per-bridge
+        // in OpenClawBridge so approvals surface through the shared inline UX
+        // (with a native-modal fallback for unwatched sessions).
 
         // ── TASK 7: session.message ──
         // Same firehose-mirror rule as session.tool: watched sessions only.
@@ -189,29 +169,7 @@ export class MessageProcessor {
         });
 
         // ── TASK 14: plugin.approval.requested ──
-        connection.on('plugin.approval.requested', async (payload: any) => {
-            this.logger.info('Plugin approval requested', payload);
-            if (!connection.authScopes?.includes('operator.approvals')) {
-                this.logger.warn('plugin.approval.requested: missing operator.approvals scope');
-                return;
-            }
-            const pluginId = payload.pluginId || 'unknown plugin';
-            const choice = await vscode.window.showWarningMessage(
-                `OpenClaw plugin approval: ${pluginId}`,
-                { modal: true },
-                'Approve',
-                'Deny'
-            );
-            try {
-                await connection.sendRequest('plugin.approval.resolve', {
-                    id: payload.requestId,
-                    decision: choice === 'Approve' ? 'allow-once' : 'deny'
-                });
-                this.logger.info(`Plugin approval ${choice === 'Approve' ? 'approved' : 'denied'}`);
-            } catch (error) {
-                this.logger.error('Failed to resolve plugin approval', error);
-            }
-        });
+        // Also handled by ApprovalRelay (see TASK 6 note).
 
         this.logger.info('Event handlers registered');
     }
@@ -265,6 +223,12 @@ export class MessageProcessor {
                     state: message.payload.state,
                     role: message.payload.message.role,
                     content: text,
+                    messageId: message.payload.message?.messageId || message.payload.message?.id || message.payload.messageId,
+                    nativeMessageId: message.payload.message?.nativeMessageId || message.payload.message?.messageId || message.payload.message?.id || message.payload.messageId,
+                    channel: message.payload.channel,
+                    to: message.payload.to,
+                    accountId: message.payload.accountId,
+                    reactionTarget: message.payload.reactionTarget || message.payload.message?.reactionTarget,
                     timestamp: message.payload.timestamp
                 };
             }
@@ -348,6 +312,12 @@ export class MessageProcessor {
                     text: data.text,
                     delta: data.delta || '',
                     sessionKey: message.payload.sessionKey,
+                    messageId: data.messageId || data.id || message.payload.messageId,
+                    nativeMessageId: data.nativeMessageId || data.messageId || data.id || message.payload.messageId,
+                    channel: data.channel || message.payload.channel,
+                    to: data.to || data.target || message.payload.to,
+                    accountId: data.accountId || message.payload.accountId,
+                    reactionTarget: data.reactionTarget || message.payload.reactionTarget,
                     timestamp: message.payload.ts
                 };
             }

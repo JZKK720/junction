@@ -1,4 +1,6 @@
 import { MappedBridgeEvent, EventMappingResult } from '../types';
+import { commandOutputToMarkdown, parseGenericCommandOutput } from '../commandOutput';
+import { normalizeMiMoToolPart } from './toolParts';
 
 /**
  * Translate MiMoCode SSE stream payloads into Junction stream events.
@@ -20,10 +22,13 @@ import { MappedBridgeEvent, EventMappingResult } from '../types';
 export interface MiMoCodeMapperState {
     /** partIDs identified as reasoning (populated by message.part.updated) */
     reasoningParts: Set<string>;
+    /** Latest full reasoning text per partID (message.part.updated snapshots). */
+    reasoningAccum: Map<string, string>;
     /** Accumulated text per partID (for delta streaming) */
     textAccum: Map<string, string>;
     /** Last-seen token usage from message.updated events */
     lastUsage?: { inputTokens?: number; outputTokens?: number };
+    commandName?: string;
 }
 
 export function mapMiMoCodeSseEvent(
@@ -48,35 +53,49 @@ export function mapMiMoCodeSseEvent(
         const part = payload.properties.part;
 
         if (part.type === 'reasoning' && part.id) {
-            state.reasoningParts.add(part.id);
-            if (part.text) {
-                events.push({ type: 'thinking_chunk', runId, text: part.text });
-            }
+            const partID = String(part.id);
+            state.reasoningParts.add(partID);
+            const full = String(part.text || '');
+            const previous = state.reasoningAccum.get(partID) || '';
+            const delta = full.startsWith(previous) ? full.slice(previous.length) : full;
+            state.reasoningAccum.set(partID, full);
+            if (delta) events.push({ type: 'thinking_chunk', runId, text: delta });
         } else if (part.type === 'text' && part.text) {
             state.textAccum.set(part.id ?? '', part.text);
-            events.push({ type: 'agent_message', runId, text: part.text });
+            const commandOutput = state.commandName ? parseGenericCommandOutput(`/${state.commandName}`, part.text) : null;
+            events.push({
+                type: 'agent_message',
+                runId,
+                text: commandOutput ? commandOutputToMarkdown(commandOutput) : part.text,
+                ...(commandOutput ? { commandOutput } : {}),
+            });
         } else if (part.type === 'tool') {
-            const status = part.status;
-            const callId = part.callID || part.call_id || '';
+            const tool = normalizeMiMoToolPart(part);
+            const status = tool.status;
+            const callId = tool.callId;
             if (status === 'running' || status === 'pending') {
                 events.push({
                     type: 'tool_event', phase: 'start', runId,
                     toolCallId: callId || `tool-${Math.random().toString(36).slice(2, 8)}`,
-                    toolName: part.tool || part.name || '',
-                    args: part.input || part.args || {},
+                    toolName: tool.name,
+                    args: tool.args,
                 });
             } else if (status === 'completed' || status === 'error') {
                 events.push({
                     type: 'tool_event', phase: 'result', runId,
                     toolCallId: callId,
-                    result: part.output || part.result || '',
-                    isError: status === 'error',
+                    toolName: tool.name,
+                    args: tool.args,
+                    result: tool.result,
+                    isError: tool.isError,
                 });
             } else if (status === 'update') {
                 events.push({
                     type: 'tool_event', phase: 'update', runId,
                     toolCallId: callId,
-                    result: part.output || part.result || '',
+                    toolName: tool.name,
+                    args: tool.args,
+                    result: tool.result,
                 });
             }
         }
@@ -90,12 +109,19 @@ export function mapMiMoCodeSseEvent(
         const partID = props.partID || '';
 
         if (state.reasoningParts.has(partID)) {
+            state.reasoningAccum.set(partID, (state.reasoningAccum.get(partID) ?? '') + props.delta);
             events.push({ type: 'thinking_chunk', runId, text: props.delta });
         } else {
             const prev = state.textAccum.get(partID) ?? '';
             const next = prev + props.delta;
             state.textAccum.set(partID, next);
-            events.push({ type: 'agent_message', runId, text: next });
+            const commandOutput = state.commandName ? parseGenericCommandOutput(`/${state.commandName}`, next) : null;
+            events.push({
+                type: 'agent_message',
+                runId,
+                text: commandOutput ? commandOutputToMarkdown(commandOutput) : next,
+                ...(commandOutput ? { commandOutput } : {}),
+            });
         }
 
         return { runId, events };
@@ -112,34 +138,50 @@ export function mapMiMoCodeSseEvent(
         }
 
         if (fullText) {
-            events.push({ type: 'agent_message', runId, text: fullText });
+            const commandOutput = state.commandName ? parseGenericCommandOutput(`/${state.commandName}`, fullText) : null;
+            events.push({
+                type: 'agent_message',
+                runId,
+                text: commandOutput ? commandOutputToMarkdown(commandOutput) : fullText,
+                ...(commandOutput ? { commandOutput } : {}),
+            });
         }
 
         for (const part of parts) {
             if (part.type === 'reasoning') {
-                events.push({ type: 'thinking_chunk', runId, text: part.text || '' });
+                const partID = String(part.id || part.partID || 'legacy-reasoning');
+                const full = String(part.text || '');
+                const previous = state.reasoningAccum.get(partID) || '';
+                const delta = full.startsWith(previous) ? full.slice(previous.length) : full;
+                state.reasoningAccum.set(partID, full);
+                if (delta) events.push({ type: 'thinking_chunk', runId, text: delta });
             } else if (part.type === 'tool') {
-                const status = part.status;
-                const callId = part.callID || part.call_id || '';
+                const tool = normalizeMiMoToolPart(part);
+                const status = tool.status;
+                const callId = tool.callId;
                 if (status === 'running' || status === 'pending') {
                     events.push({
                         type: 'tool_event', phase: 'start', runId,
                         toolCallId: callId || `tool-${Math.random().toString(36).slice(2, 8)}`,
-                        toolName: part.tool || part.name || '',
-                        args: part.input || part.args || {},
+                        toolName: tool.name,
+                        args: tool.args,
                     });
                 } else if (status === 'completed' || status === 'error') {
                     events.push({
                         type: 'tool_event', phase: 'result', runId,
                         toolCallId: callId,
-                        result: part.output || part.result || '',
-                        isError: status === 'error',
+                        toolName: tool.name,
+                        args: tool.args,
+                        result: tool.result,
+                        isError: tool.isError,
                     });
                 } else if (status === 'update') {
                     events.push({
                         type: 'tool_event', phase: 'update', runId,
                         toolCallId: callId,
-                        result: part.output || part.result || '',
+                        toolName: tool.name,
+                        args: tool.args,
+                        result: tool.result,
                     });
                 }
             }

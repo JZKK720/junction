@@ -14,7 +14,9 @@
 import * as vscode from 'vscode';
 import { Logger } from '../utils/logger';
 import { ToolEventHandler } from './toolEventHandler';
-import type { BridgeSession, ChatBridge, SessionGroup } from '../bridges/types';
+import { loadHistoryMessages } from './history-loader';
+import { captureBridgeHistoryDebug } from '../utils/debugCapture';
+import type { BridgeMessageReactionTarget, BridgeSession, ChatBridge, SessionGroup } from '../bridges/types';
 import type { TranscriptActivityItem, TranscriptTurn, TranscriptTool } from './chatTypes';
 
 export class HistoryManager {
@@ -86,6 +88,7 @@ export class HistoryManager {
         private readonly visibleTurnContent: (role: string, content: string) => string | null,
         private readonly extractHistoryText: (msg: any) => string,
         private readonly postToWebview: (message: any) => void,
+        private readonly renderOptions?: () => Record<string, unknown>,
     ) {}
 
     private captureDebug(kind: string, payload: any): void {
@@ -106,6 +109,7 @@ export class HistoryManager {
         return turns.map((turn) => ({
             ...turn,
             tools: turn.tools?.map((tool) => ({ ...tool })),
+            reactionTarget: turn.reactionTarget ? { ...turn.reactionTarget } : undefined,
         }));
     }
 
@@ -154,6 +158,7 @@ export class HistoryManager {
         tools?: TranscriptTool[];
         activityTimeline?: TranscriptActivityItem[];
         reaction?: 'up' | 'down' | null;
+        reactionTarget?: BridgeMessageReactionTarget;
     }> {
         return transcript
             .map((turn) => {
@@ -172,6 +177,7 @@ export class HistoryManager {
                     tools: turn.tools,
                     activityTimeline: turn.activityTimeline,
                     reaction: turn.reaction,
+                    reactionTarget: turn.reactionTarget,
                 };
             })
             .filter((item): item is any => item !== null);
@@ -186,7 +192,7 @@ export class HistoryManager {
             inputTurns: transcript,
             outputMessages: messages,
         });
-        this.postToWebview({ type: 'history', messages });
+        this.postToWebview({ type: 'history', messages, ...(this.renderOptions ? this.renderOptions() : {}) });
     }
 
     // ── session list ───────────────────────────────────────────────────────
@@ -248,10 +254,17 @@ export class HistoryManager {
         onTurns: (turns: TranscriptTurn[], historyItems: Array<{ role: string; content: string; isSteer?: boolean }>) => void
     ): Promise<void> {
         try {
-            const restored = await this.loadHistoryMessages(bridge, 200);
+            const restored = await loadHistoryMessages(bridge, 200);
             const messages = restored.messages;
             this.captureDebug('chat-history-raw', {
                 source: 'restoreHistory',
+                historySource: restored.source,
+                sessionKey: bridge.getCurrentSessionKey(),
+                inputCount: messages.length,
+                inputMessages: messages,
+            });
+            captureBridgeHistoryDebug(bridge.id, 'history-native', {
+                operation: 'restoreHistory',
                 historySource: restored.source,
                 sessionKey: bridge.getCurrentSessionKey(),
                 inputCount: messages.length,
@@ -271,6 +284,14 @@ export class HistoryManager {
                 inputMessages: messages,
                 outputTurns: turns,
             });
+            captureBridgeHistoryDebug(bridge.id, 'history-normalized', {
+                operation: 'restoreHistory',
+                historySource: restored.source,
+                sessionKey: bridge.getCurrentSessionKey(),
+                inputCount: messages.length,
+                outputCount: turns.length,
+                outputTurns: turns,
+            });
             if (turns.length > transcript.length) {
                 onTurns(turns, turns.map((turn) => ({ role: turn.role, content: turn.content, isSteer: turn.isSteer })));
             }
@@ -286,10 +307,17 @@ export class HistoryManager {
         onTurns: (turns: TranscriptTurn[], historyItems: Array<{ role: string; content: string; isSteer?: boolean }>) => void
     ): Promise<void> {
         try {
-            const restored = await this.loadHistoryMessages(bridge, 1000);
+            const restored = await loadHistoryMessages(bridge, 1000);
             const messages = restored.messages;
             this.captureDebug('chat-history-raw', {
                 source: 'handleLoadMoreHistory',
+                historySource: restored.source,
+                sessionKey: bridge.getCurrentSessionKey(),
+                inputCount: messages.length,
+                inputMessages: messages,
+            });
+            captureBridgeHistoryDebug(bridge.id, 'history-native', {
+                operation: 'handleLoadMoreHistory',
                 historySource: restored.source,
                 sessionKey: bridge.getCurrentSessionKey(),
                 inputCount: messages.length,
@@ -307,6 +335,14 @@ export class HistoryManager {
                 inputCount: messages.length,
                 outputCount: turns.length,
                 inputMessages: messages,
+                outputTurns: turns,
+            });
+            captureBridgeHistoryDebug(bridge.id, 'history-normalized', {
+                operation: 'handleLoadMoreHistory',
+                historySource: restored.source,
+                sessionKey: bridge.getCurrentSessionKey(),
+                inputCount: messages.length,
+                outputCount: turns.length,
                 outputTurns: turns,
             });
             if (turns.length > transcript.length) {
@@ -360,40 +396,6 @@ export class HistoryManager {
         } catch (error: any) {
             Logger.getInstance().warn('handleLoadMoreHistoryFromJsonl failed', error);
         }
-    }
-
-    private async loadHistoryMessages(
-        bridge: ChatBridge,
-        limit: number
-    ): Promise<{ messages: any[]; source: 'chat.history' | 'jsonl-fallback' | 'none' }> {
-        const history = await bridge.getSessionHistory(limit);
-        const messages = Array.isArray(history?.messages) ? history.messages : history?.payload?.messages;
-        if (Array.isArray(messages) && messages.length > 0) {
-            return { messages, source: 'chat.history' };
-        }
-
-        const jsonlReader = (bridge as any).getSessionHistoryFromJsonl;
-        const sessionKey = bridge.getCurrentSessionKey();
-        if (typeof jsonlReader !== 'function' || !sessionKey) {
-            return { messages: [], source: 'none' };
-        }
-
-        try {
-            const jsonl = await jsonlReader.call(bridge, sessionKey, 0, 512 * 1024);
-            const fallbackMessages = Array.isArray(jsonl?.messages) ? jsonl.messages : [];
-            if (fallbackMessages.length > 0) {
-                Logger.getInstance().info('Falling back to JSONL history restore', {
-                    sessionKey,
-                    limit,
-                    recovered: fallbackMessages.length,
-                });
-                return { messages: fallbackMessages, source: 'jsonl-fallback' };
-            }
-        } catch (error) {
-            Logger.getInstance().warn('JSONL history fallback failed', error);
-        }
-
-        return { messages: [], source: 'none' };
     }
 
     // ── transcript rebuild ─────────────────────────────────────────────────
@@ -520,12 +522,17 @@ export class HistoryManager {
                         continue;
                     }
                     if (part.type === 'toolCall' || part.type === 'tool_use' || part.type === 'tool-call') {
+                        const hasResult = part.result !== undefined || part.output !== undefined;
                         const tool: TranscriptTool = {
                             toolCallId: String(part.id ?? part.toolCallId ?? `restored:${toolIndex.size}`),
                             toolName: String(part.name ?? part.toolName ?? ''),
                             args: ToolEventHandler.formatToolArgs(part.arguments ?? part.input ?? part.args ?? {}),
-                            phase: 'start',
+                            phase: hasResult ? 'result' : 'start',
                         };
+                        if (hasResult) {
+                            tool.result = ToolEventHandler.formatToolResult(part.result ?? part.output ?? '', !!part.isError);
+                            tool.isError = !!part.isError;
+                        }
                         current.tools!.push(tool);
                         toolIndex.set(tool.toolCallId, tool);
                         activityTimeline.push({ type: 'tool', toolCallId: tool.toolCallId });

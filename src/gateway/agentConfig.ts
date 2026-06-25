@@ -129,12 +129,45 @@ export async function abortRun(
   sessionKey: string,
   runId?: string,
 ): Promise<void> {
-  try {
-    await gateway.sendRequest('chat.abort', { sessionKey, runId });
-    Logger.getInstance().info(`Run aborted: ${runId ?? 'current'} on ${sessionKey}`);
-  } catch (error) {
-    Logger.getInstance().error('chat.abort failed', error);
+  const logger = Logger.getInstance();
+  const attempts: Array<Promise<void>> = [];
+
+  if (!gateway.capabilities.methodsKnown || gateway.capabilities.hasMethod('chat.abort')) {
+    attempts.push(
+      gateway
+        .sendRequest('chat.abort', { sessionKey, runId }, { timeoutMs: 3500 })
+        .then(() => {
+          logger.info(`Run aborted via chat.abort: ${runId ?? 'current'} on ${sessionKey}`);
+        })
+    );
   }
+
+  if (!gateway.capabilities.methodsKnown || gateway.capabilities.hasMethod('sessions.abort')) {
+    attempts.push(
+      gateway
+        .sendRequest('sessions.abort', { key: sessionKey, ...(runId ? { runId } : {}) }, { timeoutMs: 3500 })
+        .then(() => {
+          logger.info(`Run aborted via sessions.abort: ${runId ?? 'current'} on ${sessionKey}`);
+        })
+    );
+  }
+
+  if (!attempts.length) return;
+
+  const results = await Promise.allSettled(attempts);
+  const success = results.some(result => result.status === 'fulfilled');
+  if (success) {
+    for (const result of results) {
+      if (result.status === 'rejected') logger.warn('secondary abort request failed', result.reason);
+    }
+    return;
+  }
+
+  for (const result of results) {
+    if (result.status === 'rejected') logger.error('abort request failed', result.reason);
+  }
+  const firstError = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+  if (firstError) throw firstError.reason;
 }
 
 /**

@@ -149,12 +149,12 @@
     if (_seeMoreBtn && _seeMoreBtn.parentNode) return _seeMoreBtn;
     _seeMoreBtn = document.createElement('button');
     _seeMoreBtn.id = 'see-more-history';
-    _seeMoreBtn.textContent = 'See more';
+    _seeMoreBtn.textContent = window.junctionT('seeMore', 'See more');
     _seeMoreBtn.className = 'see-more-btn';
     _seeMoreBtn.addEventListener('click', function () {
       if (_loadingMore || !_hasMoreHistory) return;
       _loadingMore = true;
-      _seeMoreBtn.textContent = 'Loading\u2026';
+      _seeMoreBtn.textContent = window.junctionT('loading', 'Loading...');
       _seeMoreBtn.classList.add('loading');
       if (_useJsonlMode) { vscode.postMessage({ type: 'loadMoreHistoryFromJsonl', offset: _jsonlOffset }); }
       else { vscode.postMessage({ type: 'loadMoreHistory' }); }
@@ -179,7 +179,7 @@
       if (_useJsonlMode && !_loadingMore) {
         _loadingMore = true;
         ensureSeeMoreButton();
-        _seeMoreBtn.textContent = 'Loading\u2026';
+        _seeMoreBtn.textContent = window.junctionT('loading', 'Loading...');
         _seeMoreBtn.classList.add('loading');
         vscode.postMessage({ type: 'loadMoreHistoryFromJsonl', offset: _jsonlOffset });
       }
@@ -231,7 +231,15 @@
   try { applyChatMotionConfig(); } catch (e) {}
 
   // ── Startup animation override ───────────────────────────────────────────
+  // Gate: don't build the real splash until the persisted config has been
+  // applied once. Building eagerly races ahead with default settings (e.g. the
+  // katakana charset) and then visibly swaps to the user's charset the moment
+  // host config lands. The neutral inline fallback (template.html) holds the
+  // screen until config is ready, so boot goes fallback → user charset with no
+  // intermediate flash.
+  var _splashConfigApplied = false;
   function overrideStartupAnimation() {
+    if (!_splashConfigApplied) return;
     var startupLoader = document.getElementById('startup-loader');
     if (startupLoader && !startupLoader.classList.contains('dismissed')) {
       if (typeof window.applySplashWordmarkScale === 'function') window.applySplashWordmarkScale(startupLoader);
@@ -246,11 +254,31 @@
       var w = window.innerWidth;
       var h = window.innerHeight;
       var canvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: w, height: h, loaderMagic: window.getAnimVal('loaderMagic', false) });
-      if (canvas) { canvas.id = 'startup-matrix'; startupLoader.insertBefore(canvas, startupLoader.firstChild); }
+      if (canvas) {
+        canvas.id = 'startup-matrix';
+        startupLoader.classList.add('real-splash-ready');
+        var fallbackWordmark = document.getElementById('startup-fallback-wordmark');
+        if (fallbackWordmark) setTimeout(function () { fallbackWordmark.remove(); }, 220);
+        startupLoader.insertBefore(canvas, startupLoader.firstChild);
+      }
     }
   }
 
   try { overrideStartupAnimation(); } catch (e) {}
+
+  // The real splash canvas is baked at boot-time pixel dimensions, so rebuild it
+  // to the new viewport when the window resizes while the loader is still up.
+  // (The inline boot fallback self-resizes; this covers the createMatrixLoader.)
+  var _splashResizeTimer = null;
+  window.addEventListener('resize', function () {
+    var loader = document.getElementById('startup-loader');
+    if (!loader || loader.classList.contains('dismissed')) return;
+    if (_splashResizeTimer) clearTimeout(_splashResizeTimer);
+    _splashResizeTimer = setTimeout(function () {
+      _splashResizeTimer = null;
+      try { overrideStartupAnimation(); } catch (e) {}
+    }, 120);
+  });
 
   // ── Splash preview ──────────────────────────────────────────────────────
   function playSplashAnimationPreview() {
@@ -258,6 +286,7 @@
     var isNew = false;
     if (!loader) { loader = document.createElement('div'); loader.id = 'startup-loader'; loader.setAttribute('aria-hidden', 'true'); document.body.appendChild(loader); isNew = true; }
     loader.classList.remove('dismissed');
+    loader.classList.add('real-splash-ready');
     loader.style.opacity = '1'; loader.style.pointerEvents = 'auto'; loader.style.display = 'block';
     if (typeof window.applySplashWordmarkScale === 'function') window.applySplashWordmarkScale(loader);
     loader.innerHTML = '';
@@ -268,12 +297,12 @@
     prompt.id = 'startup-start-prompt';
     prompt.textContent = 'push any to start';
     loader.appendChild(prompt);
-    loader.classList.add('loaded');
     function dismissPreview() {
       loader.removeEventListener('click', dismissPreview);
       document.removeEventListener('keydown', dismissPreview);
+      loader.classList.remove('accepting-input');
       var cfg = window.animConfig || {};
-      var modes = ['spiral-out', 'spiral-in', 'explode', 'explode2', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3'];
+      var modes = (window.JunctionAnimation && window.JunctionAnimation.previewSplashExitModes) || ['spiral-out', 'spiral-in', 'explode', 'explode2', 'melt', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3-bounce', 'explode3-no-bounce'];
       var selected = cfg.splashExitMode || 'random';
       var mode = selected === 'random' ? modes[Math.floor(Math.random() * modes.length)] : selected;
       if (canvas && typeof canvas._startSplashExit === 'function') { try { canvas._startSplashExit({ mode: mode }); } catch (e) {} }
@@ -300,6 +329,7 @@
     }
     loader.addEventListener('click', dismissPreview);
     document.addEventListener('keydown', dismissPreview);
+    loader.classList.add('loaded', 'accepting-input');
   }
   window.playSplashAnimationPreview = playSplashAnimationPreview;
 
@@ -316,17 +346,37 @@
         window.showForkOverlay();
         break;
       case 'config':
+        if (msg.activeBridge) window.junctionActiveBridge = msg.activeBridge;
+        if (msg.sessionKey !== undefined) window.junctionActiveSessionKey = msg.sessionKey || null;
+        window.messageReactionsEnabled = msg.messageReactions === true;
+        window.timelineInterleave = msg.interleaveTimeline === true;
+        window.compactTimelineMode = msg.compactTimelineMode === true;
+        if (msg.feedbackGlyphs) window.feedbackGlyphs = msg.feedbackGlyphs;
         if (msg.reasoningDisplay) window.reasoningMode = msg.reasoningDisplay;
         if (msg.activityLayout) window.streamCfg.layout = window.normalizeActivityLayout ? window.normalizeActivityLayout(msg.activityLayout) : (msg.activityLayout === 'timeline' ? 'timeline' : 'accordion');
         if (msg.activityRail !== undefined) window.streamCfg.rail = !!msg.activityRail;
         if (msg.activityDots) window.streamCfg.dots = msg.activityDots;
         if (msg.activityCondensed !== undefined) window.streamCfg.condensed = !!msg.activityCondensed;
         if (msg.goodFonts !== undefined) document.body.classList.toggle('good-fonts', !!msg.goodFonts);
+        if (msg.toolOutputWordWrap) {
+          var wrapTools = msg.toolOutputWordWrap === 'on';
+          document.body.classList.toggle('tool-output-wrap', wrapTools);
+          document.body.classList.toggle('tool-output-nowrap', !wrapTools);
+        }
         if (msg.betaForkRewind !== undefined) window.betaForkRewind = !!msg.betaForkRewind;
         if (msg.bubbleRadius !== undefined) document.documentElement.style.setProperty('--junction-bubble-radius', msg.bubbleRadius + 'px');
         if (msg.bubbleTip !== undefined) document.documentElement.style.setProperty('--junction-bubble-tip', msg.bubbleTip);
         window.applyStreamConfig();
+        // Host 'config' comes from globalState, written via async saveAnimConfig,
+        // so it can lag the webview's own getState (written synchronously on every
+        // settings change). Apply host as the base, then let the fresher getState
+        // values win — otherwise a stale host charset (e.g. the katakana default)
+        // clobbers the user's saved choice for the first splash build.
         if (msg.animConfig) Object.assign(window.animConfig, msg.animConfig);
+        try {
+          var _savedAnim = (vscode.getState() || {}).animConfig;
+          if (_savedAnim) Object.assign(window.animConfig, _savedAnim);
+        } catch (e) {}
         applyChatMotionConfig();
         if (msg.animationMode) window._junctionAnimationMode = msg.animationMode;
         if (msg.animColor) window._junctionAnimColor = msg.animColor;
@@ -335,9 +385,14 @@
         if (typeof window.applySplashWordmarkScale === 'function') window.applySplashWordmarkScale(document.getElementById('startup-loader') || document.documentElement);
         if (msg.tokenColors) applyTokenColors(msg.tokenColors);
         if (msg.showFullHistory !== undefined) _useJsonlMode = !!msg.showFullHistory;
+        _splashConfigApplied = true;   // persisted config now in — safe to build the real splash
         try { overrideStartupAnimation(); } catch (e) {}
         break;
       case 'history':
+        if (msg.activeBridge) window.junctionActiveBridge = msg.activeBridge;
+        if (msg.sessionKey !== undefined) window.junctionActiveSessionKey = msg.sessionKey || null;
+        if (msg.interleaveTimeline !== undefined) window.timelineInterleave = msg.interleaveTimeline === true;
+        if (msg.compactTimelineMode !== undefined) window.compactTimelineMode = msg.compactTimelineMode === true;
         _loadingMore = false; _hasMoreHistory = true;
         renderHistory(msg.messages, msg.activeRunId);
         break;
@@ -395,7 +450,7 @@
             if (!bubble.querySelector('.queue-badge')) {
               var failedQueueBadge = document.createElement('span');
               failedQueueBadge.className = 'queue-badge';
-              failedQueueBadge.textContent = 'QUEUED';
+              failedQueueBadge.textContent = window.junctionT('queued', 'QUEUED');
               bubble.insertBefore(failedQueueBadge, bubble.firstChild);
             }
           }
@@ -411,7 +466,7 @@
           if (addedBubble && !addedBubble.querySelector('.queue-badge')) {
             var qBadge = document.createElement('span');
             qBadge.className = 'queue-badge';
-            qBadge.textContent = 'QUEUED';
+            qBadge.textContent = window.junctionT('queued', 'QUEUED');
             addedBubble.insertBefore(qBadge, addedBubble.firstChild);
           }
         }
@@ -436,7 +491,7 @@
             if (!steeredBubble.querySelector('.steer-badge')) {
               var sBadge = document.createElement('span');
               sBadge.className = 'steer-badge';
-              sBadge.textContent = 'STEER';
+              sBadge.textContent = window.junctionT('steer', 'STEER');
               steeredBubble.insertBefore(sBadge, steeredBubble.firstChild);
             }
           }
@@ -451,7 +506,7 @@
             queuedText.innerHTML = window.renderMarkdown(msg.text || '');
             var updatedBadge = document.createElement('span');
             updatedBadge.className = 'queue-badge';
-            updatedBadge.textContent = 'QUEUED';
+            updatedBadge.textContent = window.junctionT('queued', 'QUEUED');
             queuedText.insertBefore(updatedBadge, queuedText.firstChild);
           }
         }
@@ -471,7 +526,9 @@
         if (window.setWorklogState) window.setWorklogState(msg.runId, 'running');
         break;
       case 'assistant_stream_delta':
-        if (msg.fullText !== undefined && !window.isWorkspaceContext(msg.fullText)) {
+        if (msg.commandOutput && window.setAssistantCommandOutput) {
+          window.setAssistantCommandOutput(msg.runId, msg.commandOutput, msg.fullText || '');
+        } else if (msg.fullText !== undefined && !window.isWorkspaceContext(msg.fullText)) {
           window.setAssistantText(msg.runId, msg.fullText);
         }
         break;

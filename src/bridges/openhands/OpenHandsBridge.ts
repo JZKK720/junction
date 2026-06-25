@@ -5,11 +5,16 @@ import { spawn, type ChildProcess } from 'child_process';
 import { jsonRequest, textRequest } from '../http';
 import {
     BridgeCapabilities, BridgeContext, BridgeSelectionState,
-    BridgeSession, ChatBridge, ChoiceMenuItem, HistoryMessage, HistoryPart,
-    ModelChoice, ToolStatusView, OPENCLAW_THINKING_LEVELS,
+    BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, HistoryMessage, HistoryPart,
+    ModelChoice, ToolStatusView,
 } from '../types';
 import { Logger } from '../../utils/logger';
+import { captureBridgeDebug, captureBridgeHistoryDebug } from '../../utils/debugCapture';
 import { mapOpenHandsEvent } from './events';
+import { listOpenHandsModelChoices, selectOpenHandsModelChoice } from './modelPicker';
+import { bindSessionWorkspace, boundWorkspaceUri, decorateSessionsWithWorkspaceBindings } from '../sessionBindings';
+import { buildKeyValueCommandOutput, buildTableCommandOutput, commandOutputToMarkdown } from '../commandOutput';
+import { parseSlashCommand, slashRunId } from '../slashCommands';
 
 const API = '/api/v1';
 
@@ -51,13 +56,13 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
     private activeSessionId: string | null = null;
     private pendingFileContext: string | null = null;
     private selection: BridgeSelectionState = {};
-    private knownSessions = new Map<string, { title: string; model?: string }>();
+    private knownSessions = new Map<string, { title: string; model?: string; workspaceUri?: string; workspaceName?: string }>();
     private pollAbort = new Map<string, AbortController>();
     private skillCache = new Map<string, Array<{ name: string; description?: string }>>();
 
     constructor(readonly context: vscode.ExtensionContext) {
         super();
-        const saved = this.context.workspaceState.get<Array<[string, { title: string; model?: string }]>>('junction.openhands.knownSessions');
+        const saved = this.context.workspaceState.get<Array<[string, { title: string; model?: string; workspaceUri?: string; workspaceName?: string }]>>('junction.openhands.knownSessions');
         if (saved) this.knownSessions = new Map(saved);
         this.activeSessionId = this.context.workspaceState.get<string | null>('junction.openhands.activeSessionId', null);
     }
@@ -117,7 +122,6 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
     async initializeWorkspace(): Promise<void> {}
     async registerRuntimeIntegrations(): Promise<void> {}
     async configure(): Promise<void> { vscode.commands.executeCommand('junction.openSettings'); }
-    getSettingsQuery(): string { return 'junction.openhands'; }
 
     setPendingFileContext(context: string): void { this.pendingFileContext = context; }
     getPendingFileContext(): string | null { const c = this.pendingFileContext; this.pendingFileContext = null; return c; }
@@ -127,6 +131,12 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
     getCurrentSessionKey(_folderUri?: vscode.Uri): string | null { return this.activeSessionId; }
     getSessionToFolder(): ReadonlyMap<string, vscode.Uri> { return new Map(); }
     setActiveSession(_folderUri: vscode.Uri, key: string): void { this.activeSessionId = key; this.persistSessions(); }
+    bindSessionWorkspace(sessionKey: string | null | undefined, folderUri?: vscode.Uri): void {
+        bindSessionWorkspace(this.context, this.id, sessionKey, folderUri);
+    }
+    boundSessionWorkspace(sessionKey: string | null | undefined): vscode.Uri | undefined {
+        return boundWorkspaceUri(this.context, this.id, sessionKey);
+    }
 
     private incarnationSuffix(): string | undefined {
         try {
@@ -135,7 +145,7 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
         } catch { return undefined; }
     }
 
-    async createChat(_folderUri?: vscode.Uri): Promise<string> {
+    async createChat(folderUri?: vscode.Uri): Promise<string> {
         const body: any = { agent_type: 'DEFAULT' };
         if (this.selection.modelId) body.llm_model = this.selection.modelId;
         const suffix = this.incarnationSuffix();
@@ -145,7 +155,14 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
             const id = res?.conversation_id || res?.id || res?.conversation?.id;
             if (!id) throw new Error('no conversation id in start response');
             this.activeSessionId = String(id);
-            this.knownSessions.set(this.activeSessionId, { title: res?.title || 'New chat', model: this.selection.modelId });
+            const folder = folderUri || vscode.workspace.workspaceFolders?.[0]?.uri;
+            this.knownSessions.set(this.activeSessionId, {
+                title: res?.title || 'New chat',
+                model: this.selection.modelId,
+                workspaceUri: folder?.toString(),
+                workspaceName: folder ? (vscode.workspace.getWorkspaceFolder(folder)?.name || path.basename(folder.fsPath)) : undefined,
+            });
+            this.bindSessionWorkspace(this.activeSessionId, folder);
             this.persistSessions();
             return this.activeSessionId;
         } catch (err) {
@@ -156,18 +173,37 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
         }
     }
 
-    async listSessions(): Promise<BridgeSession[]> {
+    async listSessions(scope: ChatScope = 'all', includeArchived = false, archivedKeys: ReadonlySet<string> = new Set()): Promise<BridgeSession[]> {
         try {
             const res: any = await jsonRequest(`${this.baseUrl}${API}/app-conversations?limit=50`, { timeoutMs: 5000 });
             const items: any[] = res?.items || res?.results || res || [];
-            return items.map((c) => {
+            const sessions = items.map((c) => {
                 const key = String(c.conversation_id || c.id);
-                this.knownSessions.set(key, { title: c.title || 'Conversation' });
-                return { key, title: c.title || 'Conversation', lastActiveTs: Date.parse(c.updated_at || c.created_at || '') || undefined } as BridgeSession;
+                const known = this.knownSessions.get(key);
+                this.knownSessions.set(key, { ...known, title: c.title || known?.title || 'Conversation' });
+                return {
+                    key,
+                    title: c.title || known?.title || 'Conversation',
+                    model: known?.model,
+                    isActive: key === this.activeSessionId,
+                    isArchived: archivedKeys.has(key),
+                    workspaceUri: known?.workspaceUri,
+                    workspaceName: known?.workspaceName,
+                    lastActiveTs: Date.parse(c.updated_at || c.created_at || '') || undefined,
+                } as BridgeSession;
             });
+            const filtered = includeArchived ? sessions : sessions.filter((s) => !s.isArchived);
+            return decorateSessionsWithWorkspaceBindings(this.context, this.id, filtered, scope, vscode.workspace.workspaceFolders?.[0]?.uri, false);
         } catch {
-            return Array.from(this.knownSessions.entries()).map(([key, v]) => ({ key, title: v.title }));
+            const sessions = Array.from(this.knownSessions.entries()).map(([key, v]) => ({ key, title: v.title, model: v.model, workspaceUri: v.workspaceUri, workspaceName: v.workspaceName, isArchived: archivedKeys.has(key) }));
+            const filtered = includeArchived ? sessions : sessions.filter((s) => !s.isArchived);
+            return decorateSessionsWithWorkspaceBindings(this.context, this.id, filtered, scope, vscode.workspace.workspaceFolders?.[0]?.uri, false);
         }
+    }
+
+    async listWorkspaceSessions(scope: ChatScope, includeArchived: boolean, archivedKeys: ReadonlySet<string>, currentFolder?: vscode.Uri): Promise<BridgeSession[]> {
+        const sessions = await this.listSessions(scope, includeArchived, archivedKeys);
+        return decorateSessionsWithWorkspaceBindings(this.context, this.id, sessions, scope, currentFolder, false);
     }
 
     async renameSession(key: string, label: string): Promise<void> {
@@ -187,6 +223,12 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
         if (!sessionId || sessionId.startsWith('openhands-')) return [];
         try {
             const events = await this.fetchEvents(sessionId);
+            captureBridgeHistoryDebug(this.id, 'history-native', {
+                operation: 'getSessionHistory.events',
+                sessionKey: sessionId,
+                inputCount: events.length,
+                inputMessages: events,
+            });
             const out: HistoryMessage[] = [];
             for (const e of events) {
                 const mapped = mapOpenHandsEvent('history', e);
@@ -204,6 +246,12 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
                 }
                 if (parts.length) out.push({ role: 'assistant', content: parts });
             }
+            captureBridgeHistoryDebug(this.id, 'history-normalized', {
+                operation: 'getSessionHistory.events',
+                sessionKey: sessionId,
+                outputCount: out.length,
+                outputMessages: out,
+            });
             return out;
         } catch (err) {
             Logger.getInstance().error('openhands getSessionHistory failed', err);
@@ -216,8 +264,15 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
     async sendChatMessage(message: string, _context?: BridgeContext): Promise<any> {
         const sessionId = (this.activeSessionId && !this.activeSessionId.startsWith('openhands-'))
             ? this.activeSessionId
-            : await this.createChat();
+            : await this.createChat(_context?.workspaceFolder ? vscode.Uri.file(_context.workspaceFolder) : undefined);
         const runId = `openhands-${Date.now()}`;
+        captureBridgeDebug(this.id, 'request', {
+            operation: 'sendChatMessage',
+            sessionKey: sessionId,
+            runId,
+            message,
+            context: _context,
+        });
         this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId, sessionKey: sessionId });
 
         try {
@@ -263,7 +318,20 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
                 const ts = e.timestamp || e.created_at || e.time;
                 if (ts && typeof ts === 'string' && ts > sinceIso) sinceIso = ts;
 
+                captureBridgeDebug(this.id, 'native', {
+                    operation: 'pollEvents.fetch',
+                    sessionKey: sessionId,
+                    runId,
+                    event: e,
+                });
                 const mapped = mapOpenHandsEvent(runId, e);
+                captureBridgeDebug(this.id, 'normalized', {
+                    operation: 'pollEvents.map',
+                    sessionKey: sessionId,
+                    runId,
+                    eventId: eid,
+                    mapped,
+                });
                 if (mapped.thinking) this.emit('stream', { type: 'thinking_chunk', runId, text: mapped.thinking, sessionKey: sessionId });
                 for (const t of mapped.tools) this.emit('stream', { ...t, sessionKey: sessionId });
                 if (mapped.assistantText) {
@@ -291,6 +359,7 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
         this.pollAbort.get(id)?.abort();
         this.pollAbort.delete(id);
         try { await jsonRequest(`${this.baseUrl}${API}/app-conversations/${encodeURIComponent(id)}/pause`, { method: 'POST', body: {} }); } catch {}
+        this.emit('stream', { type: 'agent_lifecycle', phase: 'cancelled', runId: _runId || `openhands-stop-${Date.now()}`, sessionKey: id });
     }
 
     async getUsage(): Promise<any> { return null; }
@@ -309,46 +378,18 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
 
     // ── Models ────────────────────────────────────────────────────────────
 
-    setSelection(selection: BridgeSelectionState): void { this.selection = selection; }
+    setSelection(selection: BridgeSelectionState): void { this.selection = { ...this.selection, ...selection }; }
+
+    getSelection(): BridgeSelectionState { return { ...this.selection }; }
 
     async listModelChoices(selectedModel?: string, selectedThinking?: string): Promise<ModelChoice[]> {
-        let models: any[] = [];
-        try {
-            const res: any = await jsonRequest(`${this.baseUrl}${API}/config/models/search?limit=100`, { timeoutMs: 5000 });
-            models = res?.items || res?.results || res?.models || (Array.isArray(res) ? res : []);
-        } catch (err) {
-            Logger.getInstance().error('openhands listModelChoices failed', err);
-            return [];
-        }
-        return models.map((m) => {
-            const id = String(typeof m === 'string' ? m : (m.id || m.model || m.name));
-            const slash = id.lastIndexOf('/');
-            const provider = slash > 0 ? id.slice(0, slash) : (m.provider || '');
-            const supportsReasoning = m.reasoning ?? m.supports_reasoning ?? true;
-            const choice: ModelChoice = {
-                id,
-                label: slash > 0 ? id.slice(slash + 1) : id,
-                description: provider,
-                provider,
-                model: id,
-                supportsReasoning: !!supportsReasoning,
-                icon: 'lightbulb',
-                checked: selectedModel === id,
-            };
-            if (supportsReasoning) {
-                choice.children = OPENCLAW_THINKING_LEVELS.map((level) => ({
-                    id: `${id}:thinking:${level}`, label: level, icon: 'thinking', thinking: level,
-                    checked: selectedThinking === level && selectedModel === id,
-                }));
-            }
-            return choice;
-        });
+        return listOpenHandsModelChoices(this.baseUrl, API, selectedModel, selectedThinking);
     }
 
     async selectModelChoice(data: any): Promise<{ display: string; modelId: string; thinking?: string } | null> {
-        const modelId = String(data.model ?? data.id ?? '').replace(/:thinking:.*$/, '');
-        if (!modelId) return null;
-        const thinking = data.thinking !== undefined ? String(data.thinking) : this.selection.thinking;
+        const selected = selectOpenHandsModelChoice(data, this.selection);
+        if (!selected) return null;
+        const { modelId, thinking } = selected;
         this.setSelection({ ...this.selection, modelId, thinking });
         // Switch in-place if a real conversation is active.
         if (this.activeSessionId && !this.activeSessionId.startsWith('openhands-')) {
@@ -356,8 +397,7 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
                 method: 'POST', body: { model: modelId },
             }).catch(() => {});
         }
-        const label = String(data.label ?? modelId.replace(/^.*\//, ''));
-        return { display: label, modelId, thinking };
+        return selected;
     }
 
     // ── Environment ─────────────────────────────────────────────────────────
@@ -369,12 +409,14 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
             label: connected ? `Connected (${this.baseUrl})` : 'Not connected',
             description: connected ? 'OpenHands app server running' : 'Start the openhands server or set junction.openhands.serverUrl',
             icon: connected ? 'check' : 'warning',
+            setup: !connected,
             bridgeId: 'openhands',
         }, {
             id: 'openhands:configure',
             label: 'Configure OpenHands',
             description: 'Bridge settings',
             icon: 'gear',
+            setup: true,
             bridgeId: 'openhands',
         }];
     }
@@ -385,10 +427,55 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
 
     getEnvironmentLabel(): string {
         const home = expandHome(ohConfig().get<string>('home') || '');
-        return home ? path.basename(home) : 'OpenHands';
+        return home ? path.basename(home) : 'OpenHands@openhands';
     }
 
     // ── Slash commands (microagents / skills) ──────────────────────────────
+
+    async executeSlashCommand(command: string, context?: BridgeContext): Promise<any> {
+        const parsed = parseSlashCommand(command);
+        if (!parsed) return this.sendChatMessage(command, context);
+        if (parsed.name === 'status' || parsed.name === 'models' || parsed.name === 'skills') {
+            if (!this.activeSessionId) await this.createChat(context?.workspaceFolder ? vscode.Uri.file(context.workspaceFolder) : undefined);
+            const runId = slashRunId(this.id, parsed.name);
+            const sessionKey = this.activeSessionId!;
+            captureBridgeDebug(this.id, 'request', {
+                operation: 'executeSlashCommand',
+                sessionKey,
+                runId,
+                command,
+                parsed,
+                context,
+            });
+            this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId, sessionKey });
+            const commandOutput = await this.nativeSlash(parsed.name, sessionKey);
+            this.emit('stream', { type: 'agent_message', runId, sessionKey, text: commandOutputToMarkdown(commandOutput), commandOutput });
+            this.emit('stream', { type: 'agent_lifecycle', phase: 'completed', runId, sessionKey });
+            return { runId, sessionKey };
+        }
+        return this.sendChatMessage(command, context);
+    }
+
+    private async nativeSlash(name: string, sessionId: string) {
+        if (name === 'status') {
+            return buildKeyValueCommandOutput('/status', [
+                { key: 'server', value: this.baseUrl || 'not connected' },
+                { key: 'session', value: sessionId || 'none' },
+                { key: 'model', value: this.selection.modelId || 'default' },
+            ], 'OpenHands status');
+        }
+        if (name === 'models') {
+            const models = await this.listModelChoices(this.selection.modelId, this.selection.thinking);
+            const rows: string[][] = [];
+            for (const provider of models) {
+                for (const child of provider.children || []) rows.push([String(provider.label || provider.id), String(child.model || child.id), child.checked ? 'yes' : '']);
+            }
+            return buildTableCommandOutput('/models', ['Provider', 'Model', 'Selected'], rows, 'OpenHands models');
+        }
+        await this.loadSkills(sessionId);
+        const skills = this.skillCache.get(sessionId) || [];
+        return buildTableCommandOutput('/skills', ['Skill', 'Description'], skills.map((s) => [s.name, s.description || '']), 'OpenHands skills');
+    }
 
     private async loadSkills(sessionId: string): Promise<void> {
         if (this.skillCache.has(sessionId)) return;
@@ -402,7 +489,12 @@ export class OpenHandsBridge extends EventEmitter implements ChatBridge {
     getSlashSuggestions(prefix: string): Array<{ name: string; description?: string }> {
         const id = this.activeSessionId;
         if (id && !id.startsWith('openhands-')) this.loadSkills(id).catch(() => {});
-        const all = (id && this.skillCache.get(id)) || [];
+        const all = [
+            { name: 'status', description: 'Show OpenHands bridge status' },
+            { name: 'models', description: 'Show OpenHands model choices' },
+            { name: 'skills', description: 'Show OpenHands skills/microagents' },
+            ...((id && this.skillCache.get(id)) || []),
+        ];
         const p = prefix.replace(/^\//, '').toLowerCase();
         return all.filter((c) => !p || c.name.toLowerCase().startsWith(p));
     }

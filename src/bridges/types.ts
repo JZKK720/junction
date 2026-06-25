@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as vscode from 'vscode';
 
-export type BridgeId = 'openclaw' | 'hermes' | 'souveraine' | 'mimocode' | 'goose' | 'opencode' | 'openhands' | (string & {});
+export type BridgeId = 'openclaw' | 'hermes' | 'souveraine' | 'mimocode' | 'goose' | 'opencode' | 'pi' | 'openhands' | (string & {});
 export type ChatScope = 'folder' | 'all';
 
 /**
@@ -51,6 +51,9 @@ export interface BridgeSession {
     lastActiveTs?: number;
     /** Message count for the card meta row, when known. */
     messageCount?: number;
+    /** Optional native workspace URI/path for bridges that persist cwd per session. */
+    workspaceUri?: string;
+    workspaceName?: string;
 }
 
 /** A collapsible group of sessions in the chats list. */
@@ -68,9 +71,21 @@ export interface BridgeCapabilities {
     steering: boolean;
     usage: boolean;
     tools: boolean;
+    /** Native gateway-backed message reactions for assistant replies. */
+    messageReactions?: boolean;
+    /** This bridge emits native reasoning/tool events in chronological order, so
+     *  timeline mode should keep thoughts interleaved with tools rather than
+     *  pinning/coalescing all thoughts above the tool stream. Opt-in per bridge;
+     *  consumed by render/timeline-interleave.js. Default false. */
+    timelineInterleaves?: boolean;
     /** Raw thinking is streamed natively and should not be echoed as assistant
-     *  display text while a reasoning stream is active. Default false. */
+     *  message text while a reasoning stream is active. Reasoning still renders
+     *  in the activity/timeline UI. Default false. */
     hidesRawThinking?: boolean;
+    /** Whether junction can control this bridge's sandbox/approval modes. When
+     *  explicitly false, the composer hides the sandbox/approvals chip (the
+     *  bridge has no junction-controllable permission model). Default: shown. */
+    sandboxControls?: boolean;
 }
 
 export interface BridgeContext {
@@ -79,6 +94,16 @@ export interface BridgeContext {
     activeFile?: string;
     language?: string;
     selection?: { start: number; end: number } | null;
+}
+
+export interface BridgeMessageReactionTarget {
+    sessionKey?: string;
+    messageId?: string;
+    nativeMessageId?: string;
+    channel?: string;
+    to?: string;
+    accountId?: string;
+    [key: string]: unknown;
 }
 
 export interface BridgeSelectionState {
@@ -150,7 +175,6 @@ export interface ChatBridge extends EventEmitter {
     initializeWorkspace(): Promise<void>;
     registerRuntimeIntegrations(): Promise<void>;
     configure(): Promise<void>;
-    getSettingsQuery(): string;
 
     setPendingFileContext(context: string): void;
     getPendingFileContext(): string | null;
@@ -158,6 +182,8 @@ export interface ChatBridge extends EventEmitter {
     getCurrentSessionKey(folderUri?: vscode.Uri): string | null;
     getSessionToFolder(): ReadonlyMap<string, vscode.Uri>;
     setActiveSession(folderUri: vscode.Uri, key: string): void;
+    bindSessionWorkspace?(sessionKey: string | null | undefined, folderUri?: vscode.Uri): void;
+    boundSessionWorkspace?(sessionKey: string | null | undefined): vscode.Uri | undefined;
     /**
      * Transport-level scoping for shared-gateway bridges: a view declares
      * which session's conversation stream it displays; events for unwatched
@@ -168,16 +194,44 @@ export interface ChatBridge extends EventEmitter {
     createChat(folderUri?: vscode.Uri): Promise<string>;
     forkChat?(parentSessionKey: string, folderUri?: vscode.Uri): Promise<string | null>;
     listSessions(scope: ChatScope, includeArchived: boolean, archivedKeys: ReadonlySet<string>): Promise<BridgeSession[]>;
+    listWorkspaceSessions?(scope: ChatScope, includeArchived: boolean, archivedKeys: ReadonlySet<string>, currentFolder?: vscode.Uri): Promise<BridgeSession[]>;
     renameSession(key: string, label: string): Promise<void>;
     getSessionHistory(limit?: number, folderUri?: vscode.Uri): Promise<any>;
     getSessionHistoryFromJsonl?(sessionKey: string, offset?: number, maxBytes?: number): Promise<any>;
     sendChatMessage(message: string, context?: BridgeContext): Promise<any>;
+    setMessageReaction?(target: BridgeMessageReactionTarget, value: 'up' | 'down' | null): Promise<void>;
+    executeSlashCommand?(command: string, context?: BridgeContext): Promise<any>;
     stopRun(sessionKey: string, runId?: string): Promise<void>;
     getUsage(sessionKey: string): Promise<any>;
     injectMessage(sessionKey: string, message: string): Promise<boolean>;
+    /** Bridge-native hidden/session context injection. Junction uses this for
+     * cwd/workspace facts; fallback is bridge.injectMessage when safe. */
+    injectHiddenContext?(sessionKey: string, context: BridgeContext, message: string): Promise<boolean>;
     canSteer(): boolean;
     canAdminInject(): boolean;
 
+    /**
+     * Resolve a blocking approval prompt the bridge surfaced via an
+     * `approval_request` stream event. `choice` is the gateway vocabulary
+     * (`once` | `session` | `always` | `deny`); `all` resolves every pending
+     * approval in the session at once. Bridges without interactive approvals
+     * may omit this. */
+    respondApproval?(data: { requestId?: string; choice: string; all?: boolean }): Promise<void>;
+    /**
+     * Resolve a blocking input prompt surfaced via an `input_request` stream
+     * event (secret / sudo / clarify / terminal-read). `kind` selects the
+     * response transport; `value` is the user-entered text. */
+    respondInput?(data: { requestId: string; kind: string; value: string }): Promise<void>;
+    /**
+     * Manually compact / summarize the session's context. Surfaced by the
+     * context-usage meter; bridges without compaction may omit it. */
+    compactContext?(sessionKey: string): Promise<void>;
+    /**
+     * Report context-window usage for the meter. `percentUsed` is omitted when
+     * the context window size is unknown (meter then shows raw token count). */
+    getContextUsage?(sessionKey: string): Promise<{ percentUsed?: number; usedTokens?: number; contextWindow?: number } | null>;
+
+    getSelection?(): BridgeSelectionState;
     setSelection(selection: BridgeSelectionState): void;
     listModelChoices(selectedModel?: string, selectedThinking?: string): Promise<ModelChoice[]>;
     selectModelChoice(data: any, sessionKey?: string | null): Promise<{ display: string; modelId: string; thinking?: string; perRequestOnly?: boolean } | null>;

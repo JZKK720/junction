@@ -33,7 +33,7 @@ export class CheckpointManager {
     }
 
     isEnabled(): boolean {
-        return config().get<boolean>('checkpoints.enabled', true);
+        return config().get<boolean>('checkpoints.enabled', false);
     }
 
     hasCheckpoint(messageId: string): boolean {

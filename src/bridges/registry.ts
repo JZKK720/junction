@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import * as vscode from 'vscode';
 import { getActiveBridge, setActiveBridge } from '../config/agentBridgeConfig';
 import { ChatBridge, ChoiceMenuItem } from './types';
+import { t } from '../l10n';
 
 export class BridgeRegistry extends EventEmitter {
     private bridges = new Map<string, ChatBridge>();
@@ -56,12 +57,13 @@ export class BridgeRegistry extends EventEmitter {
     }
 
     async listEnvironmentChoices(): Promise<ChoiceMenuItem[]> {
-        const configured: ChoiceMenuItem[] = [];
+        const visible: ChoiceMenuItem[] = [];
+        const disconnected: ChoiceMenuItem[] = [];
         for (const bridge of this.getAll()) {
             const children = await bridge.listEnvironmentChoices().catch((): ChoiceMenuItem[] => [{
                 id: `${bridge.id}:configure`,
-                label: `Configure ${bridge.label}`,
-                description: 'Bridge settings',
+                label: t('Configure {0}', bridge.label),
+                description: t('Bridge settings'),
                 icon: 'gear',
                 bridgeId: bridge.id,
             }]);
@@ -72,17 +74,32 @@ export class BridgeRegistry extends EventEmitter {
                 id: `bridge:${bridge.id}`,
                 label: bridge.label,
                 description: isActive
-                    ? 'Active bridge'
-                    : (hasConfigured ? 'Switch bridge' : 'Disconnected; setup required'),
-                section: 'Bridges',
+                    ? t('Active bridge')
+                    : (hasConfigured ? t('Switch bridge') : t('Disconnected; setup required')),
+                section: t('Bridges'),
                 icon: bridge.isConnected() ? 'hubot' : 'plug',
                 checked: isActive,
                 bridgeId: bridge.id,
+                // Configured bridges: clicking the main area swaps straight to the
+                // bridge (its last-used config); the chevron opens the agent/runtime
+                // submenu. Unconfigured ones open the submenu (setup) on any click.
+                parentSelectable: hasConfigured,
                 children: mappedChildren,
             };
-            configured.push(item);
+            if (isActive || hasConfigured) visible.push(item);
+            else disconnected.push({ ...item, section: undefined });
         }
-        return configured;
+        if (disconnected.length) {
+            visible.push({
+                id: 'bridge:more',
+                label: t('Disconnected bridges'),
+                description: disconnected.length === 1 ? t('1 bridge') : t('{0} bridges', disconnected.length),
+                section: t('Bridges'),
+                icon: 'extensions',
+                children: disconnected,
+            });
+        }
+        return visible;
     }
 
     async selectEnvironmentChoice(data: any): Promise<void> {

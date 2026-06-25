@@ -7,15 +7,18 @@ import { SessionManager } from '../../gateway/sessionManager';
 import { CommandPalette } from '../../gateway/commandPalette';
 import { ModelManager } from '../../gateway/modelManager';
 import { ToolStatusManager } from '../../gateway/toolStatus';
-import { abortRun, listAgents, setSessionModel } from '../../gateway/agentConfig';
+import { abortRun, listAgents } from '../../gateway/agentConfig';
 import { discoverGateways } from '../../gateway/gatewayDiscovery';
-import { getOwnedSessions } from '../../gateway/folderSessions';
 import { registerGatewayTools } from '../../gateway/lmTools';
-import { bindingIdForUri, ChatIndex } from '../../gateway/chatIndex';
+import { ChatIndex } from '../../gateway/chatIndex';
 import { MessageProcessor } from '../../utils/messageProcessor';
+import { ApprovalRelay } from '../../gateway/approvalRelay';
 import { Logger } from '../../utils/logger';
-import { getOpenClawConfigPath, getOpenClawGatewayUrl, updateOpenClawGateway } from '../../config/agentBridgeConfig';
-import { BridgeCapabilities, BridgeContext, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, ModelChoice, ToolStatusView } from '../types';
+import { getOpenClawConfigPath, getOpenClawGatewayUrl, getOpenClawShowAllAgents, updateOpenClawGateway } from '../../config/agentBridgeConfig';
+import { BridgeCapabilities, BridgeContext, BridgeMessageReactionTarget, BridgeSelectionState, BridgeSession, ChatBridge, ChatScope, ChoiceMenuItem, ModelChoice, ToolStatusView } from '../types';
+import { listOpenClawModelChoices, selectOpenClawModelChoice } from './modelPicker';
+import { listOpenClawWorkspaceSessions } from './workspaceSessions';
+import { captureBridgeDebug, captureBridgeHistoryDebug } from '../../utils/debugCapture';
 
 export class OpenClawBridge extends EventEmitter implements ChatBridge {
     readonly id = 'openclaw';
@@ -27,6 +30,8 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         steering: true,
         usage: true,
         tools: true,
+        messageReactions: true,
+        timelineInterleaves: true,
         hidesRawThinking: true,
     };
 
@@ -35,10 +40,12 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
     private readonly commandPalette = new CommandPalette();
     private readonly modelManager = new ModelManager();
     private readonly toolStatusManager = new ToolStatusManager();
+    private readonly approvalRelay: ApprovalRelay;
     private readonly chatIndex: ChatIndex;
     private selection: BridgeSelectionState = {};
     private integrationsRegistered = false;
     private runtimeLabels = new Map<string, string>();
+    private deliveryContextBySession = new Map<string, any>();
 
     constructor(readonly context: vscode.ExtensionContext, instanceId: string) {
         super();
@@ -47,12 +54,22 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         this.chatIndex = new ChatIndex(context, getOpenClawGatewayUrl);
 
         MessageProcessor.getInstance().registerEventHandlers(this.gateway);
+        this.approvalRelay = new ApprovalRelay(this.gateway, (event) => {
+            captureBridgeDebug(this.id, 'normalized', { operation: 'approvalRelay', eventType: event?.type, sessionKey: event?.sessionKey, runId: event?.runId, event });
+            this.emit('stream', event);
+        });
 
         this.gateway.on('connected', () => this.emit('connected'));
         this.gateway.on('disconnected', () => this.emit('disconnected'));
         this.gateway.on('pairingRequired', () => this.emit('pairingRequired'));
-        this.gateway.on('reconnected', () => this.emit('reconnected'));
-        this.sessionManager.on('stream', (event) => this.emit('stream', event));
+        this.gateway.on('reconnected', () => {
+            this.emit('reconnected');
+            void this.approvalRelay.recoverPending();
+        });
+        this.sessionManager.on('stream', (event) => {
+            captureBridgeDebug(this.id, 'normalized', { operation: 'sessionManager.stream', eventType: event?.type, sessionKey: event?.sessionKey, runId: event?.runId, event });
+            this.emit('stream', event);
+        });
     }
 
     async connect(): Promise<boolean> {
@@ -111,10 +128,6 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         vscode.window.showInformationMessage(`OpenClaw connected to ${targetUrl}`);
     }
 
-    getSettingsQuery(): string {
-        return 'junction.';
-    }
-
     setPendingFileContext(context: string): void {
         this.gateway.setPendingFileContext(context);
     }
@@ -160,50 +173,20 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
     }
 
     async listSessions(scope: ChatScope, includeArchived: boolean, archivedKeys: ReadonlySet<string>): Promise<BridgeSession[]> {
-        if (!this.gateway.capabilities.canListSessions()) return [];
-        const activeKey = this.getCurrentSessionKey() ?? undefined;
-        const binding = this.sessionManager.getSessionToFolder();
-        let raw: Array<{ key: string; label?: string }>;
-        if (scope === 'all') {
-            const res = await this.gateway.sendRequest('sessions.list', {});
-            raw = Array.isArray(res?.sessions) ? res.sessions : [];
-        } else {
-            const currentFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
-            raw = await getOwnedSessions(this.gateway);
-            if (currentFolder) {
-                raw = raw.filter((s) => binding.get(s.key)?.toString() === currentFolder.toString());
-            }
-        }
-        if (scope === 'all') this.chatIndex.prune(new Set(raw.map((s) => s.key)));
-        const currentFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
-        return raw
-            .filter((s) => includeArchived || !archivedKeys.has(s.key))
-            .map((s) => {
-                const folderUri = binding.get(s.key);
-                const bindingId = folderUri ? bindingIdForUri(folderUri) : 'agent';
-                const bindingLabel = folderUri ? folderUri.path.split('/').pop() || 'Chat' : 'Agent';
-                const isCurrentGroup = !!folderUri && !!currentFolder
-                    && folderUri.toString() === currentFolder.toString();
-                const ts = (s as any).updatedAt ?? (s as any).lastActiveAt ?? (s as any).createdAt;
-                this.chatIndex.upsert({
-                    sessionKey: s.key,
-                    bindingId,
-                    bindingLabel,
-                    summary: s.label || s.key,
-                    model: scope === 'all' ? bindingLabel : undefined,
-                });
-                return {
-                    key: s.key,
-                    title: s.label || s.key.split(':').pop() || 'Untitled',
-                    model: scope === 'all' ? bindingLabel : undefined,
-                    isActive: s.key === activeKey,
-                    isArchived: archivedKeys.has(s.key),
-                    groupId: bindingId,
-                    groupLabel: isCurrentGroup ? 'This folder' : bindingLabel,
-                    isCurrentGroup,
-                    lastActiveTs: typeof ts === 'number' ? ts : undefined,
-                };
-            });
+        const sessions = await listOpenClawWorkspaceSessions({
+            gateway: this.gateway,
+            sessionManager: this.sessionManager,
+            chatIndex: this.chatIndex,
+            scope,
+            includeArchived,
+            archivedKeys,
+            onRawSessions: (raw) => this.cacheDeliveryContexts(raw),
+        });
+        return sessions;
+    }
+
+    listWorkspaceSessions(scope: ChatScope, includeArchived: boolean, archivedKeys: ReadonlySet<string>): Promise<BridgeSession[]> {
+        return this.listSessions(scope, includeArchived, archivedKeys);
     }
 
     async renameSession(key: string, label: string): Promise<void> {
@@ -211,20 +194,118 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         await this.gateway.sendRequest('sessions.patch', { key, label });
     }
 
-    getSessionHistory(limit?: number, folderUri?: vscode.Uri): Promise<any> {
-        return this.sessionManager.getSessionHistory(limit, folderUri);
+    async getSessionHistory(limit?: number, folderUri?: vscode.Uri): Promise<any> {
+        captureBridgeHistoryDebug(this.id, 'history-native', { operation: 'getSessionHistory.request', sessionKey: this.getCurrentSessionKey(folderUri), limit, folderUri: folderUri?.fsPath });
+        const history = await this.sessionManager.getSessionHistory(limit, folderUri);
+        captureBridgeHistoryDebug(this.id, 'history-normalized', { operation: 'getSessionHistory.result', sessionKey: this.getCurrentSessionKey(folderUri), history });
+        return history;
     }
 
     getSessionHistoryFromJsonl(sessionKey: string, offset?: number, maxBytes?: number): Promise<any> {
         return this.sessionManager.getSessionHistoryFromJsonl(sessionKey, offset, maxBytes);
     }
 
-    sendChatMessage(message: string, context?: BridgeContext): Promise<any> {
-        return this.sessionManager.sendChatMessage(message, context);
+    async sendChatMessage(message: string, context?: BridgeContext): Promise<any> {
+        const sessionKey = this.getCurrentSessionKey(context?.workspaceFolder ? vscode.Uri.file(context.workspaceFolder) : undefined);
+        captureBridgeDebug(this.id, 'request', { operation: 'sendChatMessage', sessionKey, message, context });
+        await this.recoverStaleTerminalRun(sessionKey, 'send-preflight');
+        try {
+            return await this.sessionManager.sendChatMessage(message, context);
+        } catch (error) {
+            const recovered = await this.recoverStaleTerminalRun(
+                this.getCurrentSessionKey(context?.workspaceFolder ? vscode.Uri.file(context.workspaceFolder) : undefined) ?? sessionKey,
+                'send-retry',
+            );
+            if (recovered) return await this.sessionManager.sendChatMessage(message, context);
+            throw error;
+        }
     }
 
-    stopRun(sessionKey: string, runId?: string): Promise<void> {
-        return abortRun(this.gateway, sessionKey, runId);
+    async setMessageReaction(target: BridgeMessageReactionTarget, value: 'up' | 'down' | null): Promise<void> {
+        if (!this.gateway.capabilities.hasMethod('message.action')) {
+            throw new Error('OpenClaw gateway does not expose native message.action reactions.');
+        }
+        const sessionKey = String(target.sessionKey || this.getCurrentSessionKey() || '').trim();
+        const delivery = await this.resolveDeliveryContext(sessionKey);
+        const channel = String(target.channel || delivery?.channel || '').trim();
+        const to = String(target.to || delivery?.to || delivery?.target || '').trim();
+        const accountId = String(target.accountId || delivery?.accountId || '').trim();
+        const nativeMessageId = String(target.nativeMessageId || '').trim();
+        const localMessageId = String(target.messageId || '').trim();
+        const messageId = nativeMessageId || (/^(?:a|m)-/.test(localMessageId) ? '' : localMessageId);
+        if (!channel || !to || !messageId) {
+            throw new Error('OpenClaw native reaction target missing channel, recipient, or gateway message id.');
+        }
+
+        const previous = target.previousReaction === 'up' || target.previousReaction === 'down'
+            ? target.previousReaction
+            : null;
+        const reactions: Array<'up' | 'down'> = value === null
+            ? (previous ? [previous] : ['up', 'down'])
+            : [value];
+        for (const reaction of reactions) {
+            await this.gateway.sendRequest('message.action', {
+                channel,
+                action: 'react',
+                params: {
+                    to,
+                    messageId,
+                    emoji: this.nativeReactionFor(channel, reaction),
+                    remove: value === null,
+                },
+                ...(accountId ? { accountId } : {}),
+                ...(sessionKey ? { sessionKey } : {}),
+                idempotencyKey: `junction:${sessionKey || channel}:${messageId}:${reaction}:${value === null ? 'remove' : 'set'}:${Date.now()}`,
+            });
+        }
+    }
+
+    async executeSlashCommand(command: string, context?: BridgeContext): Promise<any> {
+        const sessionKey = this.getCurrentSessionKey(context?.workspaceFolder ? vscode.Uri.file(context.workspaceFolder) : undefined);
+        await this.recoverStaleTerminalRun(sessionKey, 'slash-preflight');
+        try {
+            return await this.sessionManager.sendChatMessage(command, context);
+        } catch (error) {
+            const recovered = await this.recoverStaleTerminalRun(
+                this.getCurrentSessionKey(context?.workspaceFolder ? vscode.Uri.file(context.workspaceFolder) : undefined) ?? sessionKey,
+                'slash-retry',
+            );
+            if (recovered) return await this.sessionManager.sendChatMessage(command, context);
+            throw error;
+        }
+    }
+
+    async stopRun(sessionKey: string, runId?: string): Promise<void> {
+        await abortRun(this.gateway, sessionKey, runId);
+        this.emit('stream', { type: 'agent_lifecycle', phase: 'cancelled', runId: runId || `openclaw-stop-${Date.now()}`, sessionKey });
+    }
+
+    private async recoverStaleTerminalRun(sessionKey: string | null | undefined, operation: string): Promise<boolean> {
+        if (!sessionKey || (this.gateway.capabilities.methodsKnown && !this.gateway.capabilities.hasMethod('sessions.describe'))) return false;
+        try {
+            const described = await this.gateway.sendRequest('sessions.describe', { key: sessionKey }, { timeoutMs: 1500 });
+            const session = described?.session;
+            const status = String(session?.status ?? '').toLowerCase();
+            const hasActiveRun = session?.hasActiveRun === true;
+            if (!hasActiveRun || !this.isTerminalSessionStatus(status)) return false;
+            captureBridgeDebug(this.id, 'request', { operation: 'recoverStaleTerminalRun', phase: operation, sessionKey, status, hasActiveRun });
+            await abortRun(this.gateway, sessionKey);
+            return true;
+        } catch (error) {
+            Logger.getInstance().warn('OpenClaw stale run recovery failed', error);
+            captureBridgeDebug(this.id, 'normalized', { operation: 'recoverStaleTerminalRun.failed', phase: operation, sessionKey, error: String(error) });
+            return false;
+        }
+    }
+
+    private isTerminalSessionStatus(status: string): boolean {
+        return status === 'killed'
+            || status === 'done'
+            || status === 'failed'
+            || status === 'error'
+            || status === 'cancelled'
+            || status === 'canceled'
+            || status === 'completed';
     }
 
     getUsage(sessionKey: string): Promise<any> {
@@ -262,6 +343,36 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         return this.gateway.authScopes.includes('operator.admin');
     }
 
+    /** Resolve an inline approval card → exec/plugin approval.resolve (the relay
+     *  maps the neutral choice to OpenClaw's decision vocabulary + routes kind). */
+    async respondApproval(data: { requestId?: string; choice: string }): Promise<void> {
+        if (!data.requestId) return;
+        await this.approvalRelay.respond(data.requestId, data.choice);
+    }
+
+    /** Manually compact a session's context (sessions.compact). */
+    async compactContext(sessionKey: string): Promise<void> {
+        const key = sessionKey || this.getCurrentSessionKey() || '';
+        if (!key) return;
+        await this.gateway.sendRequest('sessions.compact', { key });
+    }
+
+    /** Context-window usage for the meter: session totals ÷ the active model's window. */
+    async getContextUsage(sessionKey: string): Promise<{ percentUsed?: number; usedTokens?: number; contextWindow?: number } | null> {
+        const key = sessionKey || this.getCurrentSessionKey() || '';
+        if (!key) return null;
+        try {
+            const u: any = await this.gateway.sendRequest('sessions.usage', { key });
+            const usedTokens = Number(u?.contextTokens ?? ((u?.inputTokens || 0) + (u?.outputTokens || 0))) || 0;
+            const contextWindow = this.modelManager.getModelById(this.selection.modelId ?? '')?.contextWindow;
+            const percentUsed = contextWindow ? Math.min(100, Math.round((usedTokens / contextWindow) * 100)) : undefined;
+            return { percentUsed, usedTokens, contextWindow };
+        } catch (err) {
+            Logger.getInstance().warn('OpenClaw getContextUsage failed', err);
+            return null;
+        }
+    }
+
     setSelection(selection: BridgeSelectionState): void {
         this.selection = { ...this.selection, ...selection };
         this.sessionManager.setAgentOverrides({
@@ -272,34 +383,19 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         });
     }
 
+    getSelection(): BridgeSelectionState {
+        return { ...this.selection };
+    }
+
     async listModelChoices(selectedModel?: string, selectedThinking?: string): Promise<ModelChoice[]> {
-        if (this.gateway.capabilities.canListModels()) {
-            return this.modelManager.getModelChoices(this.gateway, selectedModel, selectedThinking, this.selection.agentId) as Promise<ModelChoice[]>;
-        }
-        return [];
+        return listOpenClawModelChoices(this.gateway, this.modelManager, selectedModel, selectedThinking, this.selection.agentId);
     }
 
     async selectModelChoice(data: any, sessionKey?: string | null): Promise<{ display: string; modelId: string; thinking?: string; perRequestOnly?: boolean } | null> {
-        const provider = String(data.provider ?? '');
-        const model = String(data.model ?? data.id ?? '').replace(/^.*:/, '');
-        if (!model) return null;
-        const supportsReasoning = data.supportsReasoning !== false;
-        const selectedThinking = data.thinking !== undefined ? String(data.thinking).trim() : '';
-        const modelId = provider ? `${provider}/${model}` : model;
-        const thinking = supportsReasoning ? (selectedThinking || this.selection.thinking) : undefined;
-        this.setSelection({ modelId, thinking });
-
-        let perRequestOnly = false;
-        if (sessionKey) {
-            const ok = await setSessionModel(this.gateway, sessionKey, provider, model, supportsReasoning ? thinking : null);
-            perRequestOnly = !ok;
-        }
-        return {
-            display: String(data.label ?? model) + (perRequestOnly ? ' (per-request)' : ''),
-            modelId,
-            thinking,
-            perRequestOnly,
-        };
+        const selected = await selectOpenClawModelChoice(this.gateway, data, this.selection, sessionKey);
+        if (!selected) return null;
+        this.setSelection({ modelId: selected.modelId, thinking: selected.thinking });
+        return selected;
     }
 
     async listEnvironmentChoices(): Promise<ChoiceMenuItem[]> {
@@ -344,10 +440,20 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         // Flat list: each agent × runtime combo is one item.
         const items: ChoiceMenuItem[] = [];
         const anyConnected = this.gateway.isConnected();
+        const showAllAgents = getOpenClawShowAllAgents();
         for (const g of gateways) {
             const runtime = this.runtimeNameForUrl(g.url);
             const port = this.portForUrl(g.url);
-            const runtimeAgents = g.url === currentUrl ? agents : [];
+            let runtimeAgents = g.url === currentUrl ? agents : [];
+            // Default to the gateway's primary agent only (first in config
+            // agents.list); hide child/extra agents unless showAllAgents is set.
+            // Fall back to the full list if the primary id can't be matched.
+            if (!showAllAgents && g.primaryAgentId && runtimeAgents.length > 1) {
+                const primaryOnly = runtimeAgents.filter(
+                    (a) => (a.agentId || a.id) === g.primaryAgentId,
+                );
+                if (primaryOnly.length) runtimeAgents = primaryOnly;
+            }
             const isConnected = anyConnected;
             if (runtimeAgents.length === 0) {
                 // Runtime with no agent info — show as runtime:port
@@ -483,6 +589,38 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         if (!this.runtimeLabels.has(currentUrl)) {
             this.runtimeLabels.set(currentUrl, this.runtimeNameFromConfigPath(getOpenClawConfigPath()) || this.hostForUrl(currentUrl));
         }
+    }
+
+    private cacheDeliveryContexts(sessions: Array<{ key?: string; deliveryContext?: any }>): void {
+        for (const session of sessions) {
+            const key = String(session?.key || '').trim();
+            if (key && session?.deliveryContext && typeof session.deliveryContext === 'object') {
+                this.deliveryContextBySession.set(key, session.deliveryContext);
+            }
+        }
+    }
+
+    private async resolveDeliveryContext(sessionKey: string): Promise<any | null> {
+        if (!sessionKey) return null;
+        const cached = this.deliveryContextBySession.get(sessionKey);
+        if (cached) return cached;
+        if (!this.gateway.capabilities.canListSessions()) return null;
+        try {
+            const res = await this.gateway.sendRequest('sessions.list', {});
+            const sessions = Array.isArray(res?.sessions) ? res.sessions : [];
+            this.cacheDeliveryContexts(sessions);
+            return this.deliveryContextBySession.get(sessionKey) ?? null;
+        } catch (err) {
+            Logger.getInstance().warn('OpenClaw resolveDeliveryContext failed', err);
+            return null;
+        }
+    }
+
+    private nativeReactionFor(channel: string, reaction: 'up' | 'down'): string {
+        const normalized = channel.toLowerCase();
+        if (normalized.includes('slack')) return reaction === 'up' ? 'thumbsup' : 'thumbsdown';
+        if (normalized.includes('msteams') || normalized.includes('teams')) return reaction === 'up' ? 'like' : 'sad';
+        return reaction === 'up' ? '👍' : '👎';
     }
 
     private runtimeNameForUrl(url: string): string {

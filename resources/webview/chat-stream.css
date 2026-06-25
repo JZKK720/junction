@@ -24,9 +24,8 @@
   --junction-user-bubble-bg: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
   --junction-bubble-radius: 16px;
   --junction-bubble-tip: none;
-  --junction-inline-code-fg: var(--vscode-chat-slashCommandForeground, var(--vscode-textLink-foreground, var(--vscode-foreground)));
-  --junction-inline-code-bg: var(--vscode-chat-slashCommandBackground, color-mix(in srgb, var(--vscode-textLink-foreground, var(--vscode-foreground)) 12%, var(--vscode-editor-background)));
-  --junction-inline-code-border: color-mix(in srgb, var(--vscode-textLink-foreground, var(--vscode-foreground)) 24%, transparent);
+  --junction-inline-code-bg: color-mix(in srgb, var(--vscode-textCodeBlock-background, var(--vscode-editor-background)) 78%, transparent);
+  --junction-inline-code-border: color-mix(in srgb, currentColor 14%, transparent);
 }
 
 html, body {
@@ -161,6 +160,32 @@ html, body {
   font-size: inherit;
   white-space: pre;
 }
+.chat-row .msg-text table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  border-spacing: 0;
+  margin: 8px 0 12px;
+  scrollbar-width: thin;
+}
+.chat-row .msg-text th,
+.chat-row .msg-text td {
+  border: 1px solid var(--vscode-editorWidget-border, var(--junction-border-subtle));
+  padding: 6px 10px;
+  vertical-align: top;
+  text-align: left;
+  line-height: 1.45;
+}
+.chat-row .msg-text th {
+  background: var(--vscode-editorGutter-background, var(--vscode-sideBar-background, var(--vscode-editor-background)));
+  color: var(--vscode-foreground);
+  font-weight: 600;
+}
+.chat-row .msg-text tr:nth-child(2n) td {
+  background: color-mix(in srgb, var(--vscode-list-hoverBackground) 42%, transparent);
+}
 .chat-row .msg-text .code-editor pre {
   background: transparent !important;
   border: none !important;
@@ -219,12 +244,11 @@ textarea[data-has-canvas]::selection {
 .chat-row .msg-text code {
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.9em;
-  color: var(--junction-inline-code-fg);
+  color: inherit;
   background: var(--junction-inline-code-bg);
   padding: 2px 5px;
   border-radius: 3px;
   border: 1px solid var(--junction-inline-code-border);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--junction-inline-code-border) 40%, transparent);
 }
 
 /* ── Markdown element styles ──────────────────────────────────────────────── */
@@ -281,6 +305,71 @@ textarea[data-has-canvas]::selection {
 .msg-text th {
   background: var(--vscode-editor-lineHighlightBackground, transparent);
   font-weight: 600;
+}
+.command-output {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 100%;
+}
+.command-output-title {
+  font-weight: 700;
+  color: var(--vscode-foreground);
+}
+.command-output-block-title,
+.command-output-section-title {
+  margin-bottom: 4px;
+  font-size: 0.92em;
+  font-weight: 650;
+  color: var(--vscode-descriptionForeground);
+}
+.command-output-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-input-border));
+  border-radius: var(--corner-radius-small, 4px);
+}
+.msg-text .command-output-table {
+  display: table;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  overflow: visible;
+  table-layout: auto;
+}
+.msg-text .command-output-table th,
+.msg-text .command-output-table td {
+  border-width: 0 1px 1px 0;
+  overflow-wrap: anywhere;
+}
+.msg-text .command-output-table th:last-child,
+.msg-text .command-output-table td:last-child {
+  border-right-width: 0;
+}
+.msg-text .command-output-table tr:last-child td {
+  border-bottom-width: 0;
+}
+.command-output-kv {
+  display: grid;
+  grid-template-columns: minmax(8ch, max-content) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+}
+.command-output-kv-row {
+  display: contents;
+}
+.command-output-kv dt {
+  color: var(--vscode-descriptionForeground);
+  font-weight: 600;
+}
+.command-output-kv dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.command-output-error pre {
+  color: var(--vscode-errorForeground, var(--vscode-foreground));
+  white-space: pre-wrap;
 }
 .msg-text img {
   max-width: 100%;
@@ -800,9 +889,8 @@ textarea[data-has-canvas]::selection {
   margin: 0 10px 10px 10px;
   border-left: none;
   padding-left: 0;
-  max-height: 320px;
-  overflow-y: auto;
-  scrollbar-width: thin;
+  /* No outer scroll — each inner code box caps/scrolls itself, so the pill grows
+     to fit instead of putting a second scrollbar on the whole expanded detail. */
 }
 
 /* Strip styling for tool rows nested inside a group */
@@ -832,6 +920,13 @@ textarea[data-has-canvas]::selection {
 }
 .tool-row.tool-row-pill > .tool-row-summary {
   padding: 4px 0;
+}
+.tool-row[open] > .tool-row-summary,
+.tool-row.tool-row-pill[open] > .tool-row-summary {
+  padding: 6px 10px;
+  border-radius: var(--corner-radius-medium, 6px);
+  background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 82%, var(--vscode-list-hoverBackground));
+  box-shadow: inset 0 0 0 1px var(--junction-border-subtle);
 }
 .tool-group-body > .tool-row:hover {
   background: transparent;
@@ -931,10 +1026,10 @@ textarea[data-has-canvas]::selection {
 }
 .tool-edit-preview-inline .tool-edit-subsection,
 .tool-detail > .tool-detail-leaf {
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  overflow: visible;
+  border: 1px solid var(--junction-border-subtle);
+  border-radius: var(--corner-radius-medium, 6px);
+  background: var(--junction-surface-raised);
+  overflow: hidden;
 }
 .tool-edit-subsection .code-editor {
   margin: 0;
@@ -956,8 +1051,8 @@ textarea[data-has-canvas]::selection {
 }
 .tool-edit-preview-inline .tool-edit-subsection .code-editor-body,
 .tool-detail > .tool-detail-leaf .code-editor-body {
-  border: 1px solid var(--junction-border-subtle);
-  border-radius: var(--corner-radius-medium, 6px);
+  border: none;
+  border-radius: 0;
   overflow: auto;
 }
 .tool-detail-leaf {
@@ -969,22 +1064,52 @@ textarea[data-has-canvas]::selection {
   user-select: none;
 }
 .tool-detail > .tool-detail-leaf.code-editor {
-  margin: 3px 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
+  margin: 6px 0;
 }
 .tool-detail > .tool-detail-leaf > .code-editor-header {
-  padding: 4px 0;
-  background: transparent;
-  border-bottom: none;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 82%, var(--vscode-list-hoverBackground));
+  border-bottom: 1px solid var(--junction-border-subtle);
   color: var(--vscode-descriptionForeground);
 }
 .tool-detail > .tool-detail-leaf[open] > .code-editor-header {
   color: var(--vscode-foreground);
 }
 .tool-detail > .tool-detail-leaf[open] > .code-editor-body {
-  margin-top: 3px;
+  margin-top: 0;
+}
+.tool-error-section {
+  margin: 6px 0;
+  border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 38%, var(--junction-border-subtle));
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 7%, var(--junction-surface-raised));
+}
+.tool-error-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 10%, var(--vscode-sideBar-background, var(--vscode-editor-background)));
+  border-bottom: 1px solid color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 34%, transparent);
+  color: var(--vscode-errorForeground, #f14c4c);
+  cursor: pointer;
+  user-select: none;
+}
+.tool-error-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.tool-error-body {
+  padding: 9px 10px 10px;
+}
+.tool-error-message {
+  color: var(--vscode-editor-foreground);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
 }
 .tool-detail-leaf-summary::-webkit-details-marker {
   display: none;
@@ -1021,6 +1146,61 @@ textarea[data-has-canvas]::selection {
   max-height: 200px;
   overflow-y: auto;
   scrollbar-width: thin;
+}
+
+.tool-plan-section {
+  margin: 6px 0;
+}
+.tool-plan-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.88em;
+  background: var(--junction-surface-raised);
+  border: 1px solid var(--junction-border-subtle);
+  border-radius: var(--corner-radius-medium, 6px);
+  overflow: hidden;
+}
+.tool-plan-table tr + tr {
+  border-top: 1px solid var(--junction-border-subtle);
+}
+.tool-plan-table td {
+  padding: 7px 9px;
+  vertical-align: top;
+}
+.tool-plan-index {
+  width: 28px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.65;
+  text-align: right;
+}
+.tool-plan-status {
+  width: 92px;
+}
+.tool-plan-status-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  border: 1px solid var(--junction-border-subtle);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 0.76em;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-background);
+}
+.tool-plan-status-pill.done {
+  color: var(--vscode-testing-iconPassed, #4ec9b0);
+  border-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.tool-plan-status-pill.active {
+  color: var(--vscode-progressBar-background, var(--vscode-focusBorder));
+  border-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.tool-plan-step {
+  line-height: 1.42;
+  color: var(--vscode-editor-foreground);
+  overflow-wrap: anywhere;
 }
 
 /* ── Code editor (tool I/O panels) ──────────────────────────────────────── */
@@ -1102,6 +1282,7 @@ textarea[data-has-canvas]::selection {
 }
 .code-editor-code {
   flex: 1 1 auto;
+  min-width: max-content;
   margin: 0;
   padding: 8px 12px;
   font-family: var(--vscode-editor-font-family, monospace);
@@ -1110,10 +1291,18 @@ textarea[data-has-canvas]::selection {
   color: var(--vscode-editor-foreground, var(--vscode-foreground));
   background: transparent;
   white-space: pre;
-  overflow-x: auto;
-  overflow-y: visible;
-  scrollbar-width: thin;
+  overflow: visible;
   tab-size: var(--vscode-editor-tab-size, 4);
+}
+
+body.tool-output-wrap .code-editor-body {
+  overflow-x: hidden;
+}
+
+body.tool-output-wrap .code-editor-code {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* Accordion */
@@ -1294,6 +1483,8 @@ textarea[data-has-canvas]::selection {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
   background: transparent;
   color: var(--vscode-descriptionForeground);
   border: 1px solid transparent;
@@ -1301,11 +1492,24 @@ textarea[data-has-canvas]::selection {
   padding: 2px 6px;
   font-size: 11px;
   cursor: pointer;
-  max-width: 12rem;
+  max-width: clamp(5.5rem, 32vw, 12rem);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   transition: color 0.1s, background 0.1s, border-color 0.1s;
+}
+
+.env-switcher .codicon,
+.chat-scope .codicon {
+  flex: 0 0 auto;
+}
+
+#env-switcher-label,
+#chat-scope-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .env-switcher:hover, .chat-scope:hover {
   color: var(--vscode-foreground);
@@ -1316,6 +1520,12 @@ textarea[data-has-canvas]::selection {
 /* ── Responsive ───────────────────────────────────────────────────────────── */
 @container (max-width: 360px) {
   .composer-chip { max-width: 6rem; }
+  .env-switcher, .chat-scope { max-width: clamp(4.75rem, 30vw, 7rem); }
+}
+
+@media (max-width: 300px) {
+  .new-thread-btn { max-width: 34px; padding-inline: 7px; }
+  .new-thread-label { display: none; }
 }
 
 /* Rail off: drop the guide borders everywhere. */

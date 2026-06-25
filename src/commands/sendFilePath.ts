@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { BridgeRegistry } from '../bridges/registry';
+import { t } from '../l10n';
 
 export function registerSendFilePathCommand(
     context: vscode.ExtensionContext,
@@ -9,7 +10,7 @@ export function registerSendFilePathCommand(
         const editor = vscode.window.activeTextEditor;
 
         if (!editor) {
-            vscode.window.showWarningMessage('No active file');
+            vscode.window.showWarningMessage(t('No active file'));
             return;
         }
 
@@ -24,7 +25,7 @@ export function registerSendFilePathCommand(
         }
 
         bridgeRegistry.active.setPendingFileContext(message);
-        vscode.window.showInformationMessage('File context staged for next message');
+        vscode.window.showInformationMessage(t('File context staged for next message'));
     };
 
     context.subscriptions.push(

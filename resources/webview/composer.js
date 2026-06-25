@@ -186,7 +186,7 @@
       var hdr = document.createElement('div');
       hdr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--vscode-input-border);';
       var hdrTitle = document.createElement('span');
-      hdrTitle.textContent = 'Composer';
+      hdrTitle.textContent = window.junctionT('composer', 'Composer');
       hdrTitle.style.cssText = 'font-size:12px;font-weight:600;color:var(--vscode-editor-foreground);';
       var closeBtn = document.createElement('button');
       closeBtn.className = 'codicon codicon-close';
@@ -197,17 +197,17 @@
 
       var ta = document.createElement('textarea');
       ta.style.cssText = 'flex:1;padding:12px;border:none;background:transparent;color:var(--vscode-editor-foreground);font-family:var(--vscode-editor-font-family,monospace);font-size:var(--vscode-editor-font-size,14px);line-height:1.6;resize:none;outline:none;';
-      ta.placeholder = 'Ask agent...';
+      ta.placeholder = window.junctionT('askAgent', 'Ask agent...');
       ta.value = composerInput.value;
       panel.appendChild(ta);
 
       var ftr = document.createElement('div');
       ftr.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 12px;border-top:1px solid var(--vscode-input-border);';
       var ftrHint = document.createElement('span');
-      ftrHint.textContent = 'ESC to close · Ctrl+Enter to send';
+      ftrHint.textContent = window.junctionT('composerExpandedHint', 'ESC to close · Ctrl+Enter to send');
       ftrHint.style.cssText = 'font-size:10px;color:var(--vscode-editor-foreground);';
       var sendBtn = document.createElement('button');
-      sendBtn.textContent = 'Send';
+      sendBtn.textContent = window.junctionT('send', 'Send');
       sendBtn.style.cssText = 'padding:4px 16px;border-radius:3px;border:1px solid var(--vscode-button-background);background:var(--vscode-button-background);color:var(--vscode-button-foreground);cursor:pointer;font-size:12px;';
       ftr.appendChild(ftrHint);
       ftr.appendChild(sendBtn);
@@ -288,12 +288,12 @@
     if (isSending && !hasText) {
       // Running + empty → stop
       btnSend.className = 'codicon codicon-circle-slash';
-      btnSend.title = 'Stop';
+      btnSend.title = window.junctionT('stop', 'Stop');
       btnSend.onclick = function () { post('stopRun', {}); };
     } else {
       // Idle, or running+hasText → send
       btnSend.className = 'codicon codicon-send';
-      btnSend.title = 'Send';
+      btnSend.title = window.junctionT('send', 'Send');
       btnSend.onclick = function () { window.composerSend && window.composerSend(); };
     }
   }
@@ -328,7 +328,7 @@
 
       var handle = document.createElement('span');
       handle.className = 'queued-followup-handle';
-      handle.title = 'Drag to reorder';
+      handle.title = window.junctionT('dragToReorder', 'Drag to reorder');
       handle.innerHTML = '<span class="codicon codicon-gripper"></span>';
       row.appendChild(handle);
 
@@ -353,19 +353,19 @@
         actions.appendChild(btn);
         return btn;
       }
-      var steer = iconButton('send', 'Steer queued text now', function () {
+      var steer = iconButton('send', window.junctionT('steerQueuedTextNow', 'Steer queued text now'), function () {
         post('steerQueuedFollowUp', { index: index, id: item.id });
       }, 'queue-steer-action');
       steer.disabled = item.canSteer === false;
-      var group = iconButton('link', 'Group with previous', function () {
+      var group = iconButton('link', window.junctionT('groupWithPrevious', 'Group with previous'), function () {
         post('toggleQueuedFollowUpGroup', { index: index });
       }, 'queue-group-action');
       group.disabled = index === 0;
       if (item.groupWithPrevious) group.classList.add('active');
-      iconButton('edit', 'Edit queued text', function () {
+      iconButton('edit', window.junctionT('editQueuedText', 'Edit queued text'), function () {
         startQueueEdit(row, index, item.text || '');
       }, 'queue-edit-action');
-      iconButton('trash', 'Remove queued text', function () {
+      iconButton('trash', window.junctionT('removeQueuedText', 'Remove queued text'), function () {
         post('removeQueuedFollowUp', { index: index });
       }, 'queue-delete-action');
       row.addEventListener('dragstart', function (event) {
@@ -415,10 +415,10 @@
     textarea.value = value;
     var save = document.createElement('button');
     save.className = 'codicon codicon-check';
-    save.title = 'Save queued text';
+    save.title = window.junctionT('saveQueuedText', 'Save queued text');
     var cancel = document.createElement('button');
     cancel.className = 'codicon codicon-close';
-    cancel.title = 'Cancel edit';
+    cancel.title = window.junctionT('cancelEdit', 'Cancel edit');
     var actions = row.querySelector('.queued-followup-actions');
     function closeEdit() {
       textarea.remove();
@@ -519,6 +519,10 @@
       handlePastedFiles(files);
       return;
     }
+    var dt = e.clipboardData;
+    if (dt && (dt.getData('text/plain') || dt.getData('text/html'))) {
+      return;
+    }
     // Fallback: try async clipboard API
     if (navigator.clipboard && navigator.clipboard.read) {
       e.preventDefault();
@@ -579,19 +583,19 @@
       return;
     }
     window.choiceMenu.open(btnAttachFile, {
-      title: 'Attach files',
+      title: window.junctionT('attachFiles', 'Attach files'),
       items: [
         {
           id: 'attach-files',
-          label: 'Attach files...',
-          description: 'Choose one or more files',
+          label: window.junctionT('attachFilesMenu', 'Attach files...'),
+          description: window.junctionT('chooseOneOrMoreFiles', 'Choose one or more files'),
           icon: 'files',
           action: function () { post('attachFile'); }
         },
         {
           id: 'attach-current-file',
-          label: 'Attach current file',
-          description: 'Add active editor file',
+          label: window.junctionT('attachCurrentFile', 'Attach current file'),
+          description: window.junctionT('addActiveEditorFile', 'Add active editor file'),
           icon: 'file-add',
           action: function () { post('attachCurrentFile'); }
         }
@@ -642,11 +646,17 @@
     el.className = 'codicon codicon-' + name + (baseClass ? ' ' + baseClass : '');
   }
 
+  function applyToolOutputWordWrap(mode) {
+    var wrap = mode === 'on';
+    document.body.classList.toggle('tool-output-wrap', wrap);
+    document.body.classList.toggle('tool-output-nowrap', !wrap);
+  }
+
   // ── Footer chips ───────────────────────────────────────────────────────────────
   if (modelChip) modelChip.addEventListener('click', function () {
     if (window.choiceMenu) {
       window.choiceMenu.open(modelChip, {
-        title: 'Model',
+        title: window.junctionT('modelProviders', 'Model providers'),
         loading: true,
         selectMessage: 'selectModelChoice',
       });
@@ -656,7 +666,7 @@
   if (sandboxChip) sandboxChip.addEventListener('click', function () {
     if (window.choiceMenu) {
       window.choiceMenu.open(sandboxChip, {
-        title: 'Sandbox / approvals',
+        title: window.junctionT('sandboxApprovals', 'Sandbox / approvals'),
         loading: true,
         selectMessage: 'selectSandboxChoice',
       });
@@ -698,6 +708,7 @@
       case 'config':
         if (msg.sendBehavior) sendBehavior = msg.sendBehavior;
         if (msg.steerKeybinding !== undefined) steerKeybinding = msg.steerKeybinding;
+        if (msg.toolOutputWordWrap) applyToolOutputWordWrap(msg.toolOutputWordWrap);
         if (msg.animConfig) {
           Object.assign(window.animConfig, msg.animConfig);
         }
@@ -741,7 +752,7 @@
       case 'modelChoices':
         if (window.choiceMenu && modelChip) {
           window.choiceMenu.open(modelChip, {
-            title: 'Model',
+            title: 'Model providers',
             items: msg.items || [],
             emptyText: 'No models available',
             selectMessage: 'selectModelChoice',
@@ -750,6 +761,7 @@
         break;
       case 'sandboxDisplay':
         if (sandboxChip) {
+          sandboxChip.style.display = msg.hidden ? 'none' : '';
           setCodiconClass(sandboxChip.querySelector('.sandbox-mode-icon'), sandboxModeIcon(msg.sandbox), 'sandbox-mode-icon');
           setCodiconClass(sandboxChip.querySelector('.sandbox-approval-icon'), approvalModeIcon(msg.approval), 'sandbox-approval-icon');
           sandboxChip.setAttribute('aria-label', msg.label || 'Sandbox / approvals');

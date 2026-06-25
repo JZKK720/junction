@@ -7,7 +7,14 @@
 (function () {
   'use strict';
 
+  var JUNCTION_SHOW_ANIMATION_DEBUG_INFO = true;
+
   window.toggleChatPreviewPanel = function () {
+    // Splash is the only shipping animation, so the panel opens splash-only.
+    // The Chat + Bobber tabs (and their config sections) are legacy plumbing,
+    // restored as a set by flipping JUNCTION_SHOW_LEGACY_ANIM (animations.js).
+    var SHOW_LEGACY_ANIM = !!window.JUNCTION_SHOW_LEGACY_ANIM;
+
     var existing = document.getElementById('anim-preview-box');
     if (existing) {
       if (typeof existing._closeAnimationSettings === 'function') existing._closeAnimationSettings();
@@ -19,50 +26,56 @@
     box.id = 'anim-preview-box';
     box.style.cssText = 'position:fixed;bottom:60px;left:16px;right:16px;z-index:9000;display:flex;flex-direction:column;background:var(--vscode-editor-background);border:1px solid var(--vscode-widget-border, transparent);border-radius:8px;box-shadow:0 8px 32px var(--vscode-widget-shadow, transparent);overflow:hidden;';
 
-    // Drag handle
+    // Top grip = RESIZE (drag the top edge; box is bottom-anchored so it grows
+    // upward). Bottom grip = MOVE (reposition the panel vertically).
+    var MIN_H = 140, EDGE_GAP = 12;
     var handle = document.createElement('div');
+    handle.title = window.junctionT('dragToResize', 'Drag to resize');
     handle.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;justify-content:center;padding:6px 0;cursor:ns-resize;background:var(--vscode-editor-background);border-bottom:1px solid var(--vscode-widget-border, transparent);user-select:none;';
     var handleBar = document.createElement('div');
     handleBar.style.cssText = 'width:32px;height:3px;border-radius:2px;background:var(--vscode-descriptionForeground);opacity:0.5;';
     handle.appendChild(handleBar);
     box.appendChild(handle);
 
-    // Bottom resize handle (created early so drag logic can reference it)
+    // Bottom grip (created early so drag logic can reference it)
     var bottomHandle = document.createElement('div');
-    bottomHandle.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;justify-content:center;padding:6px 0;cursor:ns-resize;background:var(--vscode-editor-background);border-top:1px solid var(--vscode-widget-border, transparent);user-select:none;order:99;';
+    bottomHandle.title = window.junctionT('dragToMove', 'Drag to move');
+    bottomHandle.style.cssText = 'flex:0 0 auto;display:flex;align-items:center;justify-content:center;padding:6px 0;cursor:grab;background:var(--vscode-editor-background);border-top:1px solid var(--vscode-widget-border, transparent);user-select:none;order:99;';
     var bottomBar = document.createElement('div');
     bottomBar.style.cssText = 'width:32px;height:3px;border-radius:2px;background:var(--vscode-descriptionForeground);opacity:0.5;';
     bottomHandle.appendChild(bottomBar);
 
-    // Drag-to-resize logic (top handle pulls up, bottom handle pulls down)
-    var dragging = false, dragDir = '', startY = 0, startH = 0, startBottom = 0;
-    function initDrag(dir, e) {
+    // Drag model: the grabbed edge tracks the cursor.
+    //   resize → top edge follows cursor, bottom anchored, height changes.
+    //   move   → bottom edge follows cursor, height fixed, panel slides.
+    var dragging = false, dragMode = '', startBottom = 0, startH = 0;
+    function initDrag(mode, e) {
       dragging = true;
-      dragDir = dir;
-      startY = e.clientY;
-      startH = box.offsetHeight;
+      dragMode = mode;
       startBottom = parseInt(box.style.bottom, 10) || 60;
+      startH = box.offsetHeight;
+      if (mode === 'move') bottomHandle.style.cursor = 'grabbing';
       e.preventDefault();
     }
-    handle.addEventListener('mousedown', function (e) { initDrag('top', e); });
-    bottomHandle.addEventListener('mousedown', function (e) { initDrag('bottom', e); });
+    handle.addEventListener('mousedown', function (e) { initDrag('resize', e); });
+    bottomHandle.addEventListener('mousedown', function (e) { initDrag('move', e); });
     document.addEventListener('mousemove', function (e) {
       if (!dragging) return;
-      if (dragDir === 'top') {
-        var delta = startY - e.clientY;
-        var maxH = window.innerHeight - 12;
-        var newBottom = Math.max(0, startBottom - delta);
-        var newH = Math.max(120, Math.min(maxH, startH + delta));
-        newH = Math.min(newH, window.innerHeight - newBottom - 12);
+      var vh = window.innerHeight;
+      if (dragMode === 'resize') {
+        var maxH = vh - startBottom - EDGE_GAP;
+        var newH = Math.max(MIN_H, Math.min(maxH, vh - startBottom - e.clientY));
+        box.style.height = newH + 'px';
         box.style.maxHeight = newH + 'px';
-        box.style.bottom = newBottom + 'px';
       } else {
-        var delta = e.clientY - startY;
-        var newH = Math.max(120, Math.min(window.innerHeight - startBottom - 12, startH - delta));
-        box.style.maxHeight = newH + 'px';
+        var newBottom = Math.max(EDGE_GAP, Math.min(vh - startH - EDGE_GAP, vh - e.clientY));
+        box.style.bottom = newBottom + 'px';
       }
     });
-    document.addEventListener('mouseup', function () { dragging = false; });
+    document.addEventListener('mouseup', function () {
+      if (dragging && dragMode === 'move') bottomHandle.style.cursor = 'grab';
+      dragging = false;
+    });
 
     // Header row: tabs + close
     var header = document.createElement('div');
@@ -81,10 +94,12 @@
       tab.addEventListener('click', function () {
         activeTab = id;
         refreshTabStyles();
-        chatCtrl.dom.style.display = id === 'chat' ? 'block' : 'none';
-        bobberCtrl.dom.style.display = id === 'bobber' ? 'block' : 'none';
+        if (chatCtrl) chatCtrl.dom.style.display = id === 'chat' ? 'block' : 'none';
+        if (bobberCtrl) bobberCtrl.dom.style.display = id === 'bobber' ? 'block' : 'none';
         splashDom.style.display = id === 'splash' ? 'block' : 'none';
         if (bubbleCtrl) bubbleCtrl.dom.style.display = id === 'chat' ? 'block' : 'none';
+        if (debugDom) debugDom.style.display = id === 'debug' ? 'block' : 'none';
+        applyPreviewLayout();
         window.refreshPreview();
       });
       return tab;
@@ -93,9 +108,11 @@
     var tabChat = makeTab('Chat', 'chat');
     var tabBobber = makeTab('Bobber', 'bobber');
     var tabSplash = makeTab('Splash', 'splash');
-    tabsRow.appendChild(tabChat);
-    tabsRow.appendChild(tabBobber);
+    var tabDebug = JUNCTION_SHOW_ANIMATION_DEBUG_INFO ? makeTab('Debug info', 'debug') : null;
+    tabsRow.appendChild(tabChat);            // always: holds non-anim bubble settings
+    if (SHOW_LEGACY_ANIM) tabsRow.appendChild(tabBobber);
     tabsRow.appendChild(tabSplash);
+    if (tabDebug) tabsRow.appendChild(tabDebug);
     header.appendChild(tabsRow);
 
     var closeBtn = document.createElement('button');
@@ -116,6 +133,9 @@
     }
 
     function closePanel() {
+      if (_previewRO) { try { _previewRO.disconnect(); } catch (e) {} }
+      window.removeEventListener('resize', scheduleSplashResize);
+      if (_resizeTimer) { clearTimeout(_resizeTimer); _resizeTimer = null; }
       var c = box.querySelector('canvas.pretext-canvas');
       if (c && typeof c._stopAnimation === 'function') c._stopAnimation();
       writeAnimationDebugFile();
@@ -127,7 +147,8 @@
     box.appendChild(header);
 
     function refreshTabStyles() {
-      [tabChat, tabBobber, tabSplash].forEach(function (t) {
+      [tabChat, tabBobber, tabSplash, tabDebug].forEach(function (t) {
+        if (!t) return;
         var active = t.dataset.tab === activeTab;
         t.style.color = active ? 'var(--vscode-button-foreground)' : 'var(--vscode-descriptionForeground)';
         t.style.fontWeight = active ? 'bold' : 'normal';
@@ -136,9 +157,9 @@
     }
     refreshTabStyles();
 
-    // Scrollable content
+    // Scrollable content (flex column so the preview can grow to fill the panel)
     var content = document.createElement('div');
-    content.style.cssText = 'flex:1 1 auto;overflow-y:auto;padding:8px 10px;scrollbar-width:thin;';
+    content.style.cssText = 'flex:1 1 auto;overflow-y:auto;padding:8px 10px;scrollbar-width:thin;display:flex;flex-direction:column;';
 
     // Actions row
     var actionsRow = document.createElement('div');
@@ -178,38 +199,125 @@
         setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
       } catch (e) {}
     }
-    addAction('Play curtain', 'comment', function () {
-      if (typeof window.playChatCurtainPreview === 'function') window.playChatCurtainPreview();
-    });
     addAction('Play splash', 'rocket', function () {
       if (typeof window.playSplashAnimationPreview === 'function') window.playSplashAnimationPreview();
     });
     addAction('Export settings', 'export', exportAnimationSettings);
     content.appendChild(actionsRow);
 
-    // Preview area
+    // Preview area — on the Splash tab it flexes to fill the panel so a taller
+    // window grows the preview instead of leaving dead space at the bottom.
     var previewArea = document.createElement('div');
-    previewArea.style.cssText = 'display:flex;justify-content:center;padding:4px 0;min-height:60px;margin-bottom:8px;';
+    previewArea.style.cssText = 'display:flex;align-items:center;justify-content:center;padding:4px 0;min-height:120px;margin-bottom:8px;flex:0 0 auto;';
     content.appendChild(previewArea);
 
-    // Config sections
-    var chatCtrl = window.buildConfigSection(false, window.refreshPreview);
-    var bobberCtrl = window.buildConfigSection(true, window.refreshPreview);
-    var bubbleCtrl = window.buildBubbleSection ? window.buildBubbleSection() : null;
+    function applyPreviewLayout() {
+      previewArea.style.flex = (activeTab === 'splash') ? '1 1 auto' : '0 0 auto';
+    }
 
-    chatCtrl.dom.style.display = 'block';
-    bobberCtrl.dom.style.display = 'none';
+    // ── Debug info tab ───────────────────────────────────────────────────────
+    // Catalogue of the app's hardcoded rare-chance easter eggs. Keep in sync
+    // with the constants cited in each entry's `source`.
+    function buildDebugSection() {
+      var EASTER_EGGS = [
+        {
+          name: 'Rare emoji in the rain',
+          odds: '0.001% — 1 in 100,000',
+          per: 'rolled per rain character, when Emoji language is OFF',
+          effect: 'A random emoji sneaks into the splash matrix rain even though emoji mode is off — and the same roll permanently enables the Good Fonts typeface pack (flips the persisted junction.goodFonts setting, not just this session).',
+          source: 'render/animations.js · SPLASH_RARE_EMOJI_CHANCE'
+        },
+        {
+          name: 'Eaten dismiss-press',
+          odds: '0.001% — 1 in 100,000',
+          per: 'rolled on the first key/click that dismisses the splash',
+          effect: 'Your first press to dismiss the splash is silently swallowed once; press again to continue. (Flags the loader with data-rare-input-eaten.)',
+          source: 'view-router.js · SPLASH_RARE_INPUT_EAT_CHANCE'
+        }
+      ];
 
-    content.appendChild(chatCtrl.dom);
+      var section = document.createElement('div');
+      section.style.display = 'none';
+
+      // "Easter eggs" pill — click to expand the list.
+      var pill = document.createElement('button');
+      pill.textContent = '🥚 Easter eggs (' + EASTER_EGGS.length + ')';
+      pill.style.cssText = 'padding:3px 10px;border-radius:999px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);background:var(--vscode-button-background);color:var(--vscode-button-foreground);margin-bottom:8px;';
+      section.appendChild(pill);
+
+      var list = document.createElement('div');
+      list.style.cssText = 'display:none;flex-direction:column;gap:8px;';
+      section.appendChild(list);
+
+      var open = false;
+      pill.addEventListener('click', function () {
+        open = !open;
+        list.style.display = open ? 'flex' : 'none';
+      });
+
+      EASTER_EGGS.forEach(function (egg) {
+        var card = document.createElement('div');
+        card.style.cssText = 'border:1px solid var(--vscode-widget-border, var(--vscode-input-border));border-radius:6px;padding:8px 10px;background:var(--vscode-editor-background);';
+
+        var title = document.createElement('div');
+        title.textContent = egg.name;
+        title.style.cssText = 'font-size:11px;font-weight:600;color:var(--vscode-editor-foreground);margin-bottom:4px;';
+        card.appendChild(title);
+
+        var odds = document.createElement('div');
+        odds.innerHTML = '<span style="color:var(--vscode-descriptionForeground);">Odds:</span> ' + egg.odds;
+        odds.style.cssText = 'font-size:10px;color:var(--vscode-editor-foreground);font-variant-numeric:tabular-nums;';
+        card.appendChild(odds);
+
+        var per = document.createElement('div');
+        per.textContent = egg.per;
+        per.style.cssText = 'font-size:9px;color:var(--vscode-descriptionForeground);margin:2px 0 5px;';
+        card.appendChild(per);
+
+        var effect = document.createElement('div');
+        effect.textContent = egg.effect;
+        effect.style.cssText = 'font-size:10px;color:var(--vscode-editor-foreground);line-height:1.45;';
+        card.appendChild(effect);
+
+        var src = document.createElement('div');
+        src.textContent = egg.source;
+        src.style.cssText = 'font-size:8px;color:var(--vscode-descriptionForeground);margin-top:5px;font-family:var(--vscode-editor-font-family, monospace);';
+        card.appendChild(src);
+
+        list.appendChild(card);
+      });
+
+      return section;
+    }
+
+    // Config sections — chat/bobber are legacy ANIMATION config (built only when
+    // revived). Bubble shape is non-animation chat styling, so it stays in the
+    // Chat tab regardless of the legacy flag.
+    var chatCtrl = null, bobberCtrl = null, bubbleCtrl = null;
+    if (SHOW_LEGACY_ANIM) {
+      chatCtrl = window.buildConfigSection(false, window.refreshPreview);
+      bobberCtrl = window.buildConfigSection(true, window.refreshPreview);
+      chatCtrl.dom.style.display = activeTab === 'chat' ? 'block' : 'none';
+      bobberCtrl.dom.style.display = 'none';
+      content.appendChild(chatCtrl.dom);
+      content.appendChild(bobberCtrl.dom);
+    }
+
+    bubbleCtrl = window.buildBubbleSection ? window.buildBubbleSection() : null;
     if (bubbleCtrl) {
-      bubbleCtrl.dom.style.display = 'block';
+      bubbleCtrl.dom.style.display = activeTab === 'chat' ? 'block' : 'none';
       content.appendChild(bubbleCtrl.dom);
     }
-    content.appendChild(bobberCtrl.dom);
 
     var splashDom = window.buildSplashSection();
-    splashDom.style.display = 'none';
+    splashDom.style.display = activeTab === 'splash' ? 'block' : 'none';
     content.appendChild(splashDom);
+
+    var debugDom = JUNCTION_SHOW_ANIMATION_DEBUG_INFO ? buildDebugSection() : null;
+    if (debugDom) {
+      debugDom.style.display = activeTab === 'debug' ? 'block' : 'none';
+      content.appendChild(debugDom);
+    }
 
     box.appendChild(content);
 
@@ -232,6 +340,9 @@
       });
 
       if (activeTab === 'chat') {
+        // Chat tab shows only non-animation bubble settings unless the legacy
+        // animation stack is revived — skip the curtain preview render otherwise.
+        if (!SHOW_LEGACY_ANIM) return;
         var isMagic = !!(window.animConfig && window.animConfig.magic);
         var cfg = window.animConfig || {};
         var opts = {
@@ -261,12 +372,27 @@
         var cfg = window.animConfig || {};
         var canvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: 300, height: 60, loaderLoop: !!cfg.loaderLoop });
         if (canvas) { canvas.style.maxWidth = '280px'; previewArea.appendChild(canvas); }
+      } else if (activeTab === 'debug') {
+        // No preview canvas on the Debug tab — it's an informational panel.
       } else {
         var splashPreview = document.createElement('div');
-        var previewWidth = Math.max(300, Math.min(900, previewArea.clientWidth - 12 || 300));
-        var previewHeight = Math.max(120, Math.min(window.innerHeight - 180, Math.floor(box.clientHeight * 0.48) || 120));
+        // Match the real splash, which fills the webview — preview at the LIVE
+        // viewport aspect ratio (never hard-coded). Fit the largest such rect
+        // inside the available preview area, which itself grows with the panel.
+        var viewAspect = (window.innerWidth || 300) / (window.innerHeight || 300);
+        var availWidth = Math.max(120, (previewArea.clientWidth || 300) - 8);
+        var availHeight = Math.max(120, (previewArea.clientHeight || 120) - 8);
+        var previewWidth = availWidth;
+        var previewHeight = previewWidth / viewAspect;
+        if (previewHeight > availHeight) { previewHeight = availHeight; previewWidth = previewHeight * viewAspect; }
+        previewWidth = Math.round(previewWidth);
+        previewHeight = Math.round(previewHeight);
         splashPreview.style.cssText = 'position:relative;width:' + previewWidth + 'px;height:' + previewHeight + 'px;overflow:hidden;border-radius:6px;background:var(--vscode-editor-background);border:1px solid var(--vscode-input-border);cursor:pointer;';
         if (typeof window.applySplashWordmarkScale === 'function') window.applySplashWordmarkScale(splashPreview);
+        // Render the canvas at its ACTUAL display size (1:1, no CSS down-scaling).
+        // The rain uses a fixed character size, so a 1:1 canvas makes the chars
+        // and their on-screen speed identical to the live splash — a shrunk-down
+        // canvas would visually slow the motion and mismatch the real splash.
         var splashCanvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: previewWidth, height: previewHeight, loaderLoop: true, loaderElement: splashPreview });
         if (splashCanvas) {
           splashCanvas.style.maxWidth = previewWidth + 'px';
@@ -276,7 +402,7 @@
         }
         splashPreview.addEventListener('click', function () {
           if (!splashCanvas || typeof splashCanvas._startSplashExit !== 'function') return;
-          var modes = ['spiral-out', 'spiral-in', 'explode', 'explode2', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3'];
+          var modes = (window.JunctionAnimation && window.JunctionAnimation.previewSplashExitModes) || ['spiral-out', 'spiral-in', 'explode', 'explode2', 'melt', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3-bounce', 'explode3-no-bounce'];
           var selected = (window.animConfig && window.animConfig.splashExitMode) || 'random';
           var mode = selected === 'random' ? modes[Math.floor(Math.random() * modes.length)] : selected;
           splashCanvas._startSplashExit({ mode: mode });
@@ -293,7 +419,27 @@
       }
     };
 
+    // Rebuild the splash preview at the new size when the panel (or window) is
+    // resized — the canvas needs real pixel dimensions, so a CSS stretch won't
+    // do. Debounced so a drag doesn't thrash re-creation.
+    var _resizeTimer = null;
+    function scheduleSplashResize() {
+      if (activeTab !== 'splash') return;
+      if (_resizeTimer) clearTimeout(_resizeTimer);
+      _resizeTimer = setTimeout(function () {
+        _resizeTimer = null;
+        if (activeTab === 'splash' && document.getElementById('anim-preview-box')) window.refreshPreview();
+      }, 120);
+    }
+    var _previewRO = null;
+    if (typeof ResizeObserver === 'function') {
+      _previewRO = new ResizeObserver(scheduleSplashResize);
+      _previewRO.observe(box);
+    }
+    window.addEventListener('resize', scheduleSplashResize);
+
     document.body.appendChild(box);
+    applyPreviewLayout();
     window.refreshPreview();
   };
 })();

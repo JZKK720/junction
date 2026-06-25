@@ -112,14 +112,14 @@
 
   /** Post-process HTML to turn file paths into clickable links. */
   function linkifyFilePaths(html) {
-    var pathRe = /(?<!["'=\w])(\.\.?\/[\w.\-\/]+|[~\/]\w[\w.\-\/]*\.\w{1,10}|(?:[\w]+\.)+[\w]{1,10})(?::\d+){0,2}(?!["'<>\w])/g;
+    var pathRe = /(?<!["'=\w:/])(\.\.?\/[\w.\-\/]+|[~\/]\w[\w.\-\/]*\.\w{1,10}|(?:[\w]+\.)+[\w]{1,10})(?::\d+){0,2}(?!["'<>\w])/g;
     var seen = new Set();
     return html.replace(pathRe, function (match) {
       if (seen.has(match)) return match;
       seen.add(match);
       if (!match.includes('/') && !match.startsWith('.') && !match.startsWith('~')) return match;
       if (!match.match(/\.[a-z]{1,10}(?::\d+){0,2}$/i)) return match;
-      return '<span class="file-link" data-file="' + escapeHtml(match) + '" title="Open ' + escapeHtml(match) + '">' + escapeHtml(match) + '</span>';
+      return '<span class="file-link" data-file="' + escapeHtml(match) + '" title="' + escapeHtml(window.junctionT('openFile', 'Open {path}', { path: match })) + '">' + escapeHtml(match) + '</span>';
     });
   }
 

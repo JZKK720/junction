@@ -127,15 +127,18 @@
         var index = Number(button.dataset.index);
         var item = (itemLists[level] || [])[index];
         if (!item || item.disabled) return;
-        // Click on chevron arrow → open submenu; click elsewhere → select directly
+        // Chevron arrow → open submenu. Main part → select the item directly
+        // when it opts in (parentSelectable, e.g. a connected bridge → swap to
+        // its last-used config) or has an action; otherwise open the submenu.
         var target = event.target;
         var isChevron = target.classList && target.classList.contains('codicon-chevron-right');
         if (hasChildren(item)) {
-          if (isChevron || typeof item.action !== 'function') {
+          if (isChevron) {
             openSubmenu(level, index, true);
+          } else if (item.parentSelectable || typeof item.action === 'function') {
+            emitSelection(level, index);
           } else {
-            // Select the item's default action (first child, or the item itself)
-            selectIndex(level, index);
+            openSubmenu(level, index, true);
           }
         } else {
           selectIndex(level, index);
@@ -216,13 +219,11 @@
     }
   }
 
-  function selectIndex(level, index) {
+  // Emit/run a selection for the item itself (no submenu), used by leaf clicks
+  // and by direct-selecting a parent (e.g. clicking a bridge's main area).
+  function emitSelection(level, index) {
     var item = (itemLists[level] || [])[index];
     if (!item || item.disabled) return;
-    if (hasChildren(item)) {
-      openSubmenu(level, index, true);
-      return;
-    }
     if (typeof item.action === 'function') {
       item.action(item);
       close();
@@ -245,6 +246,16 @@
       vscode.postMessage(Object.assign({ type: messageType }, payload));
     }
     close();
+  }
+
+  function selectIndex(level, index) {
+    var item = (itemLists[level] || [])[index];
+    if (!item || item.disabled) return;
+    if (hasChildren(item)) {
+      openSubmenu(level, index, true);
+      return;
+    }
+    emitSelection(level, index);
   }
 
   function onOutsideClick(event) {

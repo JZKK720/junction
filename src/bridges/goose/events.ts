@@ -1,120 +1,105 @@
-import { MappedBridgeEvent, EventMappingResult } from '../types';
+import { EventMappingResult, MappedBridgeEvent } from '../types';
 
 export interface GooseMapperState {
-    reasoningParts: Set<string>;
-    textAccum: Map<string, string>;
+    text: string;
+    thinking: string;
+    pendingTools: Map<string, { name: string; args: any }>;
 }
 
-export function mapGooseSseEvent(
+export function createGooseMapperState(): GooseMapperState {
+    return { text: '', thinking: '', pendingTools: new Map() };
+}
+
+export function mapGooseStreamJsonLine(
     runId: string,
-    _eventName: string,
-    data: string,
+    line: string,
     state: GooseMapperState,
 ): EventMappingResult {
-    let payload: any = {};
-    try { payload = JSON.parse(data); } catch {}
+    let payload: any;
+    try { payload = JSON.parse(line); } catch { return { runId, events: [] }; }
 
     const events: MappedBridgeEvent[] = [];
-    const type: string = payload.type ?? '';
-
-    if (type === 'server.heartbeat') return { runId, events };
-
-    if (type === 'message.part.updated' && payload.properties?.part) {
-        const part = payload.properties.part;
-        if (part.type === 'reasoning' && part.id) {
-            state.reasoningParts.add(part.id);
-            if (part.text) events.push({ type: 'thinking_chunk', runId, text: part.text });
-        } else if (part.type === 'text' && part.text) {
-            state.textAccum.set(part.id ?? '', part.text);
-            events.push({ type: 'agent_message', runId, text: part.text });
-        } else if (part.type === 'tool') {
-            const status = part.status;
-            const callId = part.callID || part.call_id || '';
-            if (status === 'running' || status === 'pending') {
-                events.push({
-                    type: 'tool_event', phase: 'start', runId,
-                    toolCallId: callId || `tool-${Math.random().toString(36).slice(2, 8)}`,
-                    toolName: part.tool || part.name || '',
-                    args: part.input || part.args || {},
-                });
-            } else if (status === 'completed' || status === 'error') {
-                events.push({
-                    type: 'tool_event', phase: 'result', runId,
-                    toolCallId: callId,
-                    result: part.output || part.result || '',
-                    isError: status === 'error',
-                });
-            }
-        }
-        return { runId, events };
-    }
-
-    if (type === 'message.part.delta' && payload.properties?.field === 'text' && payload.properties?.delta) {
-        const props = payload.properties;
-        const partID = props.partID || '';
-        if (state.reasoningParts.has(partID)) {
-            events.push({ type: 'thinking_chunk', runId, text: props.delta });
-        } else {
-            const prev = state.textAccum.get(partID) ?? '';
-            const next = prev + props.delta;
-            state.textAccum.set(partID, next);
-            events.push({ type: 'agent_message', runId, text: next });
-        }
-        return { runId, events };
-    }
-
-    if (type === 'message.updated' && payload.properties?.info) {
-        const info = payload.properties.info;
-        const parts = Array.isArray(info.parts) ? info.parts : [];
-        let fullText = '';
-        for (const part of parts) {
-            if (part.type === 'text') fullText += part.text || '';
-        }
-        if (fullText) events.push({ type: 'agent_message', runId, text: fullText });
-        for (const part of parts) {
-            if (part.type === 'reasoning') {
-                events.push({ type: 'thinking_chunk', runId, text: part.text || '' });
-            } else if (part.type === 'tool') {
-                const status = part.status;
-                const callId = part.callID || part.call_id || '';
-                if (status === 'running' || status === 'pending') {
-                    events.push({
-                        type: 'tool_event', phase: 'start', runId,
-                        toolCallId: callId || `tool-${Math.random().toString(36).slice(2, 8)}`,
-                        toolName: part.tool || part.name || '',
-                        args: part.input || part.args || {},
-                    });
-                } else if (status === 'completed' || status === 'error') {
-                    events.push({
-                        type: 'tool_event', phase: 'result', runId,
-                        toolCallId: callId,
-                        result: part.output || part.result || '',
-                        isError: status === 'error',
-                    });
-                }
-            }
-        }
-        const finished = info.finish === 'stop' || info.finish === 'end';
-        return { runId, events, nextText: fullText, finished };
-    }
-
-    if (type === 'tool.execute.before') {
+    if (payload?.type === 'complete') {
         events.push({
-            type: 'tool_event', phase: 'start', runId,
-            toolCallId: payload.toolCallID || payload.tool_call_id || `tool-${Math.random().toString(36).slice(2, 8)}`,
-            toolName: payload.tool || payload.name || 'unknown',
-            args: payload.input || payload.args || {},
+            type: 'agent_lifecycle',
+            phase: 'completed',
+            runId,
+            usage: {
+                inputTokens: numberOrUndefined(payload.input_tokens),
+                outputTokens: numberOrUndefined(payload.output_tokens),
+            },
         });
+        return { runId, events, finished: true };
     }
 
-    if (type === 'tool.execute.after') {
-        events.push({
-            type: 'tool_event', phase: 'result', runId,
-            toolCallId: payload.toolCallID || payload.tool_call_id || '',
-            result: payload.output || payload.result || '',
-            isError: !!payload.error,
-        });
+    if (payload?.type !== 'message') return { runId, events };
+    const message = payload.message ?? {};
+    const role = String(message.role ?? '');
+    const content = Array.isArray(message.content) ? message.content : [];
+
+    for (const part of content) {
+        if (!part || typeof part !== 'object') continue;
+        if (part.type === 'thinking') {
+            const normalized = normalizeThinkingText(part.thinking ?? part.text ?? '');
+            const text = joinThinkingDelta(state.thinking, normalized);
+            if (text) events.push({ type: 'thinking_chunk', runId, text });
+            state.thinking += text;
+            continue;
+        }
+        if (role === 'assistant' && part.type === 'text') {
+            const delta = String(part.text ?? '');
+            if (!delta) continue;
+            state.text += delta;
+            events.push({ type: 'agent_message', runId, text: state.text, delta });
+            continue;
+        }
+        if (role === 'assistant' && part.type === 'toolRequest') {
+            const id = String(part.id ?? part.toolCallId ?? `goose-tool-${state.pendingTools.size}`);
+            const call = part.toolCall?.value ?? part.toolCall ?? {};
+            const toolName = String(call.name ?? part.name ?? 'tool');
+            const args = call.arguments ?? part.arguments ?? {};
+            state.pendingTools.set(id, { name: toolName, args });
+            events.push({ type: 'tool_event', phase: 'start', runId, toolCallId: id, toolName, args });
+            continue;
+        }
+        if (role === 'user' && part.type === 'toolResponse') {
+            const id = String(part.id ?? part.toolCallId ?? '');
+            const known = id ? state.pendingTools.get(id) : undefined;
+            const result = part.toolResult?.value ?? part.toolResult ?? part.result ?? '';
+            const resultObject = result && typeof result === 'object' ? result as any : undefined;
+            const isError = !!(part.toolResult?.isError ?? resultObject?.isError ?? part.isError);
+            events.push({
+                type: 'tool_event',
+                phase: 'result',
+                runId,
+                toolCallId: id,
+                toolName: known?.name,
+                args: known?.args,
+                result,
+                isError,
+            });
+        }
     }
 
     return { runId, events };
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
+}
+
+function normalizeThinkingText(value: unknown): string {
+    return String(value ?? '')
+        .replace(/\s*\r?\n\s*/g, ' ')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+}
+
+function joinThinkingDelta(previous: string, next: string): string {
+    if (!previous || !next) return next;
+    if (/[A-Za-z0-9)'"`”’\]]$/.test(previous) && /^[A-Za-z0-9('"`“‘\[]/.test(next)) {
+        return ` ${next}`;
+    }
+    return next;
 }

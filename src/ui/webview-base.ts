@@ -9,6 +9,7 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { Logger } from '../utils/logger';
+import { webviewL10nBundle } from '../l10n';
 
 /**
  * Assemble the modular webview HTML from resources/webview/.
@@ -22,8 +23,15 @@ export function buildWebviewHtml(
 ): string {
     const nonce = crypto.randomBytes(16).toString('hex');
     const webviewDir = vscode.Uri.joinPath(extensionUri, 'resources', 'webview');
-    const assetUri = (file: string) =>
-        webview.asWebviewUri(vscode.Uri.joinPath(webviewDir, file)).toString();
+    // Append the asset's mtime as a cache-bust query. VS Code keys webview
+    // resource caches by URL; without this, an unchanged extension version can
+    // serve stale JS/CSS after a rebuild — edits silently don't take effect.
+    const assetUri = (file: string) => {
+        const target = vscode.Uri.joinPath(webviewDir, file);
+        let stamp = '';
+        try { stamp = `?v=${Math.floor(fs.statSync(target.fsPath).mtimeMs)}`; } catch { /* missing file: no stamp */ }
+        return webview.asWebviewUri(target).toString() + stamp;
+    };
     const mdUri = webview.asWebviewUri(
         vscode.Uri.joinPath(extensionUri, 'node_modules', 'markdown-it', 'dist', 'markdown-it.min.js')
     ).toString();
@@ -41,16 +49,18 @@ export function buildWebviewHtml(
         'good-fonts.css',
         'view-router.css', 'choice-menu.css', 'chat-header.css', 'session-list.css',
         'attached-files-bar.css', 'composer.css', 'chat-stream.css',
-        'activity-accordion.css', 'activity-timeline.css',
+        'activity-accordion.css', 'activity-timeline.css', 'approvals.css', 'context-meter.css',
     ];
     // Module scripts: define-globals modules first, central dispatcher
     // (view-router.js) last. markdown-it before chat-stream (which uses it).
     const jsFiles = [
+        'l10n.js',
         'choice-menu.js', 'chat-header.js', 'session-list.js', 'attached-files-bar.js',
-        'render/helpers.js', 'render/animations.js', 'render/messages.js',
-        'render/reasoning.js', 'activity-modules.js', 'render/tools.js', 'render/working.js',
+        'render/helpers.js', 'render/animation-registry.js', 'render/animations.js', 'render/messages.js',
+        'render/reasoning.js', 'activity-modules.js', 'render/tools.js', 'render/working.js', 'render/approvals.js', 'render/context-meter.js',
+        'render/timeline-interleave.js',
         'settings/config-section.js', 'settings/bubble-section.js', 'settings/preview.js', 'settings/splash-section.js',
-        'composer.js', 'chat-stream.js', 'view-router.js',
+        'composer.js', 'chat-stream.js', 'navigation.js', 'view-router.js',
     ];
 
     const cssLinks = cssFiles
@@ -59,6 +69,7 @@ export function buildWebviewHtml(
     const moduleScripts = [
         `  <script nonce="${nonce}" src="${mdUri}"></script>`,
         `  <script nonce="${nonce}" src="${assetUri('pretext.bundle.js')}"></script>`,
+        `  <script nonce="${nonce}">window.JUNCTION_L10N=${JSON.stringify(webviewL10nBundle())};</script>`,
         `  <script nonce="${nonce}">window.JUNCTION_ACTIVITY_TIMELINE_JS_URI=${JSON.stringify(assetUri('activity-timeline.js'))};</script>`,
         ...jsFiles.map((f) => `  <script nonce="${nonce}" src="${assetUri(f)}"></script>`),
     ].join('\n');

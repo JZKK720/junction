@@ -42,6 +42,15 @@ export function getOpenClawConfigPath(): string {
     return openclawConfig().get<string>('configPath', '');
 }
 
+/**
+ * When false (default), the environment picker shows only each gateway's primary
+ * agent (the first entry in its config's agents.list) and hides additional
+ * agents like spawned-child templates. Set true to surface every configured agent.
+ */
+export function getOpenClawShowAllAgents(): boolean {
+    return openclawConfig().get<boolean>('showAllAgents', false);
+}
+
 export async function updateOpenClawGateway(url: string, configPath: string): Promise<void> {
     const cfg = openclawConfig();
     await cfg.update('gatewayUrl', url, vscode.ConfigurationTarget.Global);
@@ -82,6 +91,22 @@ export function getHermesWsUrl(): string {
     return hermesConfig().get<string>('wsUrl', 'ws://127.0.0.1:9119/api/ws');
 }
 
+/**
+ * Which Hermes surface the bridge talks to:
+ *   'auto'      — use a running/spawnable dashboard (full native features).
+ *   'dashboard' — force dashboard (WebSocket) mode.
+ *   'apiserver' — force the API server (OpenAI-compatible REST) directly.
+ */
+export function getHermesMode(): 'auto' | 'dashboard' | 'apiserver' {
+    const v = hermesConfig().get<string>('mode', 'auto');
+    return v === 'dashboard' || v === 'apiserver' ? v : 'auto';
+}
+
+/** Explicit API-server key override; empty = read from the Hermes config/.env. */
+export function getHermesApiKey(): string {
+    return hermesConfig().get<string>('apiKey', '');
+}
+
 export function getHermesHome(): string {
     return expandHome(hermesConfig().get<string>('home', '~/.hermes-hermling'));
 }
@@ -105,4 +130,3 @@ export function getMiMoCodeBinaryPath(): string {
 export function getMiMoCodeHome(): string {
     return expandHome(mimocodeConfig().get<string>('home', '~/.mimocode-junction'));
 }
-

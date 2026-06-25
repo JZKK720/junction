@@ -6,6 +6,8 @@ import { Logger } from './utils/logger';
 import { WorkspaceTracker } from './context/workspaceTracker';
 import { onActiveEditorChanged, onSelectionChanged } from './context/selection-tracker';
 import { registerTodoCodeLensCommand, registerTodoCodeLensProvider } from './context/todoCodeLens';
+import { openJunctionSettings } from './ui/settings';
+import { t } from './l10n';
 
 let logger: Logger;
 let workspaceTracker: WorkspaceTracker;
@@ -22,6 +24,9 @@ async function activate(context: vscode.ExtensionContext) {
     chatViewProvider = new ChatViewProvider(context);
     const bridgeRegistry = chatViewProvider.registry;
     logger.info('Registered bridges: ' + bridgeRegistry.getAll().map(b => b.id).join(', '));
+    context.subscriptions.push({
+        dispose: () => bridgeRegistry.disconnectAll(),
+    });
 
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(ChatViewProvider.viewType, chatViewProvider, {
@@ -31,7 +36,7 @@ async function activate(context: vscode.ExtensionContext) {
 
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBar.text = '$(sync~spin) Junction';
-    statusBar.tooltip = 'Junction: connecting...';
+    statusBar.tooltip = t('Junction: connecting...');
     statusBar.command = 'junction.configureRuntime';
     statusBar.show();
     context.subscriptions.push(statusBar);
@@ -40,19 +45,19 @@ async function activate(context: vscode.ExtensionContext) {
         const onConnected = () => {
             if (bridgeRegistry.active !== bridge) return;
             statusBar.text = `$(check) ${bridge.label}`;
-            statusBar.tooltip = `Junction: connected to ${bridge.label}`;
+            statusBar.tooltip = t('Junction: connected to {0}', bridge.label);
             statusBar.backgroundColor = undefined;
         };
         const onDisconnected = () => {
             if (bridgeRegistry.active !== bridge) return;
             statusBar.text = `$(debug-disconnect) ${bridge.label}`;
-            statusBar.tooltip = `Junction: ${bridge.label} disconnected`;
+            statusBar.tooltip = t('Junction: {0} disconnected', bridge.label);
             statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
         };
         const onPairingRequired = () => {
             if (bridgeRegistry.active !== bridge) return;
-            statusBar.text = `$(key) ${bridge.label}: approval needed`;
-            statusBar.tooltip = `${bridge.label}: waiting for local approval`;
+            statusBar.text = `$(key) ${t('{0}: approval needed', bridge.label)}`;
+            statusBar.tooltip = t('{0}: waiting for local approval', bridge.label);
             statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
         };
         bridge.on('connected', onConnected);
@@ -69,7 +74,7 @@ async function activate(context: vscode.ExtensionContext) {
 
     const onRegistryChanged = (bridge: any) => {
         statusBar.text = `$(sync~spin) ${bridge.label}`;
-        statusBar.tooltip = `Junction: connecting to ${bridge.label}`;
+        statusBar.tooltip = t('Junction: connecting to {0}', bridge.label);
         statusBar.backgroundColor = undefined;
     };
     bridgeRegistry.on('changed', onRegistryChanged);
@@ -109,11 +114,12 @@ function registerCommands(context: vscode.ExtensionContext): void {
     };
 
     const configureRuntime = async () => chatViewProvider?.registry.active.configure();
+    const openSettings = async () => openJunctionSettings();
     const openChat = async () => focusSidebar();
     const addToThread = async () => {
         if (!chatViewProvider) {
             await focusSidebar();
-            vscode.window.showWarningMessage('Junction sidebar is still starting.');
+            vscode.window.showWarningMessage(t('Junction sidebar is still starting.'));
             return;
         }
         chatViewProvider.addEditorSelectionPill();
@@ -122,7 +128,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
     const addFileToThread = async (uri?: vscode.Uri) => {
         if (!chatViewProvider) {
             await focusSidebar();
-            vscode.window.showWarningMessage('Junction sidebar is still starting.');
+            vscode.window.showWarningMessage(t('Junction sidebar is still starting.'));
             return;
         }
         chatViewProvider.addFilePill(uri);
@@ -131,6 +137,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('junction.configureRuntime', configureRuntime),
+        vscode.commands.registerCommand('junction.openSettings', openSettings),
         vscode.commands.registerCommand('junction.openChat', openChat),
         vscode.commands.registerCommand('junction.addToThread', addToThread),
         vscode.commands.registerCommand('junction.addFileToThread', addFileToThread),

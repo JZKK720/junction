@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { config } from '../config/agentBridgeConfig';
 import { ChoiceMenuItem } from '../bridges/types';
+import { buildSandboxChoiceItems, normalizeSandboxControlSelection, sandboxControlDescription } from '../bridges/sandboxControls';
 import type { WebviewConfigPayload } from './chatTypes';
 
 export class ConfigManager {
@@ -46,11 +47,15 @@ export class ConfigManager {
             reasoningDisplay,
             extraRichText: config().get<boolean>('extraRichText', true),
             goodFonts: config().get<boolean>('goodFonts', false),
+            toolOutputWordWrap: this.readToolOutputWordWrap(),
+            alwaysShowUsageChip: config().get<boolean>('alwaysShowUsageChip', false),
+            compactTimelineMode: config().get<boolean>('compactTimelineMode', false),
             activityLayout: this.readActivityLayoutMode(),
+            feedbackGlyphs: config().get<string>('feedbackGlyphs', 'vector-arrows'),
             activityRail: config().get<boolean>('activityStream.rail', true),
             activityDots: config().get<string>('activityStream.dots', 'status'),
             activityCondensed: config().get<boolean>('activityStream.condensed', true),
-            betaForkRewind: config().get<boolean>('beta.openclawForkRewind', false),
+            betaForkRewind: false,
             bubbleRadius: config().get<number>('bubble.radius', 16),
             bubbleTip: config().get<string>('bubble.tip', 'none'),
             showFullHistory: config().get<boolean>('showFullHistory', false),
@@ -151,26 +156,33 @@ export class ConfigManager {
     }
 
     /** Build sandbox/approval choice items for the webview. */
-    buildSandboxChoices(): ChoiceMenuItem[] {
-        const sandbox = config().get<string>('sandboxMode', 'default');
-        const approval = config().get<string>('approvalMode', 'default');
-        return [
-            { id: 'sandbox:default', label: 'Sandbox default', section: 'Sandbox', icon: 'settings', checked: sandbox === 'default', sandboxMode: 'default' as const },
-            { id: 'sandbox:readonly', label: 'Read only', section: 'Sandbox', icon: 'lock', checked: sandbox === 'readonly', sandboxMode: 'readonly' as const },
-            { id: 'sandbox:workspace-write', label: 'Workspace write', section: 'Sandbox', icon: 'edit', checked: sandbox === 'workspace-write', sandboxMode: 'workspace-write' as const },
-            { id: 'sandbox:full-access', label: 'Full access', section: 'Sandbox', icon: 'unlock', checked: sandbox === 'full-access', sandboxMode: 'full-access' as const },
-            { id: 'approval:default', label: 'Approval default', section: 'Approvals', icon: 'settings', checked: approval === 'default', approvalMode: 'default' as const },
-            { id: 'approval:ask', label: 'Ask', section: 'Approvals', icon: 'question', checked: approval === 'ask', approvalMode: 'ask' as const },
-            { id: 'approval:never', label: 'Never', section: 'Approvals', icon: 'check', checked: approval === 'never', approvalMode: 'never' as const },
-        ];
+    buildSandboxChoices(bridgeId: string): ChoiceMenuItem[] {
+        return buildSandboxChoiceItems(bridgeId, this.readSandboxMode(bridgeId), this.readApprovalMode(bridgeId));
     }
 
-    readSandboxMode(): string {
-        return config().get<string>('sandboxMode', 'default');
+    sandboxDisplayDescription(bridgeId: string): string {
+        return sandboxControlDescription(bridgeId, this.readSandboxMode(bridgeId), this.readApprovalMode(bridgeId));
     }
 
-    readApprovalMode(): string {
-        return config().get<string>('approvalMode', 'default');
+    readSandboxMode(bridgeId = ''): string {
+        return this.readScopedMode(bridgeId, 'sandboxMode');
+    }
+
+    readApprovalMode(bridgeId = ''): string {
+        return this.readScopedMode(bridgeId, 'approvalMode');
+    }
+
+    readSandboxSelection(bridgeId = ''): { sandbox: string; approval: string } {
+        return normalizeSandboxControlSelection(
+            bridgeId,
+            this.readSandboxMode(bridgeId),
+            this.readApprovalMode(bridgeId),
+        );
+    }
+
+    private readScopedMode(bridgeId: string, key: 'sandboxMode' | 'approvalMode'): string {
+        const scoped = bridgeId ? this.context.globalState.get<string>(`junction.${bridgeId}.${key}`) : undefined;
+        return scoped || config().get<string>(key, 'default');
     }
 
     readLookAndFeelMode(): 'compact' | 'timeline' | undefined {
@@ -188,17 +200,51 @@ export class ConfigManager {
     }
 
     readActivityLayoutMode(): 'accordion' | 'timeline' {
+        const cfg = config();
+        // 1. Explicit unified look-and-feel knob wins.
         const lookAndFeel = this.readLookAndFeelMode();
         if (lookAndFeel) return lookAndFeel === 'timeline' ? 'timeline' : 'accordion';
-        const legacyLayout = config().get<string>('activityStream.layout', 'accordion');
-        return legacyLayout === 'timeline' ? 'timeline' : 'accordion';
+        // 2. Legacy explicit layout key (only if the user actually set it).
+        const legacy = this.explicitValue('activityStream.layout');
+        if (legacy) return legacy === 'timeline' ? 'timeline' : 'accordion';
+        // 3. The reasoning-display axis the user set (chronological ⇒ timeline).
+        //    Layout and reasoning display are the same axis; honoring this is what
+        //    makes a `reasoningDisplay` change actually swap the stream layout.
+        const reasoning = this.explicitValue('reasoningDisplay');
+        if (reasoning) return (reasoning === 'chronological' || reasoning === 'timeline') ? 'timeline' : 'accordion';
+        // 4. Nothing set anywhere → honor the lookAndFeel package.json default.
+        const def = cfg.inspect<string>('lookAndFeel')?.defaultValue;
+        return def === 'compact' ? 'accordion' : 'timeline';
     }
 
-    async updateSandboxMode(mode: string): Promise<void> {
+    /** Return a setting's value only when the user set it in some scope (ignores
+     *  the package.json default), so callers can distinguish "unset" from default. */
+    private explicitValue(key: string): string | undefined {
+        const i = config().inspect<string>(key);
+        return i?.workspaceFolderValue ?? i?.workspaceValue ?? i?.globalValue;
+    }
+
+    readToolOutputWordWrap(): 'off' | 'on' {
+        const raw = config().get<string>('toolOutputWordWrap', 'auto');
+        if (raw === 'on' || raw === 'off') return raw;
+        const resource = vscode.window.activeTextEditor?.document.uri ?? vscode.workspace.workspaceFolders?.[0]?.uri;
+        const editorWrap = vscode.workspace.getConfiguration('editor', resource).get<string>('wordWrap', 'off');
+        return editorWrap && editorWrap !== 'off' ? 'on' : 'off';
+    }
+
+    async updateSandboxMode(mode: string, bridgeId = ''): Promise<void> {
+        if (bridgeId) {
+            await this.context.globalState.update(`junction.${bridgeId}.sandboxMode`, mode);
+            return;
+        }
         await config().update('sandboxMode', mode, vscode.ConfigurationTarget.Global);
     }
 
-    async updateApprovalMode(mode: string): Promise<void> {
+    async updateApprovalMode(mode: string, bridgeId = ''): Promise<void> {
+        if (bridgeId) {
+            await this.context.globalState.update(`junction.${bridgeId}.approvalMode`, mode);
+            return;
+        }
         await config().update('approvalMode', mode, vscode.ConfigurationTarget.Global);
     }
 
@@ -210,12 +256,17 @@ export class ConfigManager {
             e.affectsConfiguration('junction.beta.openclawForkRewind') ||
             e.affectsConfiguration('junction.bubble') ||
             e.affectsConfiguration('junction.lookAndFeel') ||
+            e.affectsConfiguration('junction.feedbackGlyphs') ||
             e.affectsConfiguration('junction.reasoningDisplay') ||
             e.affectsConfiguration('junction.sendBehavior') ||
             e.affectsConfiguration('junction.extraRichText') ||
             e.affectsConfiguration('junction.goodFonts') ||
+            e.affectsConfiguration('junction.toolOutputWordWrap') ||
+            e.affectsConfiguration('junction.alwaysShowUsageChip') ||
+            e.affectsConfiguration('junction.compactTimelineMode') ||
             e.affectsConfiguration('junction.showFullHistory') ||
             e.affectsConfiguration('junction.steerKeybinding') ||
+            e.affectsConfiguration('editor.wordWrap') ||
             e.affectsConfiguration('editor.tokenColorCustomizations')
         );
     }

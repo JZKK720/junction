@@ -7,6 +7,7 @@
 
 import * as vscode from 'vscode';
 import { Logger } from '../utils/logger';
+import { t } from '../l10n';
 import type { ConfigManager } from './config-manager';
 
 const UI_ONLY_MESSAGE_TYPES = new Set([
@@ -34,8 +35,12 @@ const UI_ONLY_MESSAGE_TYPES = new Set([
     'openSettings',
     'writeAnimDebugFile',
     'getUsage',
+    'requestTaskHistory',
     'loadMoreHistory',
     'loadMoreHistoryFromJsonl',
+    'approvalRespond',
+    'inputRespond',
+    'compactContext',
 ]);
 
 /**
@@ -57,6 +62,8 @@ export interface ChatBaseHandlers {
     handleArchiveSession(key: string): Promise<void>;
     handleShowArchived(show: boolean): Promise<void>;
     handleSetChatScope(scope: string): Promise<void>;
+    handleRestoreNavigation(state: any): Promise<void>;
+    handleRequestTaskHistory(scope: string): Promise<void>;
     handleRequestModelChoices(): Promise<void>;
     handleSelectModelChoice(data: any): Promise<void>;
     handleRequestReasoningChoices(): Promise<void>;
@@ -87,6 +94,9 @@ export interface ChatBaseHandlers {
     handleReviewCheckpointDiff(messageId?: string, files?: string[]): Promise<void>;
     handleOpenFile(filePath: string): Promise<void>;
     handleSetReaction(messageId: string, value: 'up' | 'down' | null): Promise<void>;
+    handleApprovalRespond(data: any): Promise<void>;
+    handleInputRespond(data: any): Promise<void>;
+    handleCompactContext(): Promise<void>;
     postToWebview(message: any): void;
 }
 
@@ -159,6 +169,12 @@ export class EventRouter {
                     break;
                 case 'setChatScope':
                     await this.handlers.handleSetChatScope(data.scope);
+                    break;
+                case 'restoreNavigation':
+                    await this.handlers.handleRestoreNavigation(data.state);
+                    break;
+                case 'requestTaskHistory':
+                    await this.handlers.handleRequestTaskHistory(data.scope);
                     break;
                 // footer/header choice menus
                 case 'requestModelChoices':
@@ -245,10 +261,9 @@ export class EventRouter {
                     await this.handlers.handleForkConversation(data.messageId);
                     break;
                 case 'forkAndRewind':
-                    await this.handlers.handleForkAndRewind(data.messageId);
+                    await this.handlers.handleForkConversation(data.messageId);
                     break;
                 case 'rewindToMessage':
-                    await this.handlers.handleRewindToMessage(data.messageId);
                     break;
                 case 'reviewCheckpointDiff':
                     await this.handlers.handleReviewCheckpointDiff(
@@ -265,6 +280,15 @@ export class EventRouter {
                 case 'setReaction':
                     await this.handlers.handleSetReaction(data.messageId, data.value);
                     break;
+                case 'approvalRespond':
+                    await this.handlers.handleApprovalRespond(data);
+                    break;
+                case 'inputRespond':
+                    await this.handlers.handleInputRespond(data);
+                    break;
+                case 'compactContext':
+                    await this.handlers.handleCompactContext();
+                    break;
                 case 'saveAnimConfig':
                     if (this.configManager) {
                         await this.configManager.saveAnimConfig(data);
@@ -279,6 +303,9 @@ export class EventRouter {
                     await vscode.workspace.getConfiguration('junction').update('bubble.radius', data.radius ?? 16, vscode.ConfigurationTarget.Global);
                     await vscode.workspace.getConfiguration('junction').update('bubble.tip', data.tip ?? 'none', vscode.ConfigurationTarget.Global);
                     break;
+                case 'setGoodFonts':
+                    await vscode.workspace.getConfiguration('junction').update('goodFonts', !!data.value, vscode.ConfigurationTarget.Global);
+                    break;
             }
         } catch (error: any) {
             const message = error?.message || String(error);
@@ -287,7 +314,7 @@ export class EventRouter {
                 vscode.window.showWarningMessage(message);
                 return;
             }
-            this.handlers.postToWebview({ type: 'response', text: 'Error: ' + message });
+            this.handlers.postToWebview({ type: 'response', text: t('Error: {0}', message) });
             this.handlers.postToWebview({ type: 'runComplete' });
         }
     }

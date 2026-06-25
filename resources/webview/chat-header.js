@@ -3,7 +3,7 @@
    ==========================================================================
    Contract:
    - Global: setChatTitle(text)
-   - Wires: #btn-back, #chat-title, #btn-menu, #btn-settings, #btn-new-chat-view
+   - Wires: #btn-back, #chat-title, #btn-task-history, #btn-menu, #btn-settings, #btn-new-chat-view
    - Listens for: updateTitle { key, title }
    - Sends via postMessage: backToSessions, renameSession, archiveSession,
      openSettings, createChat
@@ -22,7 +22,7 @@
   window.setChatTitle = function setChatTitle(text) {
     var titleEl = document.getElementById('chat-title');
     if (!titleEl) return;
-    titleEl.textContent = text || 'New chat';
+    titleEl.textContent = text || window.junctionT('newChat', 'New chat');
   };
 
   /**
@@ -42,20 +42,24 @@
   // ── Inline title editing ───────────────────────────────────────────────
 
   function startRename(titleEl) {
+    if (!titleEl || !titleEl.isConnected || document.querySelector('.title-edit')) return;
     var currentTitle = titleEl.textContent;
+    var finished = false;
 
     // Replace span with input
     var input = document.createElement('input');
     input.type = 'text';
     input.className = 'title-edit';
-    input.value = currentTitle === 'New chat' ? '' : currentTitle;
+    input.value = currentTitle === window.junctionT('newChat', 'New chat') ? '' : currentTitle;
 
     titleEl.replaceWith(input);
     input.focus();
     input.select();
 
     function commit() {
-      var newTitle = input.value.trim() || 'New chat';
+      if (finished) return;
+      finished = true;
+      var newTitle = input.value.trim() || window.junctionT('newChat', 'New chat');
       finishEdit(input, newTitle);
 
       // Send rename to extension host
@@ -72,11 +76,14 @@
     }
 
     function cancel() {
+      if (finished) return;
+      finished = true;
       finishEdit(input, currentTitle);
       window.setChatTitle(currentTitle);
     }
 
     function onKeydown(e) {
+      e.stopPropagation();
       if (e.key === 'Enter') {
         e.preventDefault();
         commit();
@@ -86,20 +93,35 @@
       }
     }
 
+    function onPaste(e) {
+      e.stopPropagation();
+      var text = e.clipboardData && e.clipboardData.getData ? e.clipboardData.getData('text/plain') : '';
+      if (!text) return;
+      e.preventDefault();
+      var start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+      var end = typeof input.selectionEnd === 'number' ? input.selectionEnd : start;
+      input.value = input.value.slice(0, start) + text + input.value.slice(end);
+      var cursor = start + text.length;
+      if (input.setSelectionRange) input.setSelectionRange(cursor, cursor);
+    }
+
     function onBlur() {
       commit();
     }
 
     input.addEventListener('keydown', onKeydown);
+    input.addEventListener('paste', onPaste);
+    input.addEventListener('input', function (e) { e.stopPropagation(); });
     input.addEventListener('blur', onBlur);
   }
 
   function finishEdit(input, text) {
+    if (!input || !input.isConnected) return;
     // Recreate the span
     var span = document.createElement('span');
     span.id = 'chat-title';
     span.className = 'title';
-    span.title = 'Click to rename';
+    span.title = window.junctionT('clickToRename', 'Click to rename');
     span.textContent = text;
 
     // Re-attach click listener for future edits
@@ -113,32 +135,29 @@
   function toggleMenu(anchorEl) {
     if (!window.choiceMenu) return;
     var items = [
-      { id: 'rename', label: 'Rename', icon: 'edit' },
-      { id: 'back', label: 'Back to chats', icon: 'list-unordered' },
-      { id: 'usage', label: 'Session usage', icon: 'graph' },
-      { id: 'agentPicker', label: 'Agent picker', icon: 'hubot' },
-      { id: 'animationSettings', label: 'Animation settings', icon: 'symbol-color', action: function () {
+      { id: 'rename', label: window.junctionT('rename', 'Rename'), icon: 'edit' },
+      { id: 'back', label: window.junctionT('backToChats', 'Back to chats'), icon: 'list-unordered' },
+      { id: 'usage', label: window.junctionT('sessionUsage', 'Session usage'), icon: 'graph' },
+      { id: 'agentPicker', label: window.junctionT('agentPicker', 'Agent picker'), icon: 'hubot' },
+      { id: 'animationSettings', label: window.junctionT('animationSettings', 'Animation settings'), icon: 'symbol-color', action: function () {
         if (typeof window.toggleChatPreviewPanel === 'function') window.toggleChatPreviewPanel();
       }},
-      { id: 'playCurtain', label: 'Play chat curtain', icon: 'comment', action: function () {
-        if (typeof window.playChatCurtainPreview === 'function') window.playChatCurtainPreview();
-      }},
-      { id: 'playSplash', label: 'Play splash animation', icon: 'rocket', action: function () {
+      { id: 'playSplash', label: window.junctionT('playSplashAnimation', 'Play splash animation'), icon: 'rocket', action: function () {
         if (typeof window.playSplashAnimationPreview === 'function') window.playSplashAnimationPreview();
       }}
     ];
     if (window.betaForkRewind) {
-      items.push({ id: 'fork', label: 'Fork conversation (OpenClaw beta)', icon: 'git-branch' });
+      items.push({ id: 'fork', label: window.junctionT('forkConversationOpenClawBeta', 'Fork conversation (OpenClaw beta)'), icon: 'git-branch' });
     }
     items.push(
-      { id: 'archive', label: 'Archive', icon: 'archive', key: _sessionKey, disabled: !_sessionKey },
-      { id: 'share', label: 'Share / export chat', icon: 'clippy', action: function () {
+      { id: 'archive', label: window.junctionT('archive', 'Archive'), icon: 'archive', key: _sessionKey, disabled: !_sessionKey },
+      { id: 'share', label: window.junctionT('shareExportChat', 'Share / export chat'), icon: 'clippy', action: function () {
         window.dispatchEvent(new CustomEvent('junction-share-chat', { detail: { target: anchorEl } }));
       }},
-      { id: 'settings', label: 'Settings', icon: 'gear' }
+      { id: 'settings', label: window.junctionT('settings', 'Settings'), icon: 'gear' }
     );
     window.choiceMenu.open(anchorEl, {
-      title: 'Chat actions',
+      title: window.junctionT('chatActions', 'Chat actions'),
       selectMessage: 'selectHeaderAction',
       items: items
     });
@@ -149,6 +168,7 @@
   function init() {
     var backBtn = document.getElementById('btn-back');
     var titleEl = document.getElementById('chat-title');
+    var taskHistoryBtn = document.getElementById('btn-task-history');
     var menuBtn = document.getElementById('btn-menu');
     var settingsBtn = document.getElementById('btn-settings');
     var newChatBtn = document.getElementById('btn-new-chat-view');
@@ -164,6 +184,14 @@
     if (titleEl) {
       titleEl.addEventListener('click', function () {
         startRename(titleEl);
+      });
+    }
+
+    if (taskHistoryBtn) {
+      taskHistoryBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (typeof window.openTaskHistoryPopover === 'function') window.openTaskHistoryPopover(taskHistoryBtn);
+        else vscode.postMessage({ type: 'viewSessionList' });
       });
     }
 

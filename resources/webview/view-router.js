@@ -20,7 +20,7 @@ var splashDismissed = false;
 var splashInputBound = false;
 var splashRareInputEaten = false;
 var SPLASH_RARE_INPUT_EAT_CHANCE = 0.00001; // 0.001%
-var splashExitModes = ['spiral-out', 'spiral-in', 'explode', 'explode2', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3'];
+var splashExitModes = (window.JunctionAnimation && window.JunctionAnimation.previewSplashExitModes) || ['spiral-out', 'spiral-in', 'explode', 'explode2', 'melt', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3-bounce', 'explode3-no-bounce'];
 
 function ensureStartupPrompt(loader) {
   var prompt = document.getElementById('startup-start-prompt');
@@ -43,6 +43,7 @@ function finishStartupLoader() {
     ? splashExitModes[Math.floor(Math.random() * splashExitModes.length)]
     : selectedMode;
   var canvas = loader.querySelector('canvas');
+  loader.classList.remove('accepting-input');
   if (canvas && typeof canvas._startSplashExit === 'function') {
     try { canvas._startSplashExit({ mode: exitMode }); } catch (e) {}
   }
@@ -104,8 +105,8 @@ function dismissStartupLoader() {
     return;
   }
   ensureStartupPrompt(loader);
-  loader.classList.add('loaded');
   bindStartupInput(loader);
+  loader.classList.add('loaded', 'accepting-input');
   if (animConfig.splashAutoClose) {
     var splashLength = animConfig.splashLength !== undefined ? parseFloat(animConfig.splashLength) : 1.0;
     if (!isFinite(splashLength)) splashLength = 1.0;
@@ -167,6 +168,14 @@ window.addEventListener('message', function (event) {
     case 'switchToHome':
       dismissStartupLoader(true);
       showSessionList();
+      if (msg.activeBridge) window.junctionActiveBridge = msg.activeBridge;
+      if (typeof window.junctionRecordNavigation === 'function') {
+        window.junctionRecordNavigation({
+          view: 'home',
+          bridgeId: msg.activeBridge || window.junctionActiveBridge,
+          sessionKey: msg.activeKey || msg.sessionKey || window.junctionActiveSessionKey
+        });
+      }
       if (msg.groups && typeof window.renderGroups === 'function') {
         window.renderGroups(msg.groups, msg.activeKey);
       }
@@ -175,6 +184,18 @@ window.addEventListener('message', function (event) {
     case 'switchToChat':
       window.setChatTitle?.(msg.title);
       showChatView();
+      if (msg.activeBridge) window.junctionActiveBridge = msg.activeBridge;
+      if (msg.sessionKey !== undefined) window.junctionActiveSessionKey = msg.sessionKey || null;
+      if (msg.interleaveTimeline !== undefined) window.timelineInterleave = msg.interleaveTimeline === true;
+      if (msg.compactTimelineMode !== undefined) window.compactTimelineMode = msg.compactTimelineMode === true;
+      if (typeof window.junctionRecordNavigation === 'function') {
+        window.junctionRecordNavigation({
+          view: 'chat',
+          bridgeId: msg.activeBridge || window.junctionActiveBridge,
+          sessionKey: msg.sessionKey || window.junctionActiveSessionKey,
+          title: msg.title
+        });
+      }
       if (msg.history) {
         renderRouterHistory(msg.history, msg.activeRunId);
       }
@@ -184,12 +205,22 @@ window.addEventListener('message', function (event) {
     // ── Data updates ────────────────────────────────────────────
 
     case 'renderSessions':
+      if (msg.activeKey !== undefined) window.junctionActiveSessionKey = msg.activeKey || null;
       if (typeof window.renderGroups === 'function') {
         window.renderGroups(msg.groups, msg.activeKey);
       }
       break;
 
     case 'updateTitle':
+      if (msg.key !== undefined) window.junctionActiveSessionKey = msg.key || null;
+      if (typeof window.junctionRecordNavigation === 'function') {
+        window.junctionRecordNavigation({
+          view: 'chat',
+          bridgeId: window.junctionActiveBridge,
+          sessionKey: msg.key || window.junctionActiveSessionKey,
+          title: msg.title
+        }, { replace: true });
+      }
       window.setChatTitle?.(msg.title);
       break;
   }

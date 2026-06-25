@@ -39,12 +39,10 @@ body.stream-layout-accordion #chat-messages .tool-row-pill > .tool-row-summary:h
   border-radius: var(--corner-radius-small, 4px);
 }
 
-/* Compact tool pills are summary-only in accordion mode. Raw I/O stays out of
-   the visual stream; timeline mode keeps the detailed drill-down. */
-body.stream-layout-accordion #chat-messages .tool-row.tool-row-pill > .tool-detail,
-body.stream-layout-accordion #chat-messages .tool-detail-section[data-section="input"],
-body.stream-layout-accordion #chat-messages .tool-detail-section[data-section="output"],
-body.stream-layout-accordion #chat-messages .tool-detail-section[data-section="raw output"] {
+/* Tool pills are summary-only while COLLAPSED (default <details> behaviour);
+   expanding one reveals its detail (file contents, command + output, …). Only
+   the redundant raw-args "Input" dump is kept out of the accordion stream. */
+body.stream-layout-accordion #chat-messages .tool-detail-section[data-section="input"] {
   display: none !important;
 }
 

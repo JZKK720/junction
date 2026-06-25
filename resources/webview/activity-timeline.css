@@ -19,7 +19,12 @@ body.stream-layout-timeline #chat-messages .chat-row.user .msg-text {
   box-sizing: border-box;
   background: var(--junction-timeline-user-bg);
   border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: var(--corner-radius-large);
   color: var(--vscode-input-foreground, var(--vscode-foreground));
+}
+
+body.stream-layout-timeline #chat-messages .chat-row.user .msg-text[data-tip] {
+  border-radius: var(--corner-radius-large);
 }
 
 body.stream-layout-timeline #chat-messages .chat-row.assistant:has(> .msg-actions) {

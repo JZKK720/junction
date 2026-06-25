@@ -224,7 +224,9 @@
   function finalReasoningLabel(fullText, durationMs) {
     var secs = durationMs ? Math.max(1, Math.round(durationMs / 1000)) : 0;
     var toks = window.approxTokens(fullText);
-    return (secs ? 'Thought for ' + secs + 's' : 'Thought') + ' \u00B7 ~' + toks.toLocaleString() + ' tokens';
+    return secs
+      ? window.junctionT('thoughtForSecondsTokens', 'Thought for {seconds}s · ~{count} tokens', { seconds: secs, count: toks.toLocaleString() })
+      : window.junctionT('thoughtTokens', 'Thought · ~{count} tokens', { count: toks.toLocaleString() });
   }
 
   function finalizeReasoning(runId, durationMs) {

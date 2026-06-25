@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { config } from '../config/agentBridgeConfig';
 import { ChatViewProvider } from '../ui/chatViewProvider';
+import { t } from '../l10n';
 
 const TODO_RE = /\b(TODO|FIXME|HACK)\b[:\-\s]?(.*)$/i;
 
@@ -26,7 +27,7 @@ class TodoCodeLensProvider implements vscode.CodeLensProvider {
             if (!match) continue;
             const range = new vscode.Range(line, 0, line, text.length);
             lenses.push(new vscode.CodeLens(range, {
-                title: 'Implement with Junction',
+                title: t('Implement with Junction'),
                 command: 'junction.todoCodeLens.send',
                 arguments: [document.uri, line, match[0]],
             }));

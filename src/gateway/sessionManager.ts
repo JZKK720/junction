@@ -238,14 +238,12 @@ export class SessionManager extends EventEmitter {
       // already gets workspace from the session binding.)
 
       const result = await this.gateway.sendRequest(
-        'agent',
+        'chat.send',
         {
           sessionKey,
           message,
           idempotencyKey: this.generateId(),
           ...(this.agentOverrides.agentId ? { agentId: this.agentOverrides.agentId } : {}),
-          ...(this.agentOverrides.provider ? { provider: this.agentOverrides.provider } : {}),
-          ...(this.agentOverrides.model ? { model: this.agentOverrides.model } : {}),
           ...(this.agentOverrides.thinking ? { thinking: this.agentOverrides.thinking } : {}),
         },
         { idleTimeoutMs: 15000 }

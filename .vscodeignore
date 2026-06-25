@@ -25,4 +25,7 @@ audit-report.md
 drone-summary.md
 ux-audit-*.md
 ux-feature-catalog.md
+meatbags.md
+*.original.md
+resources/*.bak.png
 *.vsix

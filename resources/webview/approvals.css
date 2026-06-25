@@ -1,0 +1,143 @@
+/* ==========================================================================
+   approvals.css — inline approval / input prompt styling
+   timeline mode: full permission card in the transcript (Claude-Code-like).
+   compact mode:  slim row docked above the composer (Codex-like).
+   ========================================================================== */
+
+/* ── Shared button styling ──────────────────────────────────────────────── */
+.perm-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  cursor: pointer;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+.perm-btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+.perm-btn.perm-primary {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+.perm-btn.perm-primary:hover { background: var(--vscode-button-hoverBackground); }
+.perm-btn.perm-danger {
+  background: transparent;
+  color: var(--vscode-errorForeground, #f14c4c);
+  border-color: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 45%, transparent);
+}
+.perm-btn.perm-danger:hover {
+  background: color-mix(in srgb, var(--vscode-errorForeground, #f14c4c) 14%, transparent);
+}
+
+/* ── Timeline mode: inline permission card ─────────────────────────────── */
+.permission-request {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--vscode-focusBorder, #007acc) 50%, transparent);
+  background: color-mix(in srgb, var(--vscode-editorWidget-background, #252526) 92%, var(--vscode-focusBorder, #007acc));
+}
+.permission-request-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--vscode-foreground);
+}
+.permission-request-header .codicon { color: var(--vscode-focusBorder, #007acc); }
+.permission-request-description {
+  margin-top: 4px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+.permission-request-input {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--vscode-textCodeBlock-background, rgba(0,0,0,0.25));
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+.permission-request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* ── Compact mode: dock above the composer ─────────────────────────────── */
+.approval-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 6px;
+}
+.approval-dock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--vscode-focusBorder, #007acc) 45%, transparent);
+  background: color-mix(in srgb, var(--vscode-editorWidget-background, #252526) 90%, var(--vscode-focusBorder, #007acc));
+  font-size: 12px;
+}
+.approval-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.approval-summary .codicon { color: var(--vscode-focusBorder, #007acc); flex: 0 0 auto; }
+.approval-summary-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.approval-dontask {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+.approval-compact-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+/* ── Input prompt field (shared) ───────────────────────────────────────── */
+.approval-input-field {
+  width: 100%;
+  margin: 8px 0 6px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+.approval-dock-row.input-request {
+  flex-wrap: wrap;
+}
+.approval-dock-row.input-request .approval-input-field { margin: 4px 0; }
+
+/* ── Transient status line ─────────────────────────────────────────────── */
+.approval-status-line {
+  font-size: 11.5px;
+  opacity: 0.75;
+  padding: 2px 4px 4px;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+}
+.approval-status-line[data-kind="compacting"] { color: var(--vscode-focusBorder, #007acc); opacity: 0.95; }

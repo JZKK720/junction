@@ -5,8 +5,30 @@
 (function () {
   'use strict';
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // LEGACY ANIMATION SETTINGS FLAG  (default: OFF)
+  // --------------------------------------------------------------------------
+  // Scopes the settings PREVIEWER to splash-only: when false, the previewer's
+  // Chat + Bobber tabs (and their config sections in config-section.js) are
+  // hidden, leaving just the Splash tab. Flip to `true` to bring those tabs
+  // back. The live chat animations (working curtain, rise-in, fork loader) are
+  // unaffected by this flag — only the settings UI is scoped.
+  // ──────────────────────────────────────────────────────────────────────────
+  var animationRegistry = window.JunctionAnimation;
+  if (!animationRegistry || !animationRegistry.defaults) {
+    throw new Error('JunctionAnimation registry missing');
+  }
+
   var messagesDiv_a = document.getElementById('chat-messages');
   var matrixChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%^&*()_+-=[]{}|;:,.<>?/~`';
+  var splashEmojiChars = [
+    // Smileys & emotion
+    '😀😃😄😁😆😅😂🤣🥲😊😇🙂🙃😉😌😍🥰😘😗😙😚😋😛😝😜🤪🤨🧐🤓😎🥸🤩🥳😏😒😞😔😟😕🙁😣😖😫😩🥺😢😭😤😠😡🤬🤯😳🥵🥶😱😨😰😥😓🤗🤔🫣🤭🫢🫡🤫🫠🤥😶🫥😐🫤😑🙄😯😦😧😮😲🥱😴🤤😪😮‍💨😵😵‍💫🤐🥴🤢🤮🤧😷🤒🤕🤑🤠😈👿👹👺🤡💩👻💀☠👽👾🤖🎃🙈🙉🙊😺😸😹😻😼😽🙀😿😾💋💌💘💝💖💗💓💞💕💟❣💔❤️‍🔥❤️‍🩹❤🩷🧡💛💚💙🩵💜🤎🖤🩶🤍💯💢💥💫💦💨🕳💬👁‍🗨🗨🗯💭💤',
+    // Animals & nature
+    '🐵🐒🦍🦧🐶🐕🦮🐕‍🦺🐩🐺🦊🦝🐱🐈🐈‍⬛🦁🐯🐅🐆🐴🫎🫏🐎🦄🦓🦌🦬🐮🐂🐃🐄🐷🐖🐗🐽🐏🐑🐐🐪🐫🦙🦒🐘🦣🦏🦛🐭🐁🐀🐹🐰🐇🐿🦫🦔🦇🐻🐻‍❄🐨🐼🦥🦦🦨🦘🦡🐾🦃🐔🐓🐣🐤🐥🐦🐧🕊🦅🦆🦢🦉🦤🪶🦩🦚🦜🪽🐦‍⬛🪿🐸🐊🐢🦎🐍🐲🐉🦕🦖🐳🐋🐬🦭🐟🐠🐡🦈🐙🐚🪸🪼🐌🦋🐛🐜🐝🪲🐞🦗🪳🕷🕸🦂🦟🪰🪱🦠💐🌸💮🪷🏵🌹🥀🌺🌻🌼🌷🪻🌱🪴🌲🌳🌴🌵🌾🌿☘🍀🍁🍂🍃🪹🪺🍄🌰🦀🦞🦐🦑',
+    // Food & drink
+    '🍇🍈🍉🍊🍋🍌🍍🥭🍎🍏🍐🍑🍒🍓🫐🥝🍅🫒🥥🥑🍆🥔🥕🌽🌶🫑🥒🥬🥦🧄🧅🥜🫘🌰🫚🫛🍞🥐🥖🫓🥨🥯🥞🧇🧀🍖🍗🥩🥓🍔🍟🍕🌭🥪🌮🌯🫔🥙🧆🥚🍳🥘🍲🫕🥣🥗🍿🧈🧂🥫🍱🍘🍙🍚🍛🍜🍝🍠🍢🍣🍤🍥🥮🍡🥟🥠🥡🦪🍦🍧🍨🍩🍪🎂🍰🧁🥧🍫🍬🍭🍮🍯🍼🥛☕🫖🍵🍶🍾🍷🍸🍹🍺🍻🥂🥃🫗🥤🧋🧃🧉🧊🥢🍽🍴🥄🔪🫙🏺'
+  ].join('');
   var splashCharsets = {
     matrix: matrixChars,
     latin: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789',
@@ -16,7 +38,7 @@
     hangul: '가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허',
     binary: '010101110011001011010101',
     symbols: '@#$%^&*()_+-=[]{}<>/\\\\|;:,.~`',
-    emoji: '😀😃😄😁😆😅😂🤣🙂🙃😉😊😎🤔🤨😐😵‍💫🤖👾✨💫⭐🌙🔥💥🌈🍄🚀🛸🧠🌀'
+    emoji: splashEmojiChars
   };
   var SPLASH_RARE_EMOJI_CHANCE = 0.00001; // 0.001%
   var PretextAPI = window.Pretext || null;
@@ -29,38 +51,16 @@
     return (s.fontWeight || '400') + ' ' + (s.fontSize || '13px') + ' ' + (s.fontFamily || 'monospace');
   }
 
+  function splitSplashChars(text) {
+    if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+      var segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+      return Array.from(segmenter.segment(String(text || '')), function (part) { return part.segment; });
+    }
+    return Array.from(String(text || ''));
+  }
+
   // ── Animation control defaults ──────────────────────────────────────────────
-  var animConfig = {
-    speed: 1.0,    fontSize: 1.0, density: 1.0, intensity: 1.0,
-    loop: false,   length: 2.0,
-    bgColor: 'theme', bgAlpha: 0.0,
-    widthMode: 'full', sizeOff: false, magic: false, curtainFade: 0.3,
-    loaderMode: 'default',
-    diffusionHeight: 1.0, noiseRes: 4, textFade: 0.5, cooling: 0.65, spread: 0.3,
-    loaderSpeed: 1.0, loaderFontSize: 1.0, loaderDensity: 1.0, loaderIntensity: 1.0,
-    loaderLength: 2.0, loaderBgColor: 'theme', loaderBgAlpha: 0.0,
-    loaderLoop: true, loaderWidthMode: 'text', loaderSizeOff: false, loaderMagic: false,
-    loaderNoiseRes: 4, loaderTextFade: 0.5, loaderCooling: 0.65, loaderSpread: 0.3,
-    splashLength: 1.0, splashFade: 0.3, splashBackgroundFade: 0.3, splashBackgroundFadeDelay: 0, splashDisabled: false, splashAutoClose: false,
-    splashExitMode: 'random', splashExitDuration: 1.9, splashExitForce: 3.5, splashExitSpread: 1.5, splashExitSpeed: 2.0, splashExitChaos: 0.7,
-    splashExitMomentumX: 1.0, splashExitMomentumY: 1.0,
-    splashExitStarwarsTargetY: -29,
-    splashExitSpiralRadius: 0.7,
-    splashExitFlattenHold: 55,
-    splashExitSpiralLength: 1.2,
-    splashExitExplode2Force: 1.0, splashExitExplode2Chaos: 0, splashExitExplode2HScale: 1.0, splashExitExplode2VScale: 1.0,
-    splashCanvasExitDuration: 1.2,
-    splashCharsetPreset: 'katakana', splashCharsetCustom: '',
-    splashEmojiMix: true, splashEmojiRarity: 10000000,
-    splashQuantity: 1.4, splashCharVariety: 1.0, splashMinOpacity: 0.2, splashMaxOpacity: 1.0,
-    splashSizeVariance: 0.45, splashColorVariance: 0.32, splashBounce: 1.3, splashGravity: 0.2,
-    splashRainDown: false, splashRainReverseChance: 0.0001, splashRainBounceSides: true,
-    splashWordmarkScale: 1.1, splashCollisionForce: 2.2, splashLogoLightness: 1.0,
-    chatRiseDistance: 260, chatRiseDuration: 0.82, chatRiseTilt: 14, chatRiseBlur: 2,
-    chatColorCustom: false,
-    loaderColorCustom: false,
-    splashColorCustom: false
-  };
+  var animConfig = Object.assign({}, animationRegistry.defaults);
   window.animConfig = animConfig;
   window.SPLASH_CHARSETS = splashCharsets;
 
@@ -73,7 +73,7 @@
     } catch (e) { /* non-fatal */ }
   }
 
-  var ANIM_MODES = ['matrix','zalgo','fire','bounce','spiral','galaxy','leak'];
+  var ANIM_MODES = (animationRegistry.animModes || ['matrix','zalgo','fire','bounce','spiral','galaxy','leak']).slice();
   window.ANIM_MODES = ANIM_MODES;
 
   try {
@@ -193,12 +193,18 @@
   })();
 
   function getReactionPair() {
-    var mode = (window.animConfig && window.animConfig.reactionPair) || 'arrow-caret';
+    // The `junction.feedbackGlyphs` setting is the source of truth; fall back to
+    // the legacy animation-panel value, then the codicon default.
+    var mode = window.feedbackGlyphs
+      || (window.animConfig && window.animConfig.reactionPair)
+      || 'vector-arrows';
     switch (mode) {
       case 'faces': return { up: '😊', down: '😠' };
       case 'words': return { up: 'good', down: 'bad' };
       case 'hearts': return { up: '❤️', down: '💔' };
       case 'arrows': return { up: '⬆️', down: '⬇️' };
+      case 'thumbs': return { up: 'codicon:thumbsup', down: 'codicon:thumbsdown' };
+      case 'emoji-thumbs': return { up: '👍', down: '👎' };
       case 'vector-arrows': return { up: 'codicon:chevron-up', down: 'codicon:chevron-down' };
       case 'arrow-caret': return { up: 'codicon:arrow-up', down: 'codicon:arrow-down' };
       case 'wacky': return { up: wackyPositive, down: wackyNegative };
@@ -277,6 +283,15 @@
     });
   }
   window.updateAllCanvasBackgrounds = updateAllCanvasBackgrounds;
+
+  /* ==========================================================================
+     ╔════════════════════════════════════════════════════════════════════════╗
+     ║  NON-SPLASH CANVAS MODES                                                 ║
+     ║  fire · bounce · spiral · galaxy · matrix · zalgo · leak                 ║
+     ║  Drive the live chat curtain (working.js), the fork loader (messages.js) ║
+     ║  and the previewer's Chat/Bobber tabs via createAnimatedCanvas().        ║
+     ╚════════════════════════════════════════════════════════════════════════╝
+     ========================================================================== */
 
   // ── Fire mode ─────────────────────────────────────────────────────────────
   function createFireCanvas(text, opts) {
@@ -961,7 +976,17 @@
     return canvas;
   }
 
-  // ── Matrix loader (boot/working states) ──────────────────────────────────
+  /* ==========================================================================
+     ╔════════════════════════════════════════════════════════════════════════╗
+     ║  SPLASH ANIMATION  —  SHIPPING  (ignores JUNCTION_SHOW_LEGACY_ANIM)      ║
+     ║  Junction wordmark + character rain + exit physics. Entry point is       ║
+     ║  createMatrixLoader(..., { isSplash:true }) via createAnimatedCanvas.     ║
+     ║  (The non-splash branch of createMatrixLoader served the legacy fork      ║
+     ║   loader, now gated off in messages.js.)                                  ║
+     ╚════════════════════════════════════════════════════════════════════════╝
+     ========================================================================== */
+
+  // ── Matrix loader (splash wordmark + boot states) ─────────────────────────
   function buildSplashWordmarkMask(canvas, text) {
     if (!canvas) return null;
     var wordmarkText = text || 'Junction';
@@ -972,7 +997,9 @@
     var wordmarkFamily = animConfig.splashCharsetPreset === 'emoji'
       ? '"Junction Comic Neue", ' + (bodyStyle.fontFamily || 'sans-serif')
       : (bodyStyle.fontFamily || 'sans-serif');
-    var font = '600 ' + fontSize + 'px ' + wordmarkFamily;
+    // Logo letter weight: 1.0 = original 600 weight, scaling down toward 0.
+    var logoWeight = clamp(Math.round(safeNumber(animConfig.splashLogoWeight, 1) * 600), 1, 900);
+    var font = logoWeight + ' ' + fontSize + 'px ' + wordmarkFamily;
     var measureCanvas = document.createElement('canvas');
     var measureCtx = measureCanvas.getContext('2d');
     if (!measureCtx) return null;
@@ -1000,7 +1027,28 @@
     for (var i = 0; i < wordmarkText.length; i++) {
       var ch = wordmarkText.charAt(i);
       var w = measureCtx.measureText(ch).width;
-      chars.push({ ch: ch, x: startX + advance + w / 2, y: canvas.height / 2 });
+      var entry = { ch: ch, x: startX + advance + w / 2, y: canvas.height / 2 };
+      // Per-letter pixel mask: the glyph rendered centered on its own little
+      // bitmap. Collision tests this mask at the letter's CURRENT position, so
+      // the rain only ever hits the actual letters — never the combined blob.
+      var lw = Math.max(1, Math.ceil(w + fontSize * 0.4));
+      var lh = height;
+      var loff = document.createElement('canvas');
+      loff.width = lw;
+      loff.height = lh;
+      var lctx = loff.getContext('2d');
+      if (lctx) {
+        lctx.clearRect(0, 0, lw, lh);
+        lctx.fillStyle = '#fff';
+        lctx.textAlign = 'center';
+        lctx.textBaseline = 'middle';
+        lctx.font = font;
+        lctx.fillText(ch, lw / 2, lh / 2);
+        entry.maskData = lctx.getImageData(0, 0, lw, lh).data;
+        entry.maskW = lw;
+        entry.maskH = lh;
+      }
+      chars.push(entry);
       advance += w;
     }
     return {
@@ -1036,6 +1084,37 @@
           if (d < nearestDist) { nearestDist = d; nearest = c; }
         }
         return { index: nearest, x: x, y: y };
+      },
+      // Per-letter hit test. `positions` (optional) gives each letter's current
+      // center {x,y}; defaults to the resting layout. Returns the topmost letter
+      // index whose own mask contains (px,py), or -1.
+      // Test one letter's mask at (cx,cy). `pad` widens the probe into a small
+      // cross so a drop whose glyph merely OVERLAPS a thin stroke (i, T) — or a
+      // big emoji centered just off a lit pixel — still counts as a hit.
+      letterHitAt: function (charIndex, px, py, cx, cy, pad) {
+        var c = chars[charIndex];
+        if (!c || !c.maskData) return false;
+        var offs = pad > 0
+          ? [[0, 0], [pad, 0], [-pad, 0], [0, pad], [0, -pad],
+             [pad * 0.7, pad * 0.7], [-pad * 0.7, pad * 0.7], [pad * 0.7, -pad * 0.7], [-pad * 0.7, -pad * 0.7]]
+          : [[0, 0]];
+        for (var o = 0; o < offs.length; o++) {
+          var lx = Math.floor(px + offs[o][0] - (cx - c.maskW / 2));
+          var ly = Math.floor(py + offs[o][1] - (cy - c.maskH / 2));
+          if (lx < 0 || ly < 0 || lx >= c.maskW || ly >= c.maskH) continue;
+          if (c.maskData[(ly * c.maskW + lx) * 4 + 3] > 24) return true;
+        }
+        return false;
+      },
+      letterHitIndex: function (px, py, positions, pad) {
+        for (var i = chars.length - 1; i >= 0; i--) {
+          var c = chars[i];
+          if (!c.maskData) continue;
+          var cx = (positions && positions[i]) ? positions[i].x : c.x;
+          var cy = (positions && positions[i]) ? positions[i].y : c.y;
+          if (this.letterHitAt(i, px, py, cx, cy, pad || 0)) return i;
+        }
+        return -1;
       }
     };
   }
@@ -1071,17 +1150,23 @@
     var ctx = canvas.getContext('2d');
     if (!ctx) return null;
 
-    var fontSize = Math.round(11 * getAnimFontSize(opts));
+    // Splash rain scales with the CANVAS size (not the chat/body font), so the
+    // preview and the real splash stay proportional at any size. getAnimFontSize
+    // (the loader font slider) stays as an optional multiplier. Non-splash
+    // matrix loaders keep the old fixed size.
+    var fontSize = opts.isSplash
+      ? Math.max(3, Math.round(canvas.height * 0.014 * getAnimFontSize(opts)))
+      : Math.round(11 * getAnimFontSize(opts));
     ctx.font = fontSize + 'px monospace';
     var splashQuantity = opts.isSplash ? clamp(safeNumber(animConfig.splashQuantity, 1.4), 0.3, 4) : 1;
     var cols = Math.max(2, Math.floor((canvas.width / fontSize) * getAnimDensity(opts) * splashQuantity));
     var wordmarkMask = opts.isSplash ? buildSplashWordmarkMask(canvas, opts.text || 'Junction') : null;
     var splashCharset = opts.isSplash ? getSplashCharset() : matrixChars;
-    var splashCharsetChars = Array.from(splashCharset);
+    var splashCharsetChars = splitSplashChars(splashCharset);
     var splashCharVariety = clamp(safeNumber(animConfig.splashCharVariety, 1.0), 0.05, 1);
     var splashVarietyLength = Math.max(1, Math.ceil(splashCharsetChars.length * splashCharVariety));
     var splashVarietyCharset = splashCharsetChars.slice(0, splashVarietyLength);
-    var rareEmojiCharset = Array.from(splashCharsets.emoji);
+    var rareEmojiCharset = splitSplashChars(splashCharsets.emoji);
     var splashEffect = opts.splashEffect || 'matrix';
     var splashMinOpacity = clamp(safeNumber(animConfig.splashMinOpacity, 0.2), 0.02, 1);
     var splashMaxOpacity = clamp(safeNumber(animConfig.splashMaxOpacity, 0.9), splashMinOpacity, 1);
@@ -1095,6 +1180,15 @@
     var drops = [];
     var wordmarkMotion = [];
     var splashExit = null;
+    var splashDropsVisible = true;   // any rain drop still on screen (gates exit completion)
+    var rainStop = false;            // true → rain stops respawning (keeps its normal speed, never fades)
+    var splashIntroStartedAt = Date.now();
+    var splashIntroFadeMs = opts.isSplash ? 520 : 0;
+    // Resolution scale for exit physics: 1 at the real splash (canvas == viewport),
+    // < 1 in the smaller settings preview. Every absolute px velocity/force/offset
+    // in the exit is multiplied by this so the letters take the SAME time to fly
+    // off regardless of canvas size (preview matches the live splash exactly).
+    var exitScale = canvas.height / (window.innerHeight || canvas.height || 1);
     var exitGlyphs = [];
     var exitParticles = [];
     var i;
@@ -1137,8 +1231,12 @@
           return rareEmojiCharset[Math.floor(Math.random() * rareEmojiCharset.length)];
         }
       } else if (Math.random() < SPLASH_RARE_EMOJI_CHANCE) {
-        // The rare emoji roll also lights up the Good Fonts pack for this session.
-        try { document.body.classList.add('good-fonts'); } catch (e) {}
+        // The rare emoji roll permanently unlocks the Good Fonts pack — flip the
+        // persisted junction.goodFonts setting, not just this session's class.
+        try {
+          document.body.classList.add('good-fonts');
+          vscode.postMessage({ type: 'setGoodFonts', value: true });
+        } catch (e) {}
         return rareEmojiCharset[Math.floor(Math.random() * rareEmojiCharset.length)];
       }
       var ch = splashVarietyCharset[Math.floor(Math.random() * splashVarietyCharset.length)];
@@ -1159,6 +1257,20 @@
       drop.fill = varyColor(splashColorBase, splashColorVariance, drop.alpha);
     }
 
+    function splashEntryY(goesDown) {
+      var rainSpread = clamp(safeNumber(animConfig.splashRainSpread, 1), 0, 4);
+      var bandBase = animConfig.splashRainWaves ? canvas.height * 0.25 : canvas.height;
+      var band = bandBase * rainSpread * Math.random();
+      return goesDown
+        ? (-fontSize * (0.5 + Math.random() * 0.5) - band)
+        : (canvas.height + fontSize * (0.5 + Math.random() * 0.5) + band);
+    }
+
+    function splashIntroAlpha() {
+      if (!splashIntroFadeMs) return 1;
+      return clamp((Date.now() - splashIntroStartedAt) / splashIntroFadeMs, 0, 1);
+    }
+
     for (i = 0; i < cols; i++) {
       var laneX = (i + 0.5) * (canvas.width / cols);
       var initDown = !!animConfig.splashRainDown;
@@ -1167,7 +1279,9 @@
       var drop = {
         x: laneX,
         laneX: laneX,
-        y: initDown ? (-fontSize * (0.5 + Math.random() * 0.5)) : (canvas.height + Math.random() * canvas.height * 0.3),
+        // First splash frame must enter from an edge. Seeding across the field
+        // made rain pop into the middle after the fallback wordmark swapped out.
+        y: splashEntryY(initDown),
         vy: (initDown ? 1 : -1) * (0.8 + Math.random() * 1.6) * getAnimIntensity(opts) * splashGravity,
         vx: (Math.random() - 0.5) * 0.04,
         speed: (0.5 + Math.random() * 1.5) * getAnimIntensity(opts),
@@ -1187,13 +1301,11 @@
       var goesDown = !!animConfig.splashRainDown;
       var revChance = clamp(safeNumber(animConfig.splashRainReverseChance, 0.0001), 0, 100);
       if (Math.random() < revChance / 100) goesDown = !goesDown;
-      if (goesDown) {
-        drop.y = -fontSize * (0.5 + Math.random() * 0.5);
-        drop.vy = (0.8 + Math.random() * 1.4) * splashGravity;
-      } else {
-        drop.y = canvas.height + Math.random() * canvas.height * 0.25;
-        drop.vy = -(0.8 + Math.random() * 1.4) * splashGravity;
-      }
+      // Off-screen respawn band. Stream mode (default) uses a wide band so
+      // re-entry stays decorrelated (steady trickle); waves uses a narrow one.
+      // Spread scales it — wider = sparser/more staggered, tighter = denser.
+      drop.y = splashEntryY(goesDown);
+      drop.vy = (goesDown ? 1 : -1) * (0.8 + Math.random() * 1.4) * splashGravity;
       drop.vx = (Math.random() - 0.5) * 0.04;
       drop.ch = randomSplashChar();
       assignSplashStyle(drop);
@@ -1218,8 +1330,8 @@
           baseY: glyph.y,
           x: glyph.x,
           y: glyph.y,
-          vx: Math.cos(angle) * 360 * power * exit.spread,
-          vy: Math.sin(angle) * 260 * power * exit.spread - 80 * exit.force,
+          vx: Math.cos(angle) * 360 * power * exit.spread * exitScale,
+          vy: (Math.sin(angle) * 260 * power * exit.spread - 80 * exit.force) * exitScale,
           rot: 0,
           vrot: (Math.random() - 0.5) * 8 * exit.chaos,
           phase: Math.random() * Math.PI * 2,
@@ -1232,15 +1344,18 @@
     function buildMaskParticles(mask, exit, mode) {
       if (!mask || !mask.data) return [];
       var particles = [];
-      var maxParticles = mode === 'explode3' ? 2600 : 340;
+      var maxParticles = mode === 'explode3' ? 2600 : (mode === 'melt' ? 1800 : 340);
+      var explode3GibSize = clamp(safeNumber(animConfig.splashExitExplode3GibSize, 1), 0.5, 6);
+      var explode3GibChaos = clamp(safeNumber(animConfig.splashExitExplode3GibSizeChaos, 0.6), 0, 4);
+      var explode3YDamping = clamp(safeNumber(animConfig.splashExitExplode3YDamping, 0.35), 0, 1);
       var step = mode === 'explode3'
-        ? Math.max(2, Math.ceil(Math.sqrt((mask.width * mask.height) / maxParticles)))
-        : Math.max(2, Math.ceil(mask.width / 80));
+        ? Math.max(1, Math.round(Math.ceil(Math.sqrt((mask.width * mask.height) / maxParticles)) * explode3GibSize))
+        : (mode === 'melt' ? Math.max(1, Math.round(Math.ceil(Math.sqrt((mask.width * mask.height) / maxParticles)) * explode3GibSize)) : Math.max(2, Math.ceil(mask.width / 80)));
       for (var y = 0; y < mask.height; y += step) {
         for (var x = 0; x < mask.width; x += step) {
           var alpha = mask.data[(y * mask.width + x) * 4 + 3];
           if (alpha <= 24) continue;
-          if (mode !== 'explode3') {
+          if (mode !== 'explode3' && mode !== 'melt') {
             var edge = Math.min(x, mask.width - x);
             if (edge > mask.width * 0.22 && Math.random() > 0.18) continue;
           }
@@ -1251,17 +1366,40 @@
           var angle = Math.atan2(dy, dx || (Math.random() - 0.5));
           if (mode === 'melt') angle = Math.PI / 2 + (Math.random() - 0.5) * 0.9;
           var force = exit.force * (0.45 + Math.random() * 0.85);
-          var vy = Math.sin(angle) * 320 * force * exit.spread;
-          if (mode === 'melt') vy = Math.max(vy, 120) + 90;
+          if (mode === 'explode3') {
+            var chaosAngle = (Math.random() - 0.5) * exit.chaos * 1.2;
+            angle += chaosAngle;
+            force = exit.force * (0.9 + Math.random() * (1.25 + exit.chaos * 0.25));
+          }
+          var vy = Math.sin(angle) * 320 * force * exit.spread * exitScale;
+          if (mode === 'melt') {
+            var meltDepth = y / Math.max(1, mask.height);
+            force = exit.force * (0.35 + Math.random() * 0.45);
+            vy = (90 + 160 * Math.random() + 120 * meltDepth) * force * exitScale;
+          }
+          var vx = (Math.cos(angle) * 420 * force * exit.spread + (Math.random() - 0.5) * 90 * exit.chaos) * exitScale;
+          if (mode === 'explode3') {
+            var speed = (360 + Math.random() * 540) * force * exitScale;
+            vx = Math.cos(angle) * speed + (Math.random() - 0.5) * 180 * exit.chaos * exitScale;
+            vy = (Math.sin(angle) * speed - (120 + Math.random() * 220) * exitScale) * (1 - explode3YDamping);
+          }
+          if (mode === 'melt') {
+            vx = (Math.random() - 0.5) * (30 + 60 * exit.chaos) * exitScale;
+          }
+          var particleSize = (mode === 'explode3' || mode === 'melt')
+            ? Math.max(1, Math.round(step * Math.max(0.25, 1 + (Math.random() * 2 - 1) * explode3GibChaos * 0.35)))
+            : Math.max(1, step * 0.7);
           particles.push({
             x: sx,
             y: sy,
             baseX: sx,
             baseY: sy,
-            vx: Math.cos(angle) * 420 * force * exit.spread + (Math.random() - 0.5) * 90 * exit.chaos,
+            vx: vx,
             vy: vy,
-            size: mode === 'explode3' ? Math.max(1, step) : Math.max(1, step * 0.7),
-            delay: Math.random() * (mode === 'melt' ? 0.4 : 0.18),
+            size: particleSize,
+            delay: mode === 'melt' ? ((y / Math.max(1, mask.height)) * 0.35 + Math.random() * 0.18) : (Math.random() * (mode === 'explode3' ? 0.08 : 0.18)),
+            rot: Math.random() * Math.PI * 2,
+            vrot: (Math.random() - 0.5) * (8 + exit.chaos * 10),
             alpha: 1
           });
           if (particles.length >= maxParticles) return particles;
@@ -1273,23 +1411,28 @@
     function startSplashExit(request) {
       if (!opts.isSplash || splashExit) return;
       var mode = (request && request.mode) || animConfig.splashExitMode || 'random';
+      var explode3BounceOverride = null;
       if (mode === 'random') {
-        var modes = ['spiral-out', 'spiral-in', 'explode', 'explode2', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3', 'rain-push', 'rain-push', 'rain-push', 'rain-push'];
+        var modes = animationRegistry.randomSplashExitModes || ['spiral-out', 'spiral-in', 'explode', 'explode2', 'melt', 'float-away', 'horizontal-flatten', 'explode-weak', 'starwars-crawl', 'explode3-bounce', 'explode3-no-bounce', 'rain-push', 'rain-push', 'rain-push', 'rain-push'];
         mode = modes[Math.floor(Math.random() * modes.length)];
       }
+      var normalizedMode = animationRegistry.normalizeSplashExitMode ? animationRegistry.normalizeSplashExitMode(mode) : { mode: mode };
+      mode = normalizedMode.mode;
+      if (normalizedMode.explode3BounceSides !== undefined) explode3BounceOverride = normalizedMode.explode3BounceSides;
       wordmarkMask = buildSplashWordmarkMask(canvas, opts.text || 'Junction') || wordmarkMask;
       splashExit = {
         mode: mode,
         start: performance.now(),
         last: performance.now(),
         duration: exitValue('splashExitDuration', 1.6, 0.3, 4),
-        force: exitValue('splashExitForce', 1.0, 0.1, 4),
+        force: exitValue('splashExitForce', 1.0, 0.1, 16),
         spread: exitValue('splashExitSpread', 1.0, 0.1, 4),
         speed: exitValue('splashExitSpeed', 1.0, 0.1, 4),
         chaos: exitValue('splashExitChaos', 1.0, 0, 4)
       };
+      if (explode3BounceOverride !== null) splashExit.explode3BounceSides = explode3BounceOverride;
       exitGlyphs = buildExitGlyphs(wordmarkMask, splashExit);
-      exitParticles = (mode === 'explode3') ? buildMaskParticles(wordmarkMask, splashExit, mode) : [];
+      exitParticles = (mode === 'explode3' || mode === 'melt') ? buildMaskParticles(wordmarkMask, splashExit, mode) : [];
       if (mode === 'rain-push') {
         splashExit.rainPushDone = false;
         exitGlyphs.forEach(function (g) {
@@ -1300,13 +1443,19 @@
         });
       }
       canvas.setAttribute('data-splash-exit-mode', mode);
+      // Every mode keeps raining through the exit; the rain only stops respawning
+      // (and starts draining) once the last letter has left the screen — set
+      // below in drawSplashExit when the wordmark is no longer visible.
+      rainStop = false;
     }
     canvas._startSplashExit = startSplashExit;
 
     canvas._isSplashExitComplete = function () {
-      if (splashExit === false) return true;
+      // Not done until the glyphs have left AND the rain has drained off-screen,
+      // so the loader is never torn down while drops are still visible.
+      if (splashExit === false) return !splashDropsVisible;
       if (!splashExit) return false;
-      return (splashExit.progress || 0) >= 1 && splashExit.visible === false;
+      return (splashExit.progress || 0) >= 1 && splashExit.visible === false && !splashDropsVisible;
     };
 
     function drawExitGlyph(ctx, glyph, x, y, scaleX, scaleY, rotation, alpha, exit) {
@@ -1335,32 +1484,70 @@
       ctx.textBaseline = 'middle';
       ctx.fillStyle = getAnimColor(opts);
 
-      if (splashExit.mode === 'explode3') {
-        var momX = clamp(safeNumber(animConfig.splashExitMomentumX, 1.0), 0, 4);
-        var momY = clamp(safeNumber(animConfig.splashExitMomentumY, 1.0), 0, 4);
+      if (splashExit.mode === 'explode3' || splashExit.mode === 'melt') {
+        var isMelt = splashExit.mode === 'melt';
+        var momX = isMelt ? 1 : clamp(safeNumber(animConfig.splashExitMomentumX, 1.0), 0, 4);
+        var momY = isMelt ? 1 : clamp(safeNumber(animConfig.splashExitMomentumY, 1.0), 0, 4);
+        var dt3 = Math.min(0.05, Math.max(0.001, (now - (splashExit.last || splashExit.start)) / 1000)) * splashExit.speed;
+        var elapsed3 = ((now - splashExit.start) / 1000) * splashExit.speed;
+        var gravity3 = (isMelt ? 460 * Math.max(0.25, splashExit.force) : 780 * Math.max(0.35, momY)) * exitScale;
+        var bounceSides3 = !isMelt && (splashExit.explode3BounceSides !== undefined ? !!splashExit.explode3BounceSides : !!animConfig.splashExitExplode3BounceSides);
         ctx.fillStyle = getAnimColor(opts);
         exitParticles.forEach(function (part) {
-          var tp = clamp((p - part.delay) / Math.max(0.001, 1 - part.delay), 0, 1);
-          if (tp <= 0) return;
-          var travel3 = Math.max(tp, raw);
-          var px = part.baseX + part.vx * travel3 * splashExit.speed * momX;
-          var py = part.baseY + part.vy * travel3 * splashExit.speed * momY + (Math.random() - 0.5) * splashExit.chaos;
-          if (px > -part.size && px < canvas.width + part.size && py > -part.size && py < canvas.height + part.size) splashExit.visible = true;
+          if (part.done) return;
+          if (elapsed3 < part.delay) {
+            splashExit.visible = true;
+            ctx.globalAlpha = 1;
+            ctx.fillRect(part.x, part.y, part.size, part.size);
+            return;
+          }
+          part.vy += gravity3 * dt3;
+          part.vx += (Math.random() - 0.5) * splashExit.chaos * (isMelt ? 35 : 90) * exitScale * dt3;
+          part.vy += (Math.random() - 0.5) * splashExit.chaos * (isMelt ? 18 : 45) * exitScale * dt3;
+          part.vx *= Math.pow(isMelt ? 0.965 : 0.992, dt3 * 60);
+          part.vy *= Math.pow(isMelt ? 0.992 : 0.997, dt3 * 60);
+          part.x += part.vx * dt3 * momX;
+          part.y += part.vy * dt3 * Math.max(0.15, momY);
+          part.rot += part.vrot * dt3;
+          part.vrot *= Math.pow(0.975, dt3 * 60);
+          if (bounceSides3) {
+            if (part.x < 0) {
+              part.x = 0;
+              part.vx = Math.abs(part.vx) * (0.62 + Math.random() * 0.2);
+              part.vy *= 0.94;
+              part.vrot += part.vy * 0.01;
+            } else if (part.x > canvas.width - part.size) {
+              part.x = canvas.width - part.size;
+              part.vx = -Math.abs(part.vx) * (0.62 + Math.random() * 0.2);
+              part.vy *= 0.94;
+              part.vrot -= part.vy * 0.01;
+            }
+          }
+          if (!isMelt && !bounceSides3 && (part.x < -part.size || part.x > canvas.width + part.size)) part.done = true;
+          else if (part.y <= canvas.height + part.size * 2) splashExit.visible = true;
+          else part.done = true;
+          var px = part.x;
+          var py = part.y;
           ctx.globalAlpha = 1;
-          ctx.fillRect(
-            px,
-            py,
-            part.size,
-            part.size
-          );
+          if (px > -part.size && px < canvas.width + part.size && py > -part.size && py < canvas.height + part.size) {
+            ctx.save();
+            ctx.translate(px + part.size / 2, py + part.size / 2);
+            ctx.rotate(part.rot || 0);
+            ctx.fillRect(-part.size / 2, -part.size / 2, part.size, part.size);
+            ctx.restore();
+          }
         });
         ctx.restore();
+        splashExit.last = now;
         if (!splashExit.visible) {
           splashExit._offCount = (splashExit._offCount || 0) + 1;
         } else {
           splashExit._offCount = 0;
         }
-        if (splashExit._offCount > 30) splashExit = false;
+        if (splashExit._offCount > 30) {
+          rainStop = true;
+          splashExit = false;
+        }
         return true;
       }
 
@@ -1372,7 +1559,7 @@
         var rot = glyph.vrot * p * 0.18;
         var alpha = 1;
         if (splashExit.mode === 'spiral-out') {
-          var radius = (20 + 520 * splashExit.spread * travel) * (0.65 + Math.abs(index - exitGlyphs.length / 2) / exitGlyphs.length);
+          var radius = (20 + 520 * splashExit.spread * travel) * exitScale * (0.65 + Math.abs(index - exitGlyphs.length / 2) / exitGlyphs.length);
           var angle = glyph.angle + travel * Math.PI * 4 * splashExit.speed;
           x = mask.centerX + Math.cos(angle) * radius;
           y = mask.textY + Math.sin(angle) * radius;
@@ -1387,7 +1574,7 @@
           sx = sy = Math.max(0.005, Math.pow(1 - ease, 1.8));
         } else if (splashExit.mode === 'explode') {
           x += glyph.vx * travel * 0.9 + Math.sign(glyph.vx || (glyph.baseX - mask.centerX) || 1) * canvas.width * 0.5 * travel * travel;
-          y += glyph.vy * travel * 0.9 + 150 * travel * travel;
+          y += glyph.vy * travel * 0.9 + 150 * exitScale * travel * travel;
         } else if (splashExit.mode === 'explode2') {
           if (!glyph._e2Init) {
             glyph._e2Init = true;
@@ -1399,9 +1586,9 @@
           var e2Force = clamp(safeNumber(animConfig.splashExitExplode2Force, 1.0), 0.1, 4);
           var e2Chaos = clamp(safeNumber(animConfig.splashExitExplode2Chaos, 0), 0, 4);
           var dt = Math.min(0.05, (now - splashExit.last) / 1000) * splashExit.speed;
-          glyph.vy += 520 * dt * e2Force;
-          glyph.vx += (Math.random() - 0.5) * e2Chaos * dt * 100;
-          glyph.vy += (Math.random() - 0.5) * e2Chaos * dt * 50;
+          glyph.vy += 520 * exitScale * dt * e2Force;
+          glyph.vx += (Math.random() - 0.5) * e2Chaos * dt * 100 * exitScale;
+          glyph.vy += (Math.random() - 0.5) * e2Chaos * dt * 50 * exitScale;
           glyph.x += glyph.vx * dt;
           glyph.y += glyph.vy * dt;
           if (glyph.x < 8 || glyph.x > canvas.width - 8) {
@@ -1412,11 +1599,11 @@
           y = glyph.y;
           alpha = y > canvas.height + 40 ? 0 : 1;
         } else if (splashExit.mode === 'float-away') {
-          var dxTravel = Math.cos(travel * 9 + glyph.phase) * 55 * splashExit.spread * splashExit.chaos;
-          var dyTravel = -(canvas.height + mask.height + 80 * splashExit.force);
-          x += dxTravel + (glyph.spreadSlot - 0.5) * 90 * travel;
+          var dxTravel = Math.cos(travel * 9 + glyph.phase) * 55 * exitScale * splashExit.spread * splashExit.chaos;
+          var dyTravel = -(canvas.height + mask.height + 80 * exitScale * splashExit.force);
+          x += dxTravel + (glyph.spreadSlot - 0.5) * 90 * exitScale * travel;
           y += dyTravel * travel;
-          var dirAngle = Math.atan2(dyTravel, dxTravel + (glyph.spreadSlot - 0.5) * 90);
+          var dirAngle = Math.atan2(dyTravel, dxTravel + (glyph.spreadSlot - 0.5) * 90 * exitScale);
           rot = dirAngle * 0.35 * clamp(splashExit.chaos, 0.2, 1) + Math.sin(travel * 8 + glyph.phase) * 0.15 * splashExit.chaos;
         } else if (splashExit.mode === 'horizontal-flatten') {
           var holdMs = clamp(safeNumber(animConfig.splashExitFlattenHold, 0), 0, 100);
@@ -1440,36 +1627,72 @@
           y = glyph.baseY + (targetY - glyph.baseY) * ease;
           sx = sy = Math.max(0.015, Math.pow(1 - ease, 2.2));
           rot = -0.18 * ease;
-        } else if (splashExit.mode === 'rain-push') {
+	        } else if (splashExit.mode === 'rain-push') {
           if (!glyph._rpInit) {
             glyph._rpInit = true;
             glyph.x = glyph.baseX;
             glyph.y = glyph.baseY;
-            glyph.vx = (Math.random() - 0.5) * 8;
-            glyph.vy = (Math.random() - 0.5) * 8;
+            glyph.vx = (Math.random() - 0.5) * 8 * exitScale;
+            glyph.vy = (Math.random() - 0.5) * 8 * exitScale;
+            glyph.vrot = 0;
+            glyph.rot = 0;
           }
           var dt = Math.min(0.05, (now - (splashExit.last || splashExit.start)) / 1000);
+          var lmask = mask.chars[index];
+          var rpRotForce = clamp(safeNumber(animConfig.splashRainPushRotForce, 1), 0, 4);
           drops.forEach(function (drop) {
-            if (drop.dead) return;
+            if (drop.dead || !lmask || !lmask.maskData) return;
+            // Push only when the drop is actually inside THIS letter's mask at
+            // its current position — collide with the loose letter, nothing else.
+            if (!mask.letterHitAt(index, drop.x + fontSize * 0.3, drop.y - fontSize * 0.35, glyph.x, glyph.y, fontSize * 0.5)) return;
             var dx = glyph.x - drop.x;
             var dy = glyph.y - drop.y;
-            var dist = Math.sqrt(dx * dx + dy * dy);
-            var pushRadius = fontSize * 1.2;
-            if (dist < pushRadius && dist > 0.1) {
-              var force = (1 - dist / pushRadius) * 60 * splashExit.force;
-              glyph.vx += (dx / dist) * force * dt;
-              glyph.vy += (dy / dist) * force * dt;
+            var dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+            var force = 60 * exitScale * splashExit.force;
+            var pushX = dx / dist;
+            var pushY = dy / dist;
+            // Bias the push toward the rain's travel direction, so letters get
+            // carried along with the flow instead of just scattering radially.
+            var rvLen = Math.sqrt(drop.vx * drop.vx + drop.vy * drop.vy);
+            if (rvLen > 0.0001) {
+              var rainBias = clamp(safeNumber(animConfig.splashRainPushBias, 0.65), 0, 1);
+              pushX = pushX * (1 - rainBias) + (drop.vx / rvLen) * rainBias;
+              pushY = pushY * (1 - rainBias) + (drop.vy / rvLen) * rainBias;
+            }
+            glyph.vx += pushX * force * dt;
+            glyph.vy += pushY * force * dt;
+            // Off-center hit spins the letter (2D torque = lever × applied force).
+            // Both lever and force carry exitScale, so divide it back out to keep
+            // the rotation amount the same at any canvas size.
+            if (rpRotForce > 0) {
+              var torque = (drop.x - glyph.x) * (pushY * force) - (drop.y - glyph.y) * (pushX * force);
+              glyph.vrot += torque * rpRotForce * 0.00004 * dt / (exitScale * exitScale || 1);
             }
           });
           glyph.vx *= 0.985;
           glyph.vy *= 0.985;
+          glyph.rot = (glyph.rot || 0) + (glyph.vrot || 0) * dt;
+          glyph.vrot = (glyph.vrot || 0) * 0.96;   // angular damping
           glyph.x += glyph.vx * dt * 60;
           glyph.y += glyph.vy * dt * 60;
-          x = glyph.x;
-          y = glyph.y;
-          alpha = (y >= 0 && y <= canvas.height && x >= 0 && x <= canvas.width) ? 1 : 0;
-        }
-        if (splashExit.mode === 'rain-push') {
+          if (animConfig.splashRainPushBounceSides) {
+            // Bounce off the left/right walls only — no gravity. The rain keeps
+            // pushing until every letter leaves off the top or bottom edge.
+            if (glyph.x < 0) { glyph.x = 0; glyph.vx = Math.abs(glyph.vx) * 0.8; }
+            else if (glyph.x > canvas.width) { glyph.x = canvas.width; glyph.vx = -Math.abs(glyph.vx) * 0.8; }
+            x = glyph.x;
+            y = glyph.y;
+            alpha = (y >= -mask.height && y <= canvas.height + mask.height) ? 1 : 0;   // gone off top or bottom
+          } else {
+            x = glyph.x;
+            y = glyph.y;
+            alpha = (y >= 0 && y <= canvas.height && x >= 0 && x <= canvas.width) ? 1 : 0;  // slide off any side
+	          }
+	          rot = glyph.rot || 0;   // impact-driven spin
+	        }
+	        glyph._drawX = x;
+	        glyph._drawY = y;
+	        if (splashExit.mode === 'rain-push') {
           if (alpha > 0) splashExit.visible = true;
         } else if (alpha > 0 && sx > 0.02 && sy > 0.02 && x > -mask.height && x < canvas.width + mask.height && y > -mask.height && y < canvas.height + mask.height) {
           splashExit.visible = true;
@@ -1478,20 +1701,26 @@
       });
       splashExit.last = now;
       if (splashExit.mode === 'rain-push') {
+        // Every letter is off screen → push done. Stop spawning new rain; the
+        // remaining drops keep falling at their normal speed until they leave.
+        // Complete only once they've actually left — never delete on-screen rain.
         if (!splashExit.visible && raw > 1) {
-          if (!splashExit.rainPushDone) splashExit.rainPushDoneAt = now;
           splashExit.rainPushDone = true;
-          var anyDropVisible = false;
-          for (var di = 0; di < drops.length; di++) {
-            if (!drops[di].dead && drops[di].y > -fontSize * 4 && drops[di].y < canvas.height + fontSize) {
-              anyDropVisible = true; break;
-            }
+          rainStop = true;
+        }
+        if (rainStop) {
+          var rpAnyOn = false;
+          for (var rpi = 0; rpi < drops.length; rpi++) {
+            var rpd = drops[rpi];
+            if (!rpd.dead && rpd.y > -fontSize * 4 && rpd.y < canvas.height + fontSize * 4 &&
+                rpd.x > -fontSize * 4 && rpd.x < canvas.width + fontSize * 4) { rpAnyOn = true; break; }
           }
-          if (!anyDropVisible && (now - (splashExit.rainPushDoneAt || 0)) > 2000) splashExit = false;
+          if (!rpAnyOn) splashExit = false;
         }
       } else {
         if (!splashExit.visible) {
           splashExit._offCount = (splashExit._offCount || 0) + 1;
+          rainStop = true;   // last letter has left → stop spawning rain, let it drain
         } else {
           splashExit._offCount = 0;
         }
@@ -1502,7 +1731,12 @@
     }
 
     function drawSplashLoader() {
-      var dismissing = !!(canvas.closest && canvas.closest('#startup-loader.dismissed'));
+      // splashExit lifecycle: null = intro (wordmark up), object = exit running,
+      // false = exit glyphs done. After the glyphs leave we must NOT redraw the
+      // intro wordmark (that was the post-exit flash bug), but we DO keep
+      // animating the rain off-screen — on-screen glyphs must drain away, they
+      // must never pop out.
+      var exiting = splashExit !== null;            // exit started (running or done)
       wordmarkMask = buildSplashWordmarkMask(canvas, opts.text || 'Junction') || wordmarkMask;
       if (!splashExit) {
         syncWordmarkMotion(wordmarkMask);
@@ -1510,64 +1744,128 @@
       }
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+      // Current center of each resting letter (rest layout + physics jitter), so
+      // the rain collides with each letter's own mask at where it's actually drawn.
+	      var letterPositions = null;
+	      if (!splashExit && wordmarkMask && wordmarkMask.chars) {
+	        letterPositions = wordmarkMask.chars.map(function (c, i) {
+	          var m = wordmarkMotion[i];
+	          return { x: c.x + (m ? m.x : 0), y: c.y + (m ? m.y : 0) };
+	        });
+	      }
+	      var exitLetterPositions = null;
+	      if (splashExit && splashExit !== false && wordmarkMask && wordmarkMask.chars &&
+	          splashExit.mode !== 'explode3' && splashExit.mode !== 'melt') {
+	        exitLetterPositions = wordmarkMask.chars.map(function (c, i) {
+	          var g = exitGlyphs[i];
+	          return { x: (g && g._drawX !== undefined) ? g._drawX : c.x, y: (g && g._drawY !== undefined) ? g._drawY : c.y };
+	        });
+	      }
+	      function hitExitParticle(px, py, pad) {
+	        if (!splashExit || splashExit === false || (splashExit.mode !== 'explode3' && splashExit.mode !== 'melt')) return null;
+	        for (var epi = exitParticles.length - 1; epi >= 0; epi--) {
+	          var part = exitParticles[epi];
+	          if (!part || part.done) continue;
+	          if (px >= part.x - pad && px <= part.x + part.size + pad &&
+	              py >= part.y - pad && py <= part.y + part.size + pad) {
+	            return part;
+	          }
+	        }
+	        return null;
+	      }
+
+      var rainSpeed = clamp(safeNumber(animConfig.splashRainSpeed, 1), 0.1, 4);
+      var rainFlicker = clamp(safeNumber(animConfig.splashRainFlicker, 0.16), 0, 1);
       drops.forEach(function (drop) {
-        drop.ch = Math.random() < 0.16 ? randomSplashChar() : drop.ch;
+        drop.ch = Math.random() < rainFlicker ? randomSplashChar() : drop.ch;
         drop.vy -= 0.015 * getAnimSpeed(opts) * splashGravity;
         drop.vx *= 0.88;
+        // Draining never changes the rain's speed: once rainStop is set the drops
+        // simply stop respawning and keep falling at their normal pace until they
+        // leave the screen. (No acceleration — the rain looks identical before,
+        // during, and after every exit mode.)
         if (!animConfig.splashRainBounceSides) drop.vx += (drop.laneX - drop.x) * 0.0025;
         var nextX = drop.x + drop.vx * fontSize;
-        var nextY = drop.y + drop.vy * fontSize * 0.36 * getAnimSpeed(opts);
-        var hit = (!drop.behind && wordmarkMask && wordmarkMask.hitInfo) ? wordmarkMask.hitInfo(nextX, nextY) : null;
-        if (hit) {
-          hitWordmark(drop, hit);
-          var side = nextX < wordmarkMask.centerX ? -1 : 1;
-          if (drop.y < wordmarkMask.top + wordmarkMask.height * 0.4) {
-            nextY = wordmarkMask.top - 1;
-            drop.vy *= -(0.16 + splashBounce * 0.2);
-            drop.vx += side * (0.08 + splashCollisionForce * 0.04 + splashBounce * (0.09 + Math.random() * 0.12));
-          } else {
-            drop.vx += side * (0.05 + splashCollisionForce * 0.03 + splashBounce * (0.05 + Math.random() * 0.07));
-            nextX += side * fontSize * (0.05 + splashCollisionForce * 0.02 + splashBounce * (0.04 + Math.random() * 0.05));
-            nextY = drop.y + Math.max(0.3, drop.vy * (0.14 + splashBounce * 0.04));
-          }
-        }
+        var nextY = drop.y + drop.vy * fontSize * 0.36 * getAnimSpeed(opts) * rainSpeed;
+	        // Hit-test the drop against whatever is visibly blocking it RIGHT NOW:
+	        // resting letters before dismissal, moving loose letters during glyph
+	        // exits, and pixel bodies during explode3/melt. Never use the old baked
+	        // whole-word mask after the user presses start.
+	        if (!drop.behind && wordmarkMask && wordmarkMask.letterHitIndex) {
+	          var probeX = nextX + fontSize * 0.3;
+	          var probeY = nextY - fontSize * 0.35;
+	          var pad = fontSize * 0.5;
+	          var hitCenter = null;
+	          var _li = -1;
+	          if (!splashExit && letterPositions) {
+	            _li = wordmarkMask.letterHitIndex(probeX, probeY, letterPositions, pad);
+	            if (_li >= 0) {
+	              hitCenter = letterPositions[_li];
+	              hitWordmark(drop, { index: _li, x: nextX, y: nextY });
+	            }
+	          } else if (splashExit && splashExit !== false && exitLetterPositions) {
+	            _li = wordmarkMask.letterHitIndex(probeX, probeY, exitLetterPositions, pad);
+	            if (_li >= 0) hitCenter = exitLetterPositions[_li];
+	          } else {
+	            var hitPart = hitExitParticle(probeX, probeY, pad);
+	            if (hitPart) hitCenter = { x: hitPart.x + hitPart.size / 2, y: hitPart.y + hitPart.size / 2 };
+	          }
+	          if (hitCenter) {
+	            var side = nextX < hitCenter.x ? -1 : 1;
+	            var shove = fontSize * (0.04 + splashCollisionForce * 0.02 + splashBounce * (0.03 + Math.random() * 0.05));
+	            nextX += side * shove;
+	            drop.vx += side * shove * 0.015;
+	          }
+	        }
         drop.x = nextX;
         drop.y = nextY;
-        if (animConfig.splashRainBounceSides && !splashExit) {
+        var offscreen = drop.x < -fontSize || drop.x > canvas.width + fontSize ||
+                        drop.y < -fontSize * 4 || drop.y > canvas.height + fontSize;
+        if (exiting) {
+          if (offscreen) {
+            if (rainStop) {
+              // Draining (all modes): a drop that has left the screen stays gone
+              // — no respawn, no teleport. It exited; it never disappeared on-screen.
+              drop.dead = true;
+            } else {
+              // rain-push still pushing letters: keep raining (respawn).
+              resetSplashDrop(drop);
+            }
+          }
+        } else if (animConfig.splashRainBounceSides) {
           if (drop.x < 0) { drop.x = 0; drop.vx = Math.abs(drop.vx) * 0.7; }
           if (drop.x > canvas.width) { drop.x = canvas.width; drop.vx = -Math.abs(drop.vx) * 0.7; }
-          if (drop.y < -fontSize * 4 || drop.y > canvas.height + fontSize) {
-            resetSplashDrop(drop);
-          }
-        } else {
-          if (drop.x < -fontSize || drop.x > canvas.width + fontSize || drop.y < -fontSize * 4 || drop.y > canvas.height + fontSize) {
-            resetSplashDrop(drop);
-          }
+          if (drop.y < -fontSize * 4 || drop.y > canvas.height + fontSize) resetSplashDrop(drop);
+        } else if (offscreen) {
+          resetSplashDrop(drop);
         }
       });
 
       [true].forEach(function (behindLayer) {
         drops.forEach(function (drop) {
           if (drop.behind !== behindLayer || drop.dead) return;
-          ctx.globalAlpha = 1;
-          ctx.fillStyle = (splashExit || dismissing) ? getAnimColor(opts) : drop.fill;
-          ctx.font = Math.max(7, Math.round(fontSize * drop.scale)) + 'px monospace';
+          ctx.globalAlpha = splashIntroAlpha();
+          ctx.fillStyle = drop.fill;   // keep each drop's own varied colour/alpha — never recolour on exit
+          ctx.font = Math.max(2, Math.round(fontSize * drop.scale)) + 'px monospace';
           ctx.fillText(drop.ch, drop.x, drop.y);
         });
       });
-      if (!drawSplashExit(ctx, wordmarkMask)) {
-        drawSplashWordmark(ctx, wordmarkMask, opts, wordmarkMotion);
+      if (splashExit) {
+        drawSplashExit(ctx, wordmarkMask);                            // glyphs fly out; may flip splashExit=false
+      } else if (splashExit === null) {
+        drawSplashWordmark(ctx, wordmarkMask, opts, wordmarkMotion);  // intro only — never redraw after exit
       }
       [false].forEach(function (behindLayer) {
         drops.forEach(function (drop) {
           if (drop.behind !== behindLayer || drop.dead) return;
-          ctx.globalAlpha = 1;
-          ctx.fillStyle = (splashExit || dismissing) ? getAnimColor(opts) : drop.fill;
-          ctx.font = Math.max(7, Math.round(fontSize * drop.scale)) + 'px monospace';
+          ctx.globalAlpha = splashIntroAlpha();
+          ctx.fillStyle = drop.fill;   // keep each drop's own varied colour/alpha — never recolour on exit
+          ctx.font = Math.max(2, Math.round(fontSize * drop.scale)) + 'px monospace';
           ctx.fillText(drop.ch, drop.x, drop.y);
         });
       });
       ctx.globalAlpha = 1;
+      splashDropsVisible = drops.some(function (d) { return !d.dead; });
       animId = requestAnimationFrame(drawSplashLoader);
     }
 
@@ -1601,6 +1899,24 @@
   window.createMatrixLoader = createMatrixLoader;
 
   // ── Dispatcher ────────────────────────────────────────────────────────────
+  var animationCanvasFactories = {
+    matrix: function (text, opts) { return createMatrixCanvas(text, opts); },
+    zalgo: function (text, opts) { return createZalgoCanvas(text, opts); },
+    fire: function (text, opts) { return createFireCanvas(text, opts); },
+    bounce: function (text, opts) { return createBounceCanvas(text, opts); },
+    spiral: function (text, opts) { return createSpiralCanvas(text, opts); },
+    galaxy: function (text, opts) { return createSpiralCanvas(text, opts); },
+    leak: function (text, opts) { return createLeakCanvas(text, opts); }
+  };
+
+  function createModeCanvas(mode, text, opts) {
+    var factory = animationCanvasFactories[mode] || animationCanvasFactories.matrix;
+    return factory(text, opts);
+  }
+
+  animationRegistry.canvasFactories = animationCanvasFactories;
+  animationRegistry.createModeCanvas = createModeCanvas;
+
   function createAnimatedCanvas(text, opts) {
     opts = opts || {};
     if (opts.isSplash) opts = Object.assign({}, opts, { loop: true, loaderLoop: true });
@@ -1617,14 +1933,7 @@
       }
       else if (opts.loader && mode === 'matrix') { canvas = createMatrixLoader(opts.width, opts.height || 40, opts); }
       else {
-        switch (mode) {
-          case 'zalgo': canvas = createZalgoCanvas(text, opts); break;
-          case 'fire': canvas = createFireCanvas(text, opts); break;
-          case 'bounce': canvas = createBounceCanvas(text, opts); break;
-          case 'spiral': case 'galaxy': canvas = createSpiralCanvas(text, opts); break;
-          case 'leak': canvas = createLeakCanvas(text, opts); break;
-          default: canvas = createMatrixCanvas(text, opts); break;
-        }
+        canvas = createModeCanvas(mode, text, opts);
       }
     } finally { window._activeLoaderContext = false; }
     if (canvas) {

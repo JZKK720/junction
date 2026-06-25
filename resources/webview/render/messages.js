@@ -36,6 +36,7 @@
   window.userScrollSticky = userScrollSticky;
   window.isProgrammaticScroll = isProgrammaticScroll;
   window.historyFragment = historyFragment;
+  window.messageReactionsEnabled = false;
 
   // ── Workspace context detection ──────────────────────────────────────────
   var WORKSPACE_PREFIXES = ['Chat: VS Code.', 'This session is driven', '[Workspace File Context]', '[Attached Context]'];
@@ -105,9 +106,11 @@
     var worklog = ensureWorklog(row);
     var label = worklog.querySelector('.activity-worklog-label');
     if (!label) return;
+    var compactTimeline = !!window.compactTimelineMode && activityUsesUnifiedTimeline();
     if (worklog.getAttribute('data-thinking-text')) {
       updateActivityWorklogThoughtSummary(worklog);
       worklog.classList.toggle('thinking', state !== 'done');
+      if (compactTimeline) worklog.open = state !== 'done';
       return;
     }
     if (state === 'done') {
@@ -115,10 +118,12 @@
       var started = parseInt(row.getAttribute('data-run-start-ms') || '0', 10);
       var elapsed = durationMs || (started ? (Date.now() - started) : 0);
       row.setAttribute('data-work-duration-ms', String(elapsed));
-      label.textContent = 'Worked for ' + formatWorkedDuration(elapsed);
+      label.textContent = window.junctionT('workedFor', 'Worked for {duration}', { duration: formatWorkedDuration(elapsed) });
+      if (compactTimeline) worklog.open = false;
     } else {
       worklog.classList.add('thinking');
-      label.textContent = 'Working...';
+      label.textContent = window.junctionT('working', 'Working...');
+      if (compactTimeline) worklog.open = true;
     }
   }
   window.setWorklogState = setWorklogState;
@@ -136,7 +141,7 @@
     worklog.setAttribute('data-thinking-text', raw);
     worklog.classList.add('has-activity-thoughts');
     var label = worklog.querySelector('.activity-worklog-label');
-    if (label) label.textContent = 'Thought · ~' + window.approxTokens(raw).toLocaleString() + ' tokens';
+    if (label) label.textContent = window.junctionT('thoughtTokens', 'Thought · ~{count} tokens', { count: window.approxTokens(raw).toLocaleString() });
   }
   window.updateActivityWorklogThoughtSummary = updateActivityWorklogThoughtSummary;
 
@@ -193,7 +198,7 @@
     if (!block) return;
     var raw = block.getAttribute('data-thinking-text') || '';
     var summary = block.querySelector(':scope > summary');
-    var label = 'Thought · ~' + window.approxTokens(raw).toLocaleString() + ' tokens';
+    var label = window.junctionT('thoughtTokens', 'Thought · ~{count} tokens', { count: window.approxTokens(raw).toLocaleString() });
     var labelEl = summary && summary.querySelector('.reasoning-label');
     if (labelEl) labelEl.textContent = label;
     else if (summary) summary.textContent = label;
@@ -208,7 +213,7 @@
     block.open = true;
 
     var summary = document.createElement('summary');
-    var label = 'Thought · ~0 tokens';
+    var label = window.junctionT('thoughtZeroTokens', 'Thought · ~0 tokens');
     if (window.summaryHtml) summary.innerHTML = window.summaryHtml(label, { showBar: false });
     else summary.textContent = label;
     block.appendChild(summary);
@@ -226,29 +231,84 @@
   }
   window.createActivityThoughtBlock = createActivityThoughtBlock;
 
+  // Collapse intra-line whitespace but PRESERVE newlines. Thinking from most
+  // bridges (hermes, opencode, openhands, openclaw, souveraine, mimocode) arrives
+  // as multi-paragraph prose — numbered lists, blank-line breaks — and that
+  // structure IS the readable shape. Goose is the one bridge that streams
+  // fragmented token deltas, and it flattens its OWN thinking at the bridge layer
+  // (goose/events.ts → normalizeThinkingText) before it ever reaches here, so it
+  // has no newlines left to preserve. Stripping newlines in this shared renderer
+  // applied Goose's flatten semantics to every bridge and mashed their reasoning
+  // into one unreadable run-on blob. Keep bridge-specific normalization at the
+  // bridge; here we only tidy whitespace.
+  function normalizeThoughtBlobText(text) {
+    return String(text || '')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/[ \t]*\n[ \t]*/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  function mergeThoughtBlobText(prior, next) {
+    var left = normalizeThoughtBlobText(prior);
+    var right = normalizeThoughtBlobText(next);
+    if (!left) return right;
+    if (!right) return left;
+    // A single sentence split across deltas (prior ends with no terminator and
+    // both sides land on an alphanumeric boundary) → glue with one space so the
+    // sentence stays whole.
+    if (!/[.!?…]["'`”’)\]]?$/.test(left)
+        && /[A-Za-z0-9)'"`”’\]]$/.test(left)
+        && /^[A-Za-z0-9('"`“‘\[]/.test(right)) {
+      return left + ' ' + right;
+    }
+    // Otherwise these are distinct bursts/paragraphs — keep them separated.
+    return left + '\n\n' + right;
+  }
+  window.mergeThoughtBlobText = mergeThoughtBlobText;
+
   function appendActivityThoughtText(block, text) {
     var raw = String(text || '').trim();
     if (!block || !raw) return;
     if (block.classList && block.classList.contains('tool-calls')) {
-      var note = document.createElement('div');
-      note.className = 'activity-note activity-thought-note';
-      var contentNode = document.createElement('div');
-      contentNode.className = 'reasoning-content activity-thought-chunk';
-      contentNode.innerHTML = window.formatThinkingContent ? window.formatThinkingContent(raw) : window.renderMarkdown(raw);
-      note.appendChild(contentNode);
-      block.appendChild(note);
+      var worklog = block.closest('.activity-worklog');
+      var note = worklog && worklog.querySelector('.activity-thought-note[data-live-thought="true"]');
+      var contentNode = note && note.querySelector('.activity-thought-chunk');
+      if (!note || !contentNode) {
+        note = document.createElement('div');
+        note.className = 'activity-note activity-thought-note';
+        note.setAttribute('data-live-thought', 'true');
+        contentNode = document.createElement('div');
+        contentNode.className = 'reasoning-content activity-thought-chunk';
+        note.appendChild(contentNode);
+        block.insertBefore(note, block.firstChild);
+      }
+      var nextText = mergeThoughtBlobText(contentNode.getAttribute('data-raw-thinking') || contentNode.textContent || '', raw);
+      contentNode.setAttribute('data-raw-thinking', nextText);
+      contentNode.innerHTML = window.formatThinkingContent ? window.formatThinkingContent(nextText) : window.renderMarkdown(nextText);
       updateActivityWorklogThoughtSummary(block.closest('.activity-worklog'));
       return;
     }
     var prior = block.getAttribute('data-thinking-text') || '';
-    block.setAttribute('data-thinking-text', [prior, raw].filter(Boolean).join('\n\n'));
-    var content = document.createElement('div');
-    content.className = 'reasoning-content activity-thought-chunk';
-    content.innerHTML = window.formatThinkingContent ? window.formatThinkingContent(raw) : window.renderMarkdown(raw);
-    block.appendChild(content);
+    var merged = mergeThoughtBlobText(prior, raw);
+    block.setAttribute('data-thinking-text', merged);
+    var content = block.querySelector(':scope > .activity-thought-chunk');
+    if (!content) {
+      content = document.createElement('div');
+      content.className = 'reasoning-content activity-thought-chunk';
+      block.appendChild(content);
+    }
+    content.setAttribute('data-raw-thinking', merged);
+    content.innerHTML = window.formatThinkingContent ? window.formatThinkingContent(merged) : window.renderMarkdown(merged);
     updateActivityThoughtSummary(block);
   }
   window.appendActivityThoughtText = appendActivityThoughtText;
+
+  function dispatchActivityThoughtText(block, text) {
+    var fn = window.appendActivityThoughtText || appendActivityThoughtText;
+    return fn(block, text);
+  }
+  window.dispatchActivityThoughtText = dispatchActivityThoughtText;
 
   function ensureActivityThoughtBlock(runId, row) {
     var container = ensureActivityNoteContainer(runId, row);
@@ -278,7 +338,7 @@
     }
     state.buffer = parts.pop() || '';
     parts.map(function (part) { return String(part || '').trim(); }).filter(Boolean).forEach(function (part) {
-      appendActivityThoughtText(ensureActivityThoughtBlock(runId, row), part);
+      dispatchActivityThoughtText(ensureActivityThoughtBlock(runId, row), part);
     });
     activityNoteState.set(runId, state);
   }
@@ -287,7 +347,7 @@
   function flushActivityNotes(runId, row) {
     var state = activityNoteState.get(runId);
     if (!state || !state.buffer || !state.buffer.trim()) return;
-    appendActivityThoughtText(ensureActivityThoughtBlock(runId, row), state.buffer.trim());
+    dispatchActivityThoughtText(ensureActivityThoughtBlock(runId, row), state.buffer.trim());
     state.buffer = '';
     activityNoteState.set(runId, state);
   }
@@ -296,7 +356,7 @@
   function appendHistoryActivityNote(runId, text, row) {
     var noteText = String(text || '').trim();
     if (!noteText) return;
-    appendActivityThoughtText(ensureActivityThoughtBlock(runId, row), noteText);
+    dispatchActivityThoughtText(ensureActivityThoughtBlock(runId, row), noteText);
   }
   window.appendHistoryActivityNote = appendHistoryActivityNote;
 
@@ -458,19 +518,9 @@
     return String(row.textContent || '').trim();
   }
 
-  function canRewindRow(row, hasCheckpoint) {
-    return !!(hasCheckpoint || (row && row.getAttribute('data-has-checkpoint') === 'true') ||
-      (row && (row.getAttribute('data-message-id') || row.getAttribute('data-run-id'))));
-  }
-
   function forkMessage(messageId) {
     window.showForkOverlay();
     vscode.postMessage({ type: 'forkConversation', messageId: messageId });
-  }
-
-  function forkAndRewindMessage(messageId) {
-    window.showForkOverlay();
-    vscode.postMessage({ type: 'forkAndRewind', messageId: messageId });
   }
 
   function openForkMenu(row, triggerBtn, messageId, hasCheckpoint) {
@@ -479,13 +529,10 @@
       return;
     }
     var items = [
-      { id: 'fork', label: 'Fork', icon: 'git-branch', action: function () { forkMessage(messageId); } },
+      { id: 'fork', label: window.junctionT('fork', 'Fork'), icon: 'git-branch', action: function () { forkMessage(messageId); } },
     ];
-    if (canRewindRow(row, hasCheckpoint)) {
-      items.push({ id: 'fork-rewind', label: 'Fork & rewind', icon: 'discard', action: function () { forkAndRewindMessage(messageId); } });
-    }
     window.choiceMenu.open(triggerBtn || row, {
-      title: 'Fork',
+      title: window.junctionT('fork', 'Fork'),
       items: items,
       placement: row && document.body.classList.contains('stream-layout-timeline') ? 'above' : undefined,
     });
@@ -495,23 +542,18 @@
   function openShareForRow(row, triggerBtn) {
     if (!row) return;
     var text = getRowCopyText(row);
-    var role = row.classList.contains('user') ? 'You' : 'Assistant';
+    var role = row.classList.contains('user') ? window.junctionT('you', 'You') : window.junctionT('assistant', 'Assistant');
     var messageId = row.getAttribute('data-message-id') || row.getAttribute('data-run-id') || '';
-    var canRewind = canRewindRow(row);
     var trigger = triggerBtn || row;
     if (!window.choiceMenu) return;
     var items = [
-      { id: 'markdown', label: 'Copy as Markdown', icon: 'markdown', action: function () { copyViaHost('**' + role + ':** ' + text); } },
-      { id: 'text', label: 'Copy as Text', icon: 'clipboard', action: function () { copyViaHost(text); } },
-      { id: 'html', label: 'Export HTML', icon: 'file', action: downloadChatExportHtml },
+      { id: 'markdown', label: window.junctionT('copyAsMarkdown', 'Copy as Markdown'), icon: 'markdown', action: function () { copyViaHost('**' + role + ':** ' + text); } },
+      { id: 'text', label: window.junctionT('copyAsText', 'Copy as Text'), icon: 'clipboard', action: function () { copyViaHost(text); } },
+      { id: 'html', label: window.junctionT('exportHtml', 'Export HTML'), icon: 'file', action: downloadChatExportHtml },
     ];
-    if (canRewind) {
-      items.push({ id: 'rewind', label: 'Rewind code to here', icon: 'history', action: function () { vscode.postMessage({ type: 'rewindToMessage', messageId: messageId }); } });
-    }
-    items.push({ id: 'fork', label: 'Fork', icon: 'git-branch', action: function () { forkMessage(messageId); } });
-    items.push({ id: 'fork-rewind', label: 'Fork & rewind', icon: 'discard', disabled: !canRewind, action: function () { forkAndRewindMessage(messageId); } });
+    items.push({ id: 'fork', label: window.junctionT('fork', 'Fork'), icon: 'git-branch', action: function () { forkMessage(messageId); } });
     window.choiceMenu.open(trigger, {
-      title: 'Message actions',
+      title: window.junctionT('messageActions', 'Message actions'),
       items: items,
       placement: row && document.body.classList.contains('stream-layout-timeline') ? 'above' : undefined,
     });
@@ -524,13 +566,11 @@
     var bar = document.createElement('div');
     bar.className = 'msg-actions';
     var row = findMessageRow(messageId);
-    var canRewind = canRewindRow(row, hasCheckpoint);
     var actions = [
-      { icon: 'copy', label: 'Copy', act: 'copy' },
-      { icon: 'clippy', label: 'Share', act: 'share' },
-      { icon: 'git-branch', label: 'Fork', act: 'fork' },
+      { icon: 'copy', label: window.junctionT('copy', 'Copy'), act: 'copy' },
+      { icon: 'clippy', label: window.junctionT('share', 'Share'), act: 'share' },
+      { icon: 'git-branch', label: window.junctionT('fork', 'Fork'), act: 'fork' },
     ];
-    if (canRewind) actions.push({ icon: 'history', label: 'Rewind code to here', act: 'rewind' });
     actions.forEach(function (a) {
       var b = document.createElement('button');
       b.className = 'msg-action codicon codicon-' + a.icon;
@@ -545,21 +585,19 @@
           setTimeout(function () { b.classList.remove('codicon-check'); b.classList.add('codicon-copy'); }, 1500);
         } else if (a.act === 'share') { openShareForRow(getActionRow(bar, messageId), b); }
         else if (a.act === 'fork') {
-          openForkMenu(getActionRow(bar, messageId), b, messageId, canRewind);
-        } else if (a.act === 'rewind') {
-          vscode.postMessage({ type: 'rewindToMessage', messageId: messageId });
+          openForkMenu(getActionRow(bar, messageId), b, messageId, false);
         }
       });
       bar.appendChild(b);
     });
 
-    if (isAssistant && messageId) {
+    if (isAssistant && messageId && window.messageReactionsEnabled === true) {
       var row = findMessageRow(messageId);
       var currentReaction = row ? row.getAttribute('data-reaction') : null;
       var pair = window.getReactionPair();
       var reactions = [
-        { type: 'down', glyph: pair.down, label: 'Bad response' },
-        { type: 'up', glyph: pair.up, label: 'Good response' }
+        { type: 'down', glyph: pair.down, label: window.junctionT('badResponse', 'Bad response') },
+        { type: 'up', glyph: pair.up, label: window.junctionT('goodResponse', 'Good response') }
       ];
       reactions.forEach(function (r) {
         var b = document.createElement('button');
@@ -574,7 +612,7 @@
           var newVal = (old === r.type) ? null : r.type;
           if (parent) { if (newVal) parent.setAttribute('data-reaction', newVal); else parent.removeAttribute('data-reaction'); }
           bar.querySelectorAll('.msg-action').forEach(function (btn) {
-            if (btn.title === 'Good response' || btn.title === 'Bad response') btn.classList.remove('active');
+            if (btn.title === window.junctionT('goodResponse', 'Good response') || btn.title === window.junctionT('badResponse', 'Bad response')) btn.classList.remove('active');
           });
           if (newVal === r.type) b.classList.add('active');
           vscode.postMessage({ type: 'setReaction', messageId: messageId, value: newVal });
@@ -608,7 +646,7 @@
     if (isSteer) {
       var steerBadge = document.createElement('span');
       steerBadge.className = 'steer-badge';
-      steerBadge.textContent = 'STEER';
+      steerBadge.textContent = window.junctionT('steer', 'STEER');
       bubble.insertBefore(steerBadge, bubble.firstChild);
     }
 
@@ -740,6 +778,67 @@
   }
   window.setAssistantText = setAssistantText;
 
+  function renderCommandOutputBlock(block) {
+    if (!block || !block.type) return '';
+    if (block.type === 'text') return '<div class="command-output-text">' + window.renderMarkdown(block.text || '') + '</div>';
+    if (block.type === 'error') {
+      return '<div class="command-output-error">' +
+        (block.title ? '<div class="command-output-block-title">' + window.escapeHtml(block.title) + '</div>' : '') +
+        '<pre>' + window.escapeHtml(block.text || '') + '</pre>' +
+      '</div>';
+    }
+    if (block.type === 'keyValue') {
+      var kv = (block.rows || []).map(function (row) {
+        return '<div class="command-output-kv-row"><dt>' + window.escapeHtml(row.key || '') + '</dt><dd>' + window.escapeHtml(row.value || '') + '</dd></div>';
+      }).join('');
+      return '<section class="command-output-block">' +
+        (block.title ? '<div class="command-output-block-title">' + window.escapeHtml(block.title) + '</div>' : '') +
+        '<dl class="command-output-kv">' + kv + '</dl>' +
+      '</section>';
+    }
+    if (block.type === 'table') {
+      var cols = block.columns || [];
+      var head = '<thead><tr>' + cols.map(function (col) { return '<th>' + window.escapeHtml(col || '') + '</th>'; }).join('') + '</tr></thead>';
+      var body = '<tbody>' + (block.rows || []).map(function (row) {
+        return '<tr>' + cols.map(function (_, i) { return '<td>' + window.escapeHtml((row || [])[i] || '') + '</td>'; }).join('') + '</tr>';
+      }).join('') + '</tbody>';
+      return '<section class="command-output-block">' +
+        (block.title ? '<div class="command-output-block-title">' + window.escapeHtml(block.title) + '</div>' : '') +
+        '<div class="command-output-table-wrap"><table class="command-output-table">' + head + body + '</table></div>' +
+      '</section>';
+    }
+    if (block.type === 'sections') {
+      return '<section class="command-output-block">' +
+        (block.title ? '<div class="command-output-block-title">' + window.escapeHtml(block.title) + '</div>' : '') +
+        (block.sections || []).map(function (section) {
+          return '<div class="command-output-section"><div class="command-output-section-title">' + window.escapeHtml(section.title || '') + '</div>' +
+            (section.text ? '<div class="command-output-text">' + window.renderMarkdown(section.text || '') + '</div>' : '') +
+            (section.rows ? renderCommandOutputBlock({ type: 'keyValue', rows: section.rows }) : '') +
+          '</div>';
+        }).join('') +
+      '</section>';
+    }
+    return '';
+  }
+
+  function setAssistantCommandOutput(runId, payload, fallbackText) {
+    var row = getOrCreateAssistantMessage(runId);
+    var text = row.querySelector('.msg-text');
+    if (!text) return;
+    var raw = String(fallbackText || '');
+    activityTextState.set(runId, raw);
+    text.dataset.rawText = raw;
+    var blocks = payload && Array.isArray(payload.blocks) ? payload.blocks : [];
+    var title = payload && (payload.title || payload.command);
+    text.innerHTML = '<div class="command-output">' +
+      (title ? '<div class="command-output-title">' + window.escapeHtml(title) + '</div>' : '') +
+      blocks.map(renderCommandOutputBlock).join('') +
+    '</div>';
+    ensureToolContainer(runId, row);
+    window.scrollToBottom();
+  }
+  window.setAssistantCommandOutput = setAssistantCommandOutput;
+
   // ── Tool container helpers ────────────────────────────────────────────────
   function ensureToolContainer(runId, row) {
     var tools = row.querySelector('.tool-calls');
@@ -773,26 +872,10 @@
     var card = document.createElement('div');
     card.className = 'fork-bobber-card';
 
-    var canvasContainer = document.createElement('div');
-    canvasContainer.style.width = '160px';
-    canvasContainer.style.height = '40px';
-    canvasContainer.style.display = 'flex';
-    canvasContainer.style.alignItems = 'center';
-    canvasContainer.style.justifyContent = 'center';
-
-    var canvas = window.createAnimatedCanvas('Forking', { loader: true, width: 160, height: 40, loaderLoop: true });
-    if (canvas) {
-      canvas.style.width = '100%';
-      canvas.style.height = '100%';
-      canvasContainer.appendChild(canvas);
-      card._loaderCanvas = canvas;
-    }
-
     var textEl = document.createElement('div');
     textEl.className = 'fork-bobber-text';
-    textEl.textContent = 'Forking conversation...';
+    textEl.textContent = window.junctionT('forkingConversation', 'Forking conversation...');
 
-    card.appendChild(canvasContainer);
     card.appendChild(textEl);
     overlay.appendChild(card);
 
@@ -807,10 +890,6 @@
   function hideForkOverlay() {
     var overlay = document.getElementById('fork-overlay');
     if (overlay) {
-      var card = overlay.querySelector('.fork-bobber-card');
-      if (card && card._loaderCanvas && typeof card._loaderCanvas._stopAnimation === 'function') {
-        try { card._loaderCanvas._stopAnimation(); } catch (e) {}
-      }
       overlay.remove();
     }
   }
@@ -830,17 +909,17 @@
     }
     if (!window.choiceMenu) return;
     window.choiceMenu.open(anchor, {
-      title: 'Share chat',
+      title: window.junctionT('shareChat', 'Share chat'),
       items: [
-        { id: 'markdown', label: 'Copy as Markdown', icon: 'markdown', action: function () {
-          var md = getMessages().map(function (m) { return (m.role === 'user' ? '**You:** ' : '**Assistant:** ') + m.text; }).join('\n\n');
+        { id: 'markdown', label: window.junctionT('copyAsMarkdown', 'Copy as Markdown'), icon: 'markdown', action: function () {
+          var md = getMessages().map(function (m) { return (m.role === 'user' ? '**' + window.junctionT('you', 'You') + ':** ' : '**' + window.junctionT('assistant', 'Assistant') + ':** ') + m.text; }).join('\n\n');
           copyViaHost(md);
         } },
-        { id: 'text', label: 'Copy as Text', icon: 'clipboard', action: function () {
-          var txt = getMessages().map(function (m) { return (m.role === 'user' ? 'You: ' : 'Assistant: ') + m.text; }).join('\n\n');
+        { id: 'text', label: window.junctionT('copyAsText', 'Copy as Text'), icon: 'clipboard', action: function () {
+          var txt = getMessages().map(function (m) { return (m.role === 'user' ? window.junctionT('you', 'You') + ': ' : window.junctionT('assistant', 'Assistant') + ': ') + m.text; }).join('\n\n');
           copyViaHost(txt);
         } },
-        { id: 'html', label: 'Export HTML', icon: 'file', action: downloadChatExportHtml },
+        { id: 'html', label: window.junctionT('exportHtml', 'Export HTML'), icon: 'file', action: downloadChatExportHtml },
       ],
     });
   }

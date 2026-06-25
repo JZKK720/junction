@@ -9,39 +9,17 @@
 (function () {
   'use strict';
 
-  /* ---- per-mode slider definitions ----
-     Each mode lists only the sliders it actually uses.
-     Duration is always included. 'random' gets all sliders. */
-  var MODE_SLIDERS = {
-    'random':             ['Force','Spread','Speed','Chaos'],
-    'spiral-out':         ['Spread','Speed'],
-    'spiral-in':          ['Speed','Radius','Length'],
-    'explode':            ['Speed','Force'],
-    'explode2':           ['Speed','E2 Force','E2 Chaos','H Scale','V Scale'],
-    'float-away':         ['Speed','Force','Spread','Chaos'],
-    'horizontal-flatten': ['Speed','Spread','Hold ms'],
-    'explode-weak':       ['Speed','Force'],
-    'starwars-crawl':     ['Speed','Target Y'],
-    'explode3':           ['Speed','Chaos','Mom X','Mom Y'],
-    'rain-push':          ['Speed','Force']
-  };
+  var animationRegistry = window.JunctionAnimation || {};
+  var SPLASH_EXIT_MODES = animationRegistry.splashExitModes || {};
+  var SLIDER_DEFS = animationRegistry.sliderDefs || {};
 
-  var SLIDER_DEFS = {
-    'Force':    { key: 'splashExitForce',    min: 0.1, max: 4,   step: 0.1, fallback: 1.0 },
-    'Spread':   { key: 'splashExitSpread',   min: 0.1, max: 20,  step: 0.1, fallback: 1.0 },
-    'Speed':    { key: 'splashExitSpeed',    min: 0.1, max: 4,   step: 0.1, fallback: 1.0 },
-    'Chaos':    { key: 'splashExitChaos',    min: 0,   max: 4,   step: 0.1, fallback: 1.0 },
-    'Mom X':    { key: 'splashExitMomentumX', min: 0,   max: 4,   step: 0.1, fallback: 1.0 },
-    'Mom Y':    { key: 'splashExitMomentumY', min: 0,   max: 4,   step: 0.1, fallback: 1.0 },
-    'Target Y': { key: 'splashExitStarwarsTargetY', min: -100, max: 100, step: 1, fallback: 0 },
-    'Radius':   { key: 'splashExitSpiralRadius', min: 0.1, max: 4,   step: 0.1, fallback: 1.0 },
-    'Length':   { key: 'splashExitSpiralLength', min: 0,   max: 2,   step: 0.05, fallback: 1.0 },
-    'E2 Force': { key: 'splashExitExplode2Force', min: 0.1, max: 4,   step: 0.1, fallback: 1.0 },
-    'E2 Chaos': { key: 'splashExitExplode2Chaos', min: 0,   max: 4,   step: 0.1, fallback: 0 },
-    'H Scale':  { key: 'splashExitExplode2HScale', min: 0,   max: 4,   step: 0.1, fallback: 1.0 },
-    'V Scale':  { key: 'splashExitExplode2VScale', min: 0,   max: 4,   step: 0.1, fallback: 1.0 },
-    'Hold ms':  { key: 'splashExitFlattenHold', min: 0,   max: 100, step: 1,   fallback: 0 }
-  };
+  function getModeSliders(mode) {
+    if (typeof animationRegistry.getSplashExitSliderLabels === 'function') {
+      return animationRegistry.getSplashExitSliderLabels(mode);
+    }
+    var entry = SPLASH_EXIT_MODES[mode] || SPLASH_EXIT_MODES.random;
+    return entry && entry.sliders ? entry.sliders.slice() : [];
+  }
 
   window.buildSplashSection = function () {
     var section = document.createElement('div');
@@ -106,7 +84,7 @@
       });
       function sync() {
         var enabled = !!window.animConfig[key];
-        btn.textContent = titlePrefix + ': ' + (enabled ? onLabel : offLabel);
+      btn.textContent = titlePrefix + ': ' + (enabled ? onLabel : offLabel);
         btn.style.background = enabled ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
         btn.style.color = enabled ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
       }
@@ -152,7 +130,7 @@
     /* ============================================================
        ACCORDION 1 — Appearance
        ============================================================ */
-    var appearance = makeAccordion('Appearance', true);
+    var appearance = makeAccordion(window.junctionT('appearance', 'Appearance'), true);
     var appBody = appearance.body;
 
     var colorRow = makeRow(appBody);
@@ -161,7 +139,7 @@
     splashCustomBtn.style.cssText = 'padding:2px 6px;border-radius:3px;cursor:pointer;font-size:9px;border:1px solid var(--vscode-input-border);';
     function syncSplashCustom() {
       var active = !!window.animConfig.splashColorCustom;
-      splashCustomBtn.textContent = 'Custom color';
+      splashCustomBtn.textContent = window.junctionT('customColor', 'Custom color');
       splashCustomBtn.style.background = active ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
       splashCustomBtn.style.color = active ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
     }
@@ -221,19 +199,19 @@
     syncSplashColorVisibility();
     window.settingsSyncFunctions.push(syncSplashColorVisibility);
 
-    makeSlider(colorRow, 'Length', 'splashLength', 1, 10, 0.5, 1.0, 64);
-    makeSlider(colorRow, 'Bg delay', 'splashBackgroundFadeDelay', 0, 5, 0.1, 0, 64);
-    makeSlider(colorRow, 'Bg fade', 'splashBackgroundFade', 0.1, 5, 0.1, 0.3, 64);
-    makeSlider(colorRow, 'Rain exit', 'splashCanvasExitDuration', 0.2, 6, 0.1, 1.2, 64);
-    makeToggle(colorRow, 'splashDisabled', 'OFF', 'ON', 'Splash');
-    makeToggle(colorRow, 'splashAutoClose', 'ON', 'OFF', 'Auto-close');
+    makeSlider(colorRow, window.junctionT('length', 'Length'), 'splashLength', 1, 10, 0.5, 1.0, 64);
+    makeSlider(colorRow, window.junctionT('bgDelay', 'Bg delay'), 'splashBackgroundFadeDelay', 0, 5, 0.1, 0, 64);
+    makeSlider(colorRow, window.junctionT('bgFade', 'Bg fade'), 'splashBackgroundFade', 0.1, 5, 0.1, 0.3, 64);
+    makeSlider(colorRow, window.junctionT('rainExit', 'Rain exit'), 'splashCanvasExitDuration', 0.2, 6, 0.1, 1.2, 64);
+    makeToggle(colorRow, 'splashDisabled', window.junctionT('off', 'OFF'), window.junctionT('on', 'ON'), window.junctionT('splash', 'Splash'));
+    makeToggle(colorRow, 'splashAutoClose', window.junctionT('on', 'ON'), window.junctionT('off', 'OFF'), window.junctionT('autoClose', 'Auto-close'));
 
     var rainRow = makeRow(appBody);
     var rainDirBtn = document.createElement('button');
     rainDirBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);';
     function syncRainDir() {
       var down = !!window.animConfig.splashRainDown;
-      rainDirBtn.textContent = 'Rain ' + (down ? '\u25BC' : '\u25B2');
+      rainDirBtn.textContent = window.junctionT('rainDirection', 'Rain {direction}', { direction: down ? '\u25BC' : '\u25B2' });
       rainDirBtn.style.background = 'var(--vscode-input-background)';
       rainDirBtn.style.color = 'var(--vscode-editor-foreground)';
     }
@@ -248,7 +226,7 @@
     var revWrap = document.createElement('div');
     revWrap.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:4px;';
     var revLbl = document.createElement('span');
-    revLbl.textContent = 'Reverse %';
+    revLbl.textContent = window.junctionT('reversePercent', 'Reverse %');
     revLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);';
     var revInput = document.createElement('input');
     revInput.type = 'number';
@@ -269,7 +247,7 @@
     bounceBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);margin-left:4px;';
     function syncBounceSides() {
       var on = !!window.animConfig.splashRainBounceSides;
-      bounceBtn.textContent = 'Bounce sides';
+      bounceBtn.textContent = window.junctionT('bounceSides', 'Bounce sides');
       bounceBtn.style.background = on ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
       bounceBtn.style.color = on ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
     }
@@ -280,18 +258,29 @@
     });
     rainRow.appendChild(bounceBtn);
 
+    // Spawn cadence: constant stream (default) vs the old wavey/batched spawning.
+    makeToggle(rainRow, 'splashRainWaves', 'waves', 'stream', 'Spawn');
+
     window.settingsSyncFunctions.push(syncRainDir);
     window.settingsSyncFunctions.push(syncBounceSides);
     window.settingsSyncFunctions.push(function () {
       revInput.value = window.animConfig.splashRainReverseChance !== undefined ? window.animConfig.splashRainReverseChance : 0.0001;
     });
 
+    // Spawn controls — grouped with the stream/waves toggle since they shape the
+    // spawn (how many chars, how fast, how often they re-roll, how spread out).
+    var spawnRow = makeRow(appBody);
+    makeSlider(spawnRow, 'Quantity', 'splashQuantity', 0.4, 8, 0.1, 1.4, 72);
+    makeSlider(spawnRow, 'Rain speed', 'splashRainSpeed', 0.1, 4, 0.1, 1.0, 72);
+    makeSlider(spawnRow, 'Flicker', 'splashRainFlicker', 0, 1, 0.01, 0.16, 72);
+    makeSlider(spawnRow, 'Spread', 'splashRainSpread', 0, 4, 0.05, 1.0, 72);
+
     var emojiRow = makeRow(appBody);
     var emojiToggle = document.createElement('button');
     emojiToggle.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);';
     function syncEmojiToggle() {
       var on = !!window.animConfig.splashEmojiMix;
-      emojiToggle.textContent = 'Emoji chance';
+      emojiToggle.textContent = window.junctionT('emojiChance', 'Emoji chance');
       emojiToggle.style.background = on ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
       emojiToggle.style.color = on ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
       emojiInputWrap.style.display = on ? 'flex' : 'none';
@@ -333,7 +322,7 @@
     var presetWrap = document.createElement('div');
     presetWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
     var presetLbl = document.createElement('span');
-    presetLbl.textContent = 'Language:';
+    presetLbl.textContent = window.junctionT('language', 'Language:');
     presetLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:56px;';
     var presetSelect = document.createElement('select');
     presetSelect.style.cssText = 'font-size:10px;background:var(--vscode-input-background);color:var(--vscode-editor-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;padding:1px 4px;cursor:pointer;';
@@ -365,7 +354,7 @@
     var extraWrap = document.createElement('div');
     extraWrap.style.cssText = 'display:flex;align-items:center;gap:4px;flex:1 1 260px;min-width:240px;';
     var extraLbl = document.createElement('span');
-    extraLbl.textContent = 'Add chars:';
+    extraLbl.textContent = window.junctionT('addChars', 'Add chars:');
     extraLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:56px;';
     var extraInput = document.createElement('input');
     extraInput.type = 'text';
@@ -382,11 +371,10 @@
     /* ============================================================
        ACCORDION 2 — Motion / Physics
        ============================================================ */
-    var motion = makeAccordion('Motion', true);
+    var motion = makeAccordion(window.junctionT('motion', 'Motion'), true);
     var motBody = motion.body;
 
     var motionRow = makeRow(motBody);
-    makeSlider(motionRow, 'Quantity', 'splashQuantity', 0.4, 4, 0.1, 1.4, 72);
     makeSlider(motionRow, 'Variety', 'splashCharVariety', 0.05, 1, 0.05, 1.0, 72);
     makeSlider(motionRow, 'Opacity min', 'splashMinOpacity', 0.05, 1, 0.05, 0.2, 72);
     makeSlider(motionRow, 'Opacity max', 'splashMaxOpacity', 0.05, 1, 0.05, 0.9, 72);
@@ -407,26 +395,14 @@
     var exitWrap = document.createElement('div');
     exitWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
     var exitLbl = document.createElement('span');
-    exitLbl.textContent = 'Exit:';
+    exitLbl.textContent = window.junctionT('exit', 'Exit:');
     exitLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:56px;';
     var exitSelect = document.createElement('select');
     exitSelect.style.cssText = 'font-size:10px;background:var(--vscode-input-background);color:var(--vscode-editor-foreground);border:1px solid var(--vscode-input-border);border-radius:3px;padding:1px 4px;cursor:pointer;';
-    [
-      ['random', 'Random'],
-      ['spiral-out', 'Spiral out'],
-      ['spiral-in', 'Spiral in'],
-      ['explode', 'Explode'],
-      ['explode2', 'Explode 2'],
-      ['float-away', 'Float away'],
-      ['horizontal-flatten', 'Horizontal flatten'],
-      ['explode-weak', 'Explode weak'],
-      ['starwars-crawl', 'Starwars crawl'],
-      ['explode3', 'Explode 3 pixels'],
-      ['rain-push', 'Rain push']
-    ].forEach(function (entry) {
+    Object.keys(SPLASH_EXIT_MODES).forEach(function (mode) {
       var opt = document.createElement('option');
-      opt.value = entry[0];
-      opt.textContent = entry[1];
+      opt.value = mode;
+      opt.textContent = SPLASH_EXIT_MODES[mode].label || mode;
       exitSelect.appendChild(opt);
     });
     exitWrap.appendChild(exitLbl);
@@ -445,13 +421,51 @@
       while (exitSliderRow.firstChild) exitSliderRow.removeChild(exitSliderRow.firstChild);
       exitSliderEls = {};
 
-      var labels = MODE_SLIDERS[mode] || MODE_SLIDERS['random'];
+      var labels = getModeSliders(mode);
       labels.forEach(function (label) {
         var def = SLIDER_DEFS[label];
         if (!def) return;
         var els = makeSlider(exitSliderRow, label, def.key, def.min, def.max, def.step, def.fallback, 72);
         exitSliderEls[label] = els;
       });
+
+      /* rain-push: toggle whether the Junction letters bounce off the side
+         walls or slide off the sides. Self-contained (rebuilt per mode switch). */
+      if (mode === 'rain-push') {
+        var bounceBtn = document.createElement('button');
+        bounceBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);';
+        var syncBounce = function () {
+          var on = !!window.animConfig.splashRainPushBounceSides;
+          bounceBtn.textContent = on ? window.junctionT('lettersBounceSides', 'Letters: bounce sides') : window.junctionT('lettersSlideOff', 'Letters: slide off');
+          bounceBtn.style.background = on ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
+          bounceBtn.style.color = on ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
+        };
+        bounceBtn.addEventListener('click', function () {
+          window.animConfig.splashRainPushBounceSides = !window.animConfig.splashRainPushBounceSides;
+          syncBounce();
+          saveAndRefresh(window.refreshPreview);
+        });
+        syncBounce();
+        exitSliderRow.appendChild(bounceBtn);
+      }
+
+      if (mode === 'explode3') {
+        var gibBounceBtn = document.createElement('button');
+        gibBounceBtn.style.cssText = 'padding:2px 8px;border-radius:3px;cursor:pointer;font-size:10px;border:1px solid var(--vscode-input-border);';
+        var syncGibBounce = function () {
+          var on = window.animConfig.splashExitExplode3BounceSides !== false;
+          gibBounceBtn.textContent = on ? window.junctionT('gibsBounceSides', 'Gibs: bounce sides') : window.junctionT('gibsLeaveSides', 'Gibs: leave sides');
+          gibBounceBtn.style.background = on ? 'var(--vscode-button-background)' : 'var(--vscode-input-background)';
+          gibBounceBtn.style.color = on ? 'var(--vscode-button-foreground)' : 'var(--vscode-editor-foreground)';
+        };
+        gibBounceBtn.addEventListener('click', function () {
+          window.animConfig.splashExitExplode3BounceSides = !(window.animConfig.splashExitExplode3BounceSides !== false);
+          syncGibBounce();
+          saveAndRefresh(window.refreshPreview);
+        });
+        syncGibBounce();
+        exitSliderRow.appendChild(gibBounceBtn);
+      }
     }
 
     exitSelect.addEventListener('change', function () {

@@ -23,6 +23,7 @@
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 
 #btn-back,
+#btn-task-history,
 #btn-menu,
 #btn-settings,
 #btn-new-chat-view {
@@ -43,6 +44,7 @@
 }
 
 #btn-back:hover,
+#btn-task-history:hover,
 #btn-menu:hover,
 #btn-settings:hover,
 #btn-new-chat-view:hover {
@@ -51,6 +53,7 @@
 }
 
 #btn-back:active,
+#btn-task-history:active,
 #btn-menu:active,
 #btn-settings:active,
 #btn-new-chat-view:active {

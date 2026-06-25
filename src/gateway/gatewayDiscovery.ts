@@ -10,6 +10,8 @@ export interface DiscoveredGateway {
     port: number;
     tls: boolean;
     configPath: string;
+    /** Id of the gateway's primary agent — first entry in config agents.list. */
+    primaryAgentId?: string;
 }
 
 /**
@@ -64,6 +66,13 @@ async function readLockFile(lockPath: string): Promise<DiscoveredGateway | null>
         const dirName = path.basename(path.dirname(lock.configPath));
         const displayName = dirName.startsWith('.') ? dirName.slice(1) : dirName;
 
+        // Primary agent = first entry in agents.list (config order). Children
+        // (e.g. spawned-child templates) follow; they're hidden by default.
+        const agentList = config?.agents?.list;
+        const primaryAgentId = Array.isArray(agentList) && agentList.length
+            ? (agentList[0]?.id || agentList[0]?.agentId || undefined)
+            : undefined;
+
         return {
             displayName,
             url: `ws://127.0.0.1:${port}`,
@@ -71,6 +80,7 @@ async function readLockFile(lockPath: string): Promise<DiscoveredGateway | null>
             port,
             tls: false,
             configPath: lock.configPath,
+            primaryAgentId,
         };
     } catch {
         return null;

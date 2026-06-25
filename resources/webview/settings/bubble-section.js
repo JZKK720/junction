@@ -9,7 +9,7 @@
     section.style.cssText = 'margin-top:8px;padding-top:6px;border-top:1px solid var(--vscode-widget-border, transparent);';
 
     var title = document.createElement('span');
-    title.textContent = 'Bubble Shape';
+    title.textContent = window.junctionT('bubbleShape', 'Bubble Shape');
     title.style.cssText = 'font-size:10px;font-weight:600;color:var(--vscode-editor-foreground);margin-right:8px;';
     section.appendChild(title);
 
@@ -17,7 +17,7 @@
     var radiusRow = document.createElement('div');
     radiusRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:4px;';
     var radiusLbl = document.createElement('span');
-    radiusLbl.textContent = 'Roundness';
+    radiusLbl.textContent = window.junctionT('roundness', 'Roundness');
     radiusLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:52px;';
     radiusRow.appendChild(radiusLbl);
 
@@ -43,16 +43,16 @@
       var px = Number.isFinite(parsed) ? parsed : 16;
       radiusSlider.value = Math.min(32, Math.max(0, px));
       radiusVal.textContent = radiusSlider.value + 'px';
-      if (px === 0) radiusDesc.textContent = 'hard';
-      else if (px >= 32) radiusDesc.textContent = 'circle';
+      if (px === 0) radiusDesc.textContent = window.junctionT('hard', 'hard');
+      else if (px >= 32) radiusDesc.textContent = window.junctionT('circle', 'circle');
       else radiusDesc.textContent = '';
     }
 
     radiusSlider.addEventListener('input', function () {
       var v = parseInt(this.value, 10);
       radiusVal.textContent = v + 'px';
-      if (v === 0) radiusDesc.textContent = 'hard';
-      else if (v >= 32) radiusDesc.textContent = 'circle';
+      if (v === 0) radiusDesc.textContent = window.junctionT('hard', 'hard');
+      else if (v >= 32) radiusDesc.textContent = window.junctionT('circle', 'circle');
       else radiusDesc.textContent = '';
       document.documentElement.style.setProperty('--junction-bubble-radius', v + 'px');
       saveBubbleSettings();
@@ -66,14 +66,14 @@
     var tipRow = document.createElement('div');
     tipRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-top:4px;';
     var tipLbl = document.createElement('span');
-    tipLbl.textContent = 'Tip';
+    tipLbl.textContent = window.junctionT('tip', 'Tip');
     tipLbl.style.cssText = 'font-size:9px;color:var(--vscode-editor-foreground);min-width:52px;';
     tipRow.appendChild(tipLbl);
 
     var tips = [
-      { val: 'none', label: 'None' },
-      { val: 'bottom-right', label: 'Bottom' },
-      { val: 'top-right', label: 'Top' }
+      { val: 'none', label: window.junctionT('none', 'None') },
+      { val: 'bottom-right', label: window.junctionT('bottom', 'Bottom') },
+      { val: 'top-right', label: window.junctionT('top', 'Top') }
     ];
 
     var tipBtns = [];

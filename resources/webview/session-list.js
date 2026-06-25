@@ -15,6 +15,7 @@
 var chatScope = 'folder';
 var _lastSig = null;
 var _collapse = loadCollapse();
+var _taskHistory = null;
 
 // ── Collapse persistence (per group id) ─────────────────────────────
 function loadCollapse() {
@@ -34,6 +35,11 @@ function isCollapsed(group) {
 function renderGroups(groups, activeKey) {
   var container = document.getElementById('session-list-items');
   if (!container) return;
+  renderGroupsInto(container, groups, activeKey, { signature: true });
+}
+
+function renderGroupsInto(container, groups, activeKey, opts) {
+  opts = opts || {};
   groups = Array.isArray(groups) ? groups : [];
 
   // Skip redundant re-renders (no flicker on no-op refreshes).
@@ -46,16 +52,24 @@ function renderGroups(groups, activeKey) {
       };
     })
   });
-  if (sig === _lastSig) return;
-  _lastSig = sig;
+  if (opts.signature) {
+    if (sig === _lastSig) return;
+    _lastSig = sig;
+  }
 
   var total = groups.reduce(function (n, g) { return n + ((g.sessions || []).length); }, 0);
   if (!total) {
-    container.innerHTML = '<div class="session-card-empty">No chats yet</div>';
+    container.innerHTML = '<div class="session-card-empty">' + window.junctionT('noChatsYet', 'No chats yet') + '</div>';
     return;
   }
 
   container.innerHTML = '';
+  if (opts.flat) {
+    groups.forEach(function (group) {
+      (group.sessions || []).forEach(function (s) { container.appendChild(makeCard(s, activeKey, opts)); });
+    });
+    return;
+  }
   groups.forEach(function (group) {
     var collapsed = isCollapsed(group);
     var groupEl = document.createElement('div');
@@ -64,7 +78,7 @@ function renderGroups(groups, activeKey) {
 
     var header = document.createElement('button');
     header.className = 'session-group-header';
-    header.title = (collapsed ? 'Expand ' : 'Collapse ') + (group.label || 'group');
+    header.title = window.junctionT(collapsed ? 'expand' : 'collapse', collapsed ? 'Expand' : 'Collapse') + ' ' + (group.label || window.junctionT('group', 'group'));
     header.innerHTML =
       '<span class="codicon codicon-chevron-down session-group-caret"></span>' +
       '<span class="session-group-label"></span>' +
@@ -76,20 +90,21 @@ function renderGroups(groups, activeKey) {
       groupEl.classList.toggle('collapsed', nowCollapsed);
       _collapse[group.id] = nowCollapsed;
       saveCollapse();
-      header.title = (nowCollapsed ? 'Expand ' : 'Collapse ') + (group.label || 'group');
+      header.title = window.junctionT(nowCollapsed ? 'expand' : 'collapse', nowCollapsed ? 'Expand' : 'Collapse') + ' ' + (group.label || window.junctionT('group', 'group'));
     });
     groupEl.appendChild(header);
 
     var body = document.createElement('div');
     body.className = 'session-group-body';
-    (group.sessions || []).forEach(function (s) { body.appendChild(makeCard(s, activeKey)); });
+    (group.sessions || []).forEach(function (s) { body.appendChild(makeCard(s, activeKey, opts)); });
     groupEl.appendChild(body);
 
     container.appendChild(groupEl);
   });
 }
 
-function makeCard(s, activeKey) {
+function makeCard(s, activeKey, opts) {
+  opts = opts || {};
   var card = document.createElement('div');
   card.className = 'session-card';
   if (s.isActive || s.key === activeKey) card.classList.add('active');
@@ -98,7 +113,7 @@ function makeCard(s, activeKey) {
 
   var titleEl = document.createElement('div');
   titleEl.className = 'session-card-title';
-  titleEl.textContent = s.title || 'Untitled';
+  titleEl.textContent = s.title || window.junctionT('untitled', 'Untitled');
   card.appendChild(titleEl);
 
   var meta = document.createElement('div');
@@ -112,22 +127,126 @@ function makeCard(s, activeKey) {
   if (s.messageCount !== undefined && s.messageCount !== null) {
     var cnt = document.createElement('span');
     cnt.className = 'session-card-count';
-    cnt.textContent = s.messageCount === 1 ? '1 msg' : s.messageCount + ' msgs';
+    cnt.textContent = s.messageCount === 1
+      ? window.junctionT('messageSingular', '1 msg')
+      : window.junctionT('messagesPlural', '{count} msgs', { count: s.messageCount });
     meta.appendChild(cnt);
   }
   if (s.isArchived) {
     var arch = document.createElement('span');
     arch.className = 'session-card-archived-badge';
-    arch.textContent = 'archived';
+    arch.textContent = window.junctionT('archived', 'archived');
     meta.appendChild(arch);
   }
   if (meta.childNodes.length) card.appendChild(meta);
 
   card.addEventListener('click', function () {
     vscode.postMessage({ type: 'resumeSession', key: s.key });
+    if (typeof opts.onSelect === 'function') opts.onSelect();
   });
   return card;
 }
+
+function filterGroups(groups, query) {
+  var q = String(query || '').trim().toLowerCase();
+  if (!q) return groups || [];
+  return (groups || []).map(function (group) {
+    return Object.assign({}, group, {
+      sessions: (group.sessions || []).filter(function (s) {
+        return String(s.title || '').toLowerCase().indexOf(q) >= 0 ||
+          String(s.model || '').toLowerCase().indexOf(q) >= 0 ||
+          String(s.key || '').toLowerCase().indexOf(q) >= 0;
+      })
+    });
+  }).filter(function (group) { return (group.sessions || []).length > 0; });
+}
+
+function closeTaskHistoryPopover() {
+  if (_taskHistory && _taskHistory.root && _taskHistory.root.parentNode) _taskHistory.root.remove();
+  document.removeEventListener('click', onTaskHistoryOutside, true);
+  _taskHistory = null;
+}
+
+function onTaskHistoryOutside(event) {
+  if (!_taskHistory || !_taskHistory.root) return;
+  if (_taskHistory.root.contains(event.target) || (_taskHistory.trigger && _taskHistory.trigger.contains(event.target))) return;
+  closeTaskHistoryPopover();
+}
+
+function renderTaskHistoryBody() {
+  if (!_taskHistory) return;
+  _taskHistory.tabs.forEach(function (tab) {
+    var active = tab.getAttribute('data-scope') === _taskHistory.scope;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  var groups = filterGroups(_taskHistory.groups, _taskHistory.query);
+  renderGroupsInto(_taskHistory.list, groups, _taskHistory.activeKey, {
+    onSelect: closeTaskHistoryPopover,
+    compact: true,
+    flat: _taskHistory.scope === 'folder'
+  });
+}
+
+function requestTaskHistory(scope) {
+  if (!_taskHistory) return;
+  _taskHistory.scope = scope === 'all' ? 'all' : 'folder';
+  _taskHistory.groups = [];
+  _taskHistory.activeKey = null;
+  _taskHistory.list.innerHTML = '<div class="session-card-empty">' + window.junctionT('loadingThreads', 'Loading threads...') + '</div>';
+  renderTaskHistoryBody();
+  vscode.postMessage({ type: 'requestTaskHistory', scope: _taskHistory.scope });
+}
+
+function openTaskHistoryPopover(trigger) {
+  if (_taskHistory) {
+    closeTaskHistoryPopover();
+    return;
+  }
+  var root = document.createElement('div');
+  root.className = 'task-history-popover';
+  root.innerHTML =
+    '<div class="task-history-tabs" role="tablist">' +
+      '<button class="task-history-tab active" data-scope="folder" role="tab" aria-selected="true"><span class="codicon codicon-device-desktop"></span><span>Workspace</span></button>' +
+      '<button class="task-history-tab" data-scope="all" role="tab" aria-selected="false"><span class="codicon codicon-globe"></span><span>All threads</span></button>' +
+    '</div>' +
+    '<div class="task-history-search"><span class="codicon codicon-search"></span><input type="search" placeholder="' + window.junctionT('searchThreads', 'Search threads...') + '" spellcheck="false"></div>' +
+    '<div class="task-history-list"><div class="session-card-empty">' + window.junctionT('loadingThreads', 'Loading threads...') + '</div></div>';
+  root.querySelector('[data-scope="folder"] span:last-child').textContent = window.junctionT('workspace', 'Workspace');
+  root.querySelector('[data-scope="all"] span:last-child').textContent = window.junctionT('allThreads', 'All threads');
+  document.body.appendChild(root);
+  var rect = trigger ? trigger.getBoundingClientRect() : { right: window.innerWidth - 12, top: 34 };
+  root.style.right = Math.max(8, window.innerWidth - rect.right) + 'px';
+  root.style.top = Math.max(34, rect.bottom + 6) + 'px';
+
+  var tabs = Array.prototype.slice.call(root.querySelectorAll('.task-history-tab'));
+  var input = root.querySelector('.task-history-search input');
+  _taskHistory = {
+    root: root,
+    trigger: trigger || null,
+    scope: 'folder',
+    tabs: tabs,
+    list: root.querySelector('.task-history-list'),
+    query: '',
+    groups: [],
+    activeKey: null
+  };
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      requestTaskHistory(tab.getAttribute('data-scope'));
+    });
+  });
+  if (input) {
+    input.addEventListener('input', function () {
+      _taskHistory.query = input.value;
+      renderTaskHistoryBody();
+    });
+    setTimeout(function () { input.focus(); }, 0);
+  }
+  setTimeout(function () { document.addEventListener('click', onTaskHistoryOutside, true); }, 0);
+  requestTaskHistory('folder');
+}
+window.openTaskHistoryPopover = openTaskHistoryPopover;
 
 // Expose for view-router.
 window.renderGroups = renderGroups;
@@ -183,6 +302,14 @@ window.addEventListener('message', function (event) {
 
   if (msg.type === 'renderSessions') {
     renderGroups(msg.groups, msg.activeKey);
+  }
+
+  if (msg.type === 'renderTaskHistory') {
+    if (_taskHistory && (msg.scope === _taskHistory.scope || !msg.scope)) {
+      _taskHistory.groups = Array.isArray(msg.groups) ? msg.groups : [];
+      _taskHistory.activeKey = msg.activeKey || null;
+      renderTaskHistoryBody();
+    }
   }
 
   if (msg.type === 'switchToHome') {

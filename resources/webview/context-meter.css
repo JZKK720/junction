@@ -1,0 +1,90 @@
+/* ==========================================================================
+   context-meter.css — context-window usage + compaction affordance
+   timeline mode: a clickable usage gauge (Claude-Code-like).
+   compact mode:  a "Context · N% full" chip + explicit Compact button (Codex-like).
+   ========================================================================== */
+
+.context-meter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+}
+.context-meter[hidden] { display: none; }
+
+.context-meter-busy {
+  opacity: 0.8;
+  font-style: italic;
+}
+
+/* ── timeline: pie usage gauge that doubles as the compact trigger ─────── */
+.context-meter-timeline { position: relative; }
+.context-gauge {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: inherit;
+}
+.context-gauge:disabled { cursor: default; opacity: 0.85; }
+.context-gauge-pie {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  /* Filled pie: --ctx-pct (0–100) of the accent, remainder a faint track. */
+  background: conic-gradient(
+    var(--vscode-charts-blue, #4daafc) calc(var(--ctx-pct, 0) * 1%),
+    color-mix(in srgb, var(--vscode-foreground) 20%, transparent) 0);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--vscode-foreground) 18%, transparent);
+}
+.context-gauge.ctx-warn .context-gauge-pie {
+  background: conic-gradient(
+    var(--vscode-charts-yellow, #cca700) calc(var(--ctx-pct, 0) * 1%),
+    color-mix(in srgb, var(--vscode-foreground) 20%, transparent) 0);
+}
+/* Hover popover (Claude-style: "{n}% remaining until auto-compact" + hint). */
+.context-gauge-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--vscode-editorWidget-background, #252526);
+  border: 1px solid var(--vscode-editorWidget-border, rgba(255,255,255,0.1));
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  white-space: nowrap;
+  z-index: 20;
+}
+.context-gauge-popover[hidden] { display: none; }
+.context-gauge-popover-line { font-size: 11.5px; }
+.context-gauge-popover-hint { font-size: 11px; opacity: 0.7; }
+
+/* ── compact: two-stage — minimal indicator, then chip + Compact button ── */
+.context-mini {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.55;
+  cursor: default;
+}
+.context-chip {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.context-chip.ctx-warn { color: var(--vscode-charts-yellow, #cca700); opacity: 1; }
+.context-compact-btn {
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+}
+.context-compact-btn:hover:not(:disabled) { background: var(--vscode-button-secondaryHoverBackground); }
+.context-compact-btn:disabled { opacity: 0.5; cursor: default; }

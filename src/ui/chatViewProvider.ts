@@ -7,6 +7,7 @@ import { SouveraineBridge } from '../bridges/souveraine/SouveraineBridge';
 import { MiMoCodeBridge } from '../bridges/mimocode/MiMoCodeBridge';
 import { GooseBridge } from '../bridges/goose/GooseBridge';
 import { OpenCodeBridge } from '../bridges/opencode/OpenCodeBridge';
+import { PiBridge } from '../bridges/pi/PiBridge';
 import { OpenHandsBridge } from '../bridges/openhands/OpenHandsBridge';
 import { ChatBase } from './chatBase';
 
@@ -31,6 +32,7 @@ export class ChatViewProvider extends ChatBase implements vscode.WebviewViewProv
         registry.register(new MiMoCodeBridge(context));
         registry.register(new GooseBridge(context));
         registry.register(new OpenCodeBridge(context));
+        registry.register(new PiBridge(context));
         registry.register(new OpenHandsBridge(context));
         super(context.extensionUri, registry);
     }
