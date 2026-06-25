@@ -104,8 +104,6 @@ npm install
 
 ---
 
-> There are easter eggs. They are not documented here. That is the point.
-
 ## Credits
 
 Based on [openclaw_vscode](https://github.com/Owen-Liuyuxuan/openclaw_vscode) by Owen-Liuyuxuan (MIT).
