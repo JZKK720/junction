@@ -37,11 +37,12 @@ export function selectedThinking(data: any, selection: BridgeSelectionState): st
     return data.thinking !== undefined ? String(data.thinking) : selection.thinking;
 }
 
-export function reasoningChildren(id: string, selectedModel?: string, selectedThinking?: string): ModelChoice[] {
+export function reasoningChildren(id: string, selectedModel?: string, selectedThinking?: string, levels?: string[]): ModelChoice[] {
     const slash = id.indexOf('/');
     const provider = slash > 0 ? id.slice(0, slash) : '';
     const model = slash > 0 ? id.slice(slash + 1) : id;
-    return OPENCLAW_THINKING_LEVELS.map((level) => ({
+    const effectiveLevels = levels?.length ? levels : OPENCLAW_THINKING_LEVELS;
+    return effectiveLevels.map((level) => ({
         id: `${id}:thinking:${level}`,
         label: level,
         icon: 'thinking',
@@ -57,6 +58,7 @@ export function staticReasoningModelChoices(
     selectedModel?: string,
     selectedThinking?: string,
     defaultModelId?: string,
+    levels?: string[],
 ): ModelChoice[] {
     return ids.map((id) => {
         const slash = id.indexOf('/');
@@ -74,13 +76,7 @@ export function staticReasoningModelChoices(
             supportsReasoning: true,
             icon: 'lightbulb',
             checked: selected,
-            children: OPENCLAW_THINKING_LEVELS.map((level) => ({
-                id: `${id}:thinking:${level}`,
-                label: level,
-                icon: 'thinking',
-                thinking: level,
-                checked: selectedThinking === level && (selectedModel === id || selectedModel === model),
-            })),
+            children: reasoningChildren(id, selectedModel, selectedThinking, levels),
         };
     });
 }

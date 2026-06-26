@@ -33,6 +33,8 @@ export interface ModelChoice extends ChoiceMenuItem {
     model?: string;
     supportsReasoning?: boolean;
     thinking?: string;
+    /** Per-model thinking levels from the bridge; falls back to OPENCLAW_THINKING_LEVELS. */
+    thinkingLevels?: string[];
 }
 
 export interface BridgeSession {
@@ -175,9 +177,6 @@ export interface ChatBridge extends EventEmitter {
     initializeWorkspace(): Promise<void>;
     registerRuntimeIntegrations(): Promise<void>;
     configure(): Promise<void>;
-
-    setPendingFileContext(context: string): void;
-    getPendingFileContext(): string | null;
 
     getCurrentSessionKey(folderUri?: vscode.Uri): string | null;
     getSessionToFolder(): ReadonlyMap<string, vscode.Uri>;

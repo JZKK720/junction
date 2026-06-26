@@ -138,13 +138,10 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
     private serverProcess: ChildProcess | null = null;
     private externalServer = false;
     private activeSessionId: string | null = null;
-    private pendingFileContext: string | null = null;
     private selection: BridgeSelectionState = {};
     private knownSessions = new Map<string, KnownMiMoCodeSession>();
-    private buffers = new Map<string, string>();
     private activeAbortController: AbortController | null = null;
     private sessionContextInjected = new Set<string>();
-    private _mapperState: MiMoCodeMapperState = { reasoningParts: new Set(), reasoningAccum: new Map(), textAccum: new Map() };
     private _lastUsage?: { inputTokens?: number; outputTokens?: number };
     private commandCache: Array<{ name: string; description?: string }> = [];
 
@@ -197,18 +194,6 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
 
     async configure(): Promise<void> {
         await vscode.commands.executeCommand('junction.openSettings');
-    }
-
-    // ── File context ───────────────────────────────────────────────────────
-
-    setPendingFileContext(context: string): void {
-        this.pendingFileContext = context;
-    }
-
-    getPendingFileContext(): string | null {
-        const ctx = this.pendingFileContext;
-        this.pendingFileContext = null;
-        return ctx;
     }
 
     // ── Session management ─────────────────────────────────────────────────
@@ -526,6 +511,12 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
             `${this.serverUrl}/event`,
             { method: 'GET', signal, timeoutMs: 0 },
             (event) => {
+                // Session-gate: skip events for other sessions BEFORE mapping
+                let payload: any = {};
+                try { payload = JSON.parse(event.data); } catch { return; }
+                const props = payload.properties ?? {};
+                if (props.sessionID && props.sessionID !== runId) return;
+
                 captureBridgeDebug(this.id, 'native', {
                     operation: 'subscribeEventStream.sse',
                     sessionKey,
@@ -534,11 +525,6 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
                     data: event.data,
                 });
                 const mapped = mapMiMoCodeSseEvent(runId, '', event.data, state);
-                // Session-gate: skip events for other sessions
-                let payload: any = {};
-                try { payload = JSON.parse(event.data); } catch { return; }
-                const props = payload.properties ?? {};
-                if (props.sessionID && props.sessionID !== runId) return;
 
                 if (mapped.usage) this._lastUsage = mapped.usage;
                 captureBridgeDebug(this.id, 'normalized', {
@@ -768,42 +754,6 @@ export class MiMoCodeBridge extends EventEmitter implements ChatBridge {
         } catch {
             this.commandCache = [];
         }
-    }
-
-    /** Returns true if the mapper signalled run completion (finish: stop/end). */
-    private mapSse(runId: string, eventName: string, data: string): boolean {
-        captureBridgeDebug(this.id, 'native', {
-            operation: 'mapSse',
-            sessionKey: runId,
-            runId,
-            eventName,
-            data,
-        });
-        const mapped = mapMiMoCodeSseEvent(runId, eventName, data, this._mapperState);
-        captureBridgeDebug(this.id, 'normalized', {
-            operation: 'mapSse',
-            sessionKey: runId,
-            runId,
-            eventName,
-            mapped,
-        });
-        if (mapped.nextText !== undefined) {
-            this.buffers.set(runId, mapped.nextText);
-        }
-        const sessionKey = runId;
-        for (const event of mapped.events) {
-            this.emit('stream', { ...event, sessionKey });
-        }
-        if (mapped.finished) {
-            this.emit('stream', {
-                type: 'agent_lifecycle',
-                phase: 'completed',
-                runId,
-                sessionKey,
-                usage: mapped.usage || { inputTokens: 0, outputTokens: 0 },
-            });
-        }
-        return !!mapped.finished;
     }
 
     // ── Server lifecycle ──────────────────────────────────────────────────

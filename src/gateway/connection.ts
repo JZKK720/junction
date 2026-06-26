@@ -55,9 +55,6 @@ export class GatewayConnection extends EventEmitter {
   // Plugin HTTP surface URLs from hello-ok (keyed by plugin id)
   public pluginSurfaceUrls: Record<string, string> = {};
 
-  // Accumulated file-path context (fed by sendFilePath.ts, consumed by sessionManager)
-  private pendingFileContext: string | null = null;
-
   // WebSocket readyState constants
   private readonly WS_OPEN = 1;
 
@@ -368,13 +365,17 @@ export class GatewayConnection extends EventEmitter {
       // Extract thinking blocks from session.message events.
       // The gateway embeds thinking in message.content[] as type:'thinking'
       // objects, but the chatBase only handles explicit thinking_chunk events.
+      // GATE: only emit for watched sessions to prevent cross-window bleed.
       if (message.type === 'event' && message.event === 'session.message') {
-          const thinkingEvents = extractThinkingFromSessionMessage(message.payload);
-          if (thinkingEvents.length > 0) {
-              this.logger.info(`Extracted ${thinkingEvents.length} thinking_chunk events from session.message`);
-          }
-          for (const ev of thinkingEvents) {
-              this.emit('processed_event', ev);
+          const key = String(message.payload?.sessionKey ?? '').trim();
+          if (!key || this.isWatchedSession(key)) {
+              const thinkingEvents = extractThinkingFromSessionMessage(message.payload);
+              if (thinkingEvents.length > 0) {
+                  this.logger.info(`Extracted ${thinkingEvents.length} thinking_chunk events from session.message`);
+              }
+              for (const ev of thinkingEvents) {
+                  this.emit('processed_event', ev);
+              }
           }
       }
       
@@ -954,10 +955,8 @@ export class GatewayConnection extends EventEmitter {
       // Set a timeout for the request.
       // NOTE: When idleTimeoutMs is set, the request is aborted if no gateway
       // activity is seen for that duration — even if the agent is still working.
-      // sessionManager.ts passes idleTimeoutMs: 15000 which may be too low for
-      // long agent runs (the gateway's agent.wait default is 30s). Without an
-      // idleTimeoutMs override, the fallback is timeoutMs (default 30000) which
-      // is a sensible 30s total timeout.
+      // lmProvider.ts passes idleTimeoutMs: 30000. Without an idleTimeoutMs
+      // override, the fallback is timeoutMs (default 30000).
       if (options?.idleTimeoutMs) {
         const idleTimeoutMs = options.idleTimeoutMs;
         pending.idleCheckHandle = setInterval(() => {
@@ -972,7 +971,7 @@ export class GatewayConnection extends EventEmitter {
           }
         }, 1000);
       } else {
-        const timeoutMs = options?.timeoutMs ?? 30000;
+        const timeoutMs = options?.timeoutMs ?? 9999000;
         pending.timeoutHandle = setTimeout(() => {
           if (this.pendingRequests.has(id)) {
             this.pendingRequests.delete(id);
@@ -1036,21 +1035,6 @@ export class GatewayConnection extends EventEmitter {
     // Otherwise let the normal close→reconnect path handle it
   }
   
-  /**
-   * Stage file context for the next agent message (fed by sendFilePath.ts, T3)
-   */
-  public setPendingFileContext(context: string): void {
-    this.pendingFileContext = context;
-  }
-  
-  /**
-   * Retrieve and clear staged file context (consumed by sessionManager)
-   */
-  public getPendingFileContext(): string | null {
-    const ctx = this.pendingFileContext;
-    this.pendingFileContext = null;
-    return ctx;
-  }
   
   /**
    * Save a rotated auth token. Stores in SecretStorage (OS keychain) when

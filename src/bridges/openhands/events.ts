@@ -70,6 +70,11 @@ export function mapOpenHandsEvent(runId: string, e: any): OpenHandsMapped {
         return out;
     }
 
+    // AUDIT: AgentErrorEvent (kind="AgentErrorEvent") has tool_name + error but
+    // its kind doesn't match 'action' or 'observation' — it falls through here
+    // without being captured. The error text in `e.error` is lost. Consider adding
+    // a check: if (e.error && role !== 'user') out.assistantText = e.error;
+
     // Assistant message text (skip user echoes and pure tool events).
     const text = asText(e.content ?? msg.content ?? e.message ?? e.text);
     if (text && role !== 'user') out.assistantText = text;

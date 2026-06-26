@@ -187,6 +187,9 @@ export function mapMiMoCodeSseEvent(
             }
         }
 
+        // AUDIT: Gateway never sets finish='end' — valid values are 'stop',
+        // 'tool-calls', 'content-filter', 'error', 'other'. The 'end' check is
+        // dead but harmless. Keep as defensive guard.
         const finished = info.finish === 'stop' || info.finish === 'end';
 
         // Extract token usage from the server response
@@ -199,26 +202,6 @@ export function mapMiMoCodeSseEvent(
         }
 
         return { runId, events, nextText: fullText, finished, usage: finished ? state.lastUsage : undefined };
-    }
-
-    // ── tool.execute.before / tool.execute.after ───────────────────────
-    if (type === 'tool.execute.before') {
-        events.push({
-            type: 'tool_event', phase: 'start', runId,
-            toolCallId: payload.toolCallID || payload.tool_call_id || `tool-${Math.random().toString(36).slice(2, 8)}`,
-            toolName: payload.tool || payload.name || 'unknown',
-            args: payload.input || payload.args || {},
-        });
-    }
-
-    if (type === 'tool.execute.after') {
-        events.push({
-            type: 'tool_event', phase: 'result', runId,
-            toolCallId: payload.toolCallID || payload.tool_call_id || '',
-            result: payload.output || payload.result || '',
-            isError: !!payload.error,
-            durationMs: payload.durationMs,
-        });
     }
 
     // Auth or permission events — ignore

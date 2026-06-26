@@ -39,6 +39,10 @@ function groupV2Models(models: any[], selectedModel?: string, selectedThinking?:
         providerNames.set(provider, provider);
         const id = `${provider}/${model}`;
         const reasoning = !!m?.reasoning || !!m?.capabilities?.reasoning;
+        const levels: string[] | undefined = Array.isArray(m?.thinkingLevels) ? m.thinkingLevels
+            : Array.isArray(m?.capabilities?.thinkingLevels) ? m.capabilities.thinkingLevels
+            : Array.isArray(m?.reasoningLevels) ? m.reasoningLevels
+            : undefined;
         const choice: ModelChoice = {
             id,
             label: m.name || model,
@@ -48,8 +52,9 @@ function groupV2Models(models: any[], selectedModel?: string, selectedThinking?:
             supportsReasoning: reasoning,
             icon: 'lightbulb',
             checked: selectedModel === id,
+            ...(levels?.length ? { thinkingLevels: levels } : {}),
         };
-        if (reasoning) choice.children = reasoningChildren(id, selectedModel, selectedThinking);
+        if (reasoning) choice.children = reasoningChildren(id, selectedModel, selectedThinking, levels);
         const children = groups.get(provider) ?? [];
         children.push(choice);
         groups.set(provider, children);
@@ -80,6 +85,9 @@ function groupLegacyProviders(providers: any[], selectedModel?: string, selected
             const m = models[key];
             const id = `${provider.id}/${m.id || key}`;
             const reasoning = !!m.reasoning;
+            const levels: string[] | undefined = Array.isArray(m?.thinkingLevels) ? m.thinkingLevels
+                : Array.isArray(m?.reasoningLevels) ? m.reasoningLevels
+                : undefined;
             const choice: ModelChoice = {
                 id,
                 label: m.name || m.id || key,
@@ -89,8 +97,9 @@ function groupLegacyProviders(providers: any[], selectedModel?: string, selected
                 supportsReasoning: reasoning,
                 icon: 'lightbulb',
                 checked: selectedModel === id,
+                ...(levels?.length ? { thinkingLevels: levels } : {}),
             };
-            if (reasoning) choice.children = reasoningChildren(id, selectedModel, selectedThinking);
+            if (reasoning) choice.children = reasoningChildren(id, selectedModel, selectedThinking, levels);
             children.push(choice);
         }
         if (children.length) {

@@ -128,14 +128,6 @@ export class OpenClawBridge extends EventEmitter implements ChatBridge {
         vscode.window.showInformationMessage(`OpenClaw connected to ${targetUrl}`);
     }
 
-    setPendingFileContext(context: string): void {
-        this.gateway.setPendingFileContext(context);
-    }
-
-    getPendingFileContext(): string | null {
-        return this.gateway.getPendingFileContext();
-    }
-
     getCurrentSessionKey(folderUri?: vscode.Uri): string | null {
         return this.sessionManager.getCurrentSessionKey(folderUri);
     }

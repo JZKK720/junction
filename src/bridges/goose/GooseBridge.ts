@@ -143,7 +143,6 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
     private process: ChildProcess | null = null;
     private connected = false;
     private activeSessionId: string | null = null;
-    private pendingFileContext: string | null = null;
     private selection: BridgeSelectionState = {};
     private knownSessions = new Map<string, KnownGooseSession>();
     private readonly commandCache: Array<{ name: string; description?: string }> = [
@@ -205,12 +204,6 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
         vscode.commands.executeCommand('junction.openSettings');
     }
 
-    setPendingFileContext(context: string): void { this.pendingFileContext = context; }
-    getPendingFileContext(): string | null {
-        const ctx = this.pendingFileContext;
-        this.pendingFileContext = null;
-        return ctx;
-    }
 
     getCurrentSessionKey(_folderUri?: vscode.Uri): string | null {
         return this.activeSessionId;
@@ -358,6 +351,10 @@ export class GooseBridge extends EventEmitter implements ChatBridge {
     }
 
     async stopRun(sessionKey?: string, runId?: string): Promise<void> {
+        // AUDIT: fallback 'goose' is a sentinel — if neither the caller nor
+        // activeSessionId provides a key, the cancelled event gets a bogus
+        // sessionKey that won't match any view.  In practice the ChatBridge
+        // contract always supplies sessionKey, so this is defensive-only.
         const key = sessionKey || this.activeSessionId || 'goose';
         const id = runId || `goose-stop-${Date.now()}`;
         if (this.process) {

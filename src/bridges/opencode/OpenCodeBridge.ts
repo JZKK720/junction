@@ -183,7 +183,6 @@ export class OpenCodeBridge extends EventEmitter implements ChatBridge {
     private process: ChildProcess | null = null;
     private baseUrl = '';
     private activeSessionId: string | null = null;
-    private pendingFileContext: string | null = null;
     private selection: BridgeSelectionState = {};
     private knownSessions = new Map<string, KnownOpenCodeSession>();
     // Bridge-local conversation record. opencode's HTTP `session.messages`
@@ -353,9 +352,6 @@ export class OpenCodeBridge extends EventEmitter implements ChatBridge {
     async initializeWorkspace(): Promise<void> {}
     async registerRuntimeIntegrations(): Promise<void> {}
     async configure(): Promise<void> { vscode.commands.executeCommand('junction.openSettings'); }
-
-    setPendingFileContext(context: string): void { this.pendingFileContext = context; }
-    getPendingFileContext(): string | null { const c = this.pendingFileContext; this.pendingFileContext = null; return c; }
 
     // ── Sessions ───────────────────────────────────────────────────────────
 

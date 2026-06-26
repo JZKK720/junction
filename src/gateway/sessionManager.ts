@@ -246,7 +246,7 @@ export class SessionManager extends EventEmitter {
           ...(this.agentOverrides.agentId ? { agentId: this.agentOverrides.agentId } : {}),
           ...(this.agentOverrides.thinking ? { thinking: this.agentOverrides.thinking } : {}),
         },
-        { idleTimeoutMs: 15000 }
+        { timeoutMs: 9999000 }
       );
 
       return result;

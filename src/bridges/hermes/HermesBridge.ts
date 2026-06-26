@@ -63,7 +63,6 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
     private pending = new Map<string, Pending>();
     private requestId = 0;
     private activeSessionId: string | null = null;
-    private pendingFileContext: string | null = null;
     private selection: BridgeSelectionState = {};
     private knownSessions = new Map<string, { title: string; model?: string }>();
     private liveSessionByKey = new Map<string, string>();
@@ -221,16 +220,6 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
         await updateHermesRuntime({ dashboardUrl, wsUrl, apiBaseUrl, home });
         this.disconnect();
         await this.connect();
-    }
-
-    setPendingFileContext(context: string): void {
-        this.pendingFileContext = context;
-    }
-
-    getPendingFileContext(): string | null {
-        const ctx = this.pendingFileContext;
-        this.pendingFileContext = null;
-        return ctx;
     }
 
     getCurrentSessionKey(): string | null {
@@ -1285,6 +1274,12 @@ export class HermesBridge extends EventEmitter implements ChatBridge {
 
     private mapEvent(ev: any): void {
         const liveId = ev.session_id || this.activeSessionId || 'hermes';
+        // AUDIT: If sessionKeyByLive doesn't have `liveId` (e.g. gateway emitted
+        // an event for a session the bridge never created/resumed), sessionId falls
+        // back to the raw gateway sid.  chatBase.ts will drop the event (no
+        // viewSessionKey match) so there's no bleed, but the event is silently
+        // lost.  This can happen for child/subagent sessions the gateway mirrors
+        // but the bridge hasn't explicitly resumed.
         const sessionId = this.sessionKeyByLive.get(liveId) || liveId;
         captureBridgeDebug(this.id, 'native', {
             operation: 'websocket.event',

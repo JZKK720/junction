@@ -1,7 +1,18 @@
 import { MappedBridgeEvent, EventMappingResult } from '../types';
 
-export function mapHermesWsEvent(ev: any, activeSessionId: string | null, previousText = ''): EventMappingResult {
-    const sessionId = ev?.session_id || activeSessionId || 'hermes';
+// AUDIT (2026-06-26): Every event path in this normalizer spreads `base`, which
+// always contains sessionKey. No code path can produce an event without it.
+// The Hermes bridge's mapEvent() derives sessionId from the gateway's session_id
+// via sessionKeyByLive lookup — verified against tui_gateway/server.py _emit().
+export function mapHermesWsEvent(ev: any, _activeSessionId: string | null, previousText = ''): EventMappingResult {
+    // AUDIT: The old `activeSessionId` fallback was removed — it mirrored the
+    // pattern that caused the session-bleed bug in chatBase.ts (using a shared
+    // mutable that may belong to a different view).  mapEvent() always stamps
+    // ev.session_id before calling us; the fallback was dead code that would
+    // have produced wrong-session events if this function were ever called
+    // directly.  'hermes' is a sentinel that won't match any viewSessionKey
+    // (events get dropped silently, not bled to the wrong window).
+    const sessionId = ev?.session_id || 'hermes';
     const payload = ev?.payload || {};
     const events: MappedBridgeEvent[] = [];
     const base = { sessionKey: sessionId, runId: sessionId };

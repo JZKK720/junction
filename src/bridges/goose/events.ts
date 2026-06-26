@@ -10,6 +10,15 @@ export function createGooseMapperState(): GooseMapperState {
     return { text: '', thinking: '', pendingTools: new Map() };
 }
 
+/**
+ * Map a single JSON line from goose CLI `stream-json` output to Junction
+ * bridge events.  NOTE: this normalizer intentionally does NOT set
+ * `sessionKey` on returned events — the GooseBridge stamps each event with
+ * `sessionKeyForEvent` when it re-emits them.  This keeps the normalizer a
+ * pure format translator and avoids the session-bleed bug where a missing
+ * `sessionKey` would fall back to `bridge.getCurrentSessionKey()` (which
+ * may belong to a different view).
+ */
 export function mapGooseStreamJsonLine(
     runId: string,
     line: string,
@@ -20,6 +29,9 @@ export function mapGooseStreamJsonLine(
 
     const events: MappedBridgeEvent[] = [];
     if (payload?.type === 'complete') {
+        // AUDIT: gateway also emits `total_tokens` in the complete event;
+        // consider adding `totalTokens: numberOrUndefined(payload.total_tokens)`
+        // to the usage object if the consumer needs it.
         events.push({
             type: 'agent_lifecycle',
             phase: 'completed',

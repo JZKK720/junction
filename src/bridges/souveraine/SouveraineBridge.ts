@@ -25,7 +25,6 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
 
     private activeConversationId: string | null = null;
     private agentId: string | null = null;
-    private pendingFileContext: string | null = null;
     private selection: BridgeSelectionState = { modelId: 'openai/kimi-k2.6' };
     private knownConversations = new Map<string, { title: string; model?: string }>();
     private buffers = new Map<string, string>();
@@ -91,16 +90,6 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
         await updateSouveraineRuntime({ baseUrl, home });
         this.agentId = null;
         await this.connect();
-    }
-
-    setPendingFileContext(context: string): void {
-        this.pendingFileContext = context;
-    }
-
-    getPendingFileContext(): string | null {
-        const ctx = this.pendingFileContext;
-        this.pendingFileContext = null;
-        return ctx;
     }
 
     getCurrentSessionKey(): string | null {
@@ -229,7 +218,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
             message,
             context,
         });
-        this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId });
+        this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId, sessionKey: runId });
         
         if (this.activeAbortController) {
             this.activeAbortController.abort();
@@ -252,7 +241,7 @@ export class SouveraineBridge extends EventEmitter implements ChatBridge {
             }
         }
         
-        this.emit('stream', { type: 'agent_lifecycle', phase: 'completed', runId });
+        this.emit('stream', { type: 'agent_lifecycle', phase: 'completed', runId, sessionKey: runId });
         return { conversation_id: runId };
     }
 

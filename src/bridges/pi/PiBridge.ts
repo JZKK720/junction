@@ -80,6 +80,11 @@ export class PiBridge extends EventEmitter implements ChatBridge {
     private knownSessions = new Map<string, { title: string; model?: string; sessionFile?: string }>();
     private runText = new Map<string, string>();
     private toolCalls = new Map<string, PiToolCallState>();
+    // Maps runId → sessionKey so handleRpcEvent can stamp events with the
+    // originating session even after the user switches views.  Without this,
+    // async stream events arriving after a session switch would be stamped with
+    // the *new* activeSessionId, causing them to bleed into the wrong window.
+    private runSession = new Map<string, string>();
     private pendingFileContext: string | null = null;
 
     constructor(readonly context: vscode.ExtensionContext) {
@@ -262,7 +267,7 @@ export class PiBridge extends EventEmitter implements ChatBridge {
         await this.applySelection();
         const runId = `pi-${Date.now()}`;
         const sessionKey = this.activeSessionId!;
-        this.runText.set(runId, '');
+        this.registerRun(runId, sessionKey);
         this.emit('stream', { type: 'agent_lifecycle', phase: 'start', runId, sessionKey });
         const workspace = context?.workspaceFolder || context?.workspace;
         const text = workspace ? `Chat: VS Code.\nworkspace: ${workspace}\ntreat paths as relative to workspace.\n\n${message}` : message;
@@ -274,9 +279,10 @@ export class PiBridge extends EventEmitter implements ChatBridge {
             outboundText: text,
             context,
         });
-        await this.request('prompt', { message: text }, 30000).catch((err) => {
+        await this.request('prompt', { message: text }, 999000).catch((err) => {
             this.emit('stream', { type: 'agent_message', runId, text: `Error: ${err.message || err}`, sessionKey });
             this.emit('stream', { type: 'agent_lifecycle', phase: 'error', runId, sessionKey });
+            this.runSession.delete(runId);
         });
         return { runId, sessionKey };
     }
@@ -460,6 +466,12 @@ export class PiBridge extends EventEmitter implements ChatBridge {
         await this.request('set_thinking_level', { level: this.effectiveThinkingLevel() }, 10000).catch(() => undefined);
     }
 
+    /** Record which session owns a given runId. */
+    private registerRun(runId: string, sessionKey: string): void {
+        this.runText.set(runId, '');
+        this.runSession.set(runId, sessionKey);
+    }
+
     private async nativeSlash(name: string) {
         if (name === 'status') {
             const state = await this.request('get_state', {}, 10000);
@@ -524,7 +536,10 @@ export class PiBridge extends EventEmitter implements ChatBridge {
 
     private handleRpcEvent(event: any): void {
         const runId = Array.from(this.runText.keys()).at(-1) || `pi-${Date.now()}`;
-        const sessionKey = this.activeSessionId || runId;
+        // Use the session that owns this run, NOT the current active session.
+        // The active session may have changed if the user switched views while
+        // the gateway was still streaming events for the original prompt.
+        const sessionKey = this.runSession.get(runId) || this.activeSessionId || runId;
         captureBridgeDebug(this.id, 'normalized', {
             operation: 'handleRpcEvent',
             sessionKey,
@@ -538,6 +553,7 @@ export class PiBridge extends EventEmitter implements ChatBridge {
         }
         if (event.type === 'agent_end') {
             this.emit('stream', { type: 'agent_lifecycle', phase: 'completed', runId, sessionKey });
+            this.runSession.delete(runId);
             return;
         }
         if (event.type === 'message_update') {

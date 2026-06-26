@@ -246,7 +246,6 @@ export function eventSessionId(payload: any): string | null {
         props.sessionID ||
         props.sessionId ||
         props.input?.sessionID ||
-        props.sessionID ||
         null
     );
 }

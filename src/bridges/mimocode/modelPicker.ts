@@ -51,6 +51,7 @@ function modelChoice(
     label: string,
     selectedModel?: string,
     selectedThinking?: string,
+    levels?: string[],
 ): ModelChoice {
     const id = `${provider}/${model}`;
     const selected = !selectedModel ? id === DEFAULT_MIMOCODE_MODEL : (selectedModel === id || selectedModel === model);
@@ -62,7 +63,8 @@ function modelChoice(
         supportsReasoning: true,
         icon: 'lightbulb',
         checked: selected,
-        children: reasoningChildren(id, selectedModel, selectedThinking),
+        ...(levels?.length ? { thinkingLevels: levels } : {}),
+        children: reasoningChildren(id, selectedModel, selectedThinking, levels),
     };
 }
 
@@ -71,7 +73,7 @@ export function listMiMoCodeModelChoices(
     selectedThinking?: string,
 ): ModelChoice[] {
     const auto = modelChoice('mimo', 'mimo-auto', 'MiMo Auto', selectedModel, selectedThinking);
-    const plus = modelChoice('xiaomi', 'mimo-v2.5-pro', 'MiMo-V2.5-Pro', selectedModel, selectedThinking);
+    const plus = modelChoice('xiaomi', 'mimo-v2.5-pro', 'MiMo-V2.5-Pro', selectedModel, selectedThinking, ['off', 'low', 'medium', 'high']);
     return [
         {
             id: 'provider:xiaomi',
