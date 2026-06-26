@@ -97,6 +97,7 @@ export interface ChatBaseHandlers {
     handleApprovalRespond(data: any): Promise<void>;
     handleInputRespond(data: any): Promise<void>;
     handleCompactContext(): Promise<void>;
+    handleSetDebugQueueStall(stall: boolean): void;
     postToWebview(message: any): void;
 }
 
@@ -305,6 +306,9 @@ export class EventRouter {
                     break;
                 case 'setGoodFonts':
                     await vscode.workspace.getConfiguration('junction').update('goodFonts', !!data.value, vscode.ConfigurationTarget.Global);
+                    break;
+                case 'setDebugQueueStall':
+                    this.handlers.handleSetDebugQueueStall(!!data.stall);
                     break;
             }
         } catch (error: any) {

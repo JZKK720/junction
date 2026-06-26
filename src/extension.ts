@@ -91,11 +91,12 @@ async function activate(context: vscode.ExtensionContext) {
 
     workspaceTracker = new WorkspaceTracker();
     workspaceTracker.onAutoSendFileContext((fileContext) => {
-        bridgeRegistry.active.setPendingFileContext(fileContext);
+        // Stage as a visible, removable pill instead of silent pending context
+        chatViewProvider?.addStagedFileContext(fileContext);
     });
     context.subscriptions.push(...workspaceTracker.disposables);
 
-    registerSendFilePathCommand(context, bridgeRegistry);
+    registerSendFilePathCommand(context, bridgeRegistry, chatViewProvider);
     registerShowLogsCommand(context);
     registerTodoCodeLensProvider(context, () => chatViewProvider);
     registerTodoCodeLensCommand(context, () => chatViewProvider);

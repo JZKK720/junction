@@ -539,21 +539,66 @@
   }
 
   // ── Share popover ─────────────────────────────────────────────────────────
+  /** Gather all messages up to and including the given row. */
+  function getHistoryUpToRow(targetRow) {
+    var msgs = [];
+    var rows = document.querySelectorAll('#chat-messages .chat-row');
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var isUser = r.classList.contains('user');
+      var isAssistant = r.classList.contains('assistant');
+      if (!isUser && !isAssistant) continue;
+      var text = r.querySelector('.msg-text');
+      if (text) msgs.push({ role: isUser ? 'user' : 'assistant', text: (text.dataset.rawText || text.textContent || '').trim() });
+      if (r === targetRow) break;
+    }
+    return msgs;
+  }
+
+  function formatMessagesMarkdown(msgs) {
+    return msgs.map(function (m) {
+      var label = m.role === 'user' ? window.junctionT('you', 'You') : window.junctionT('assistant', 'Assistant');
+      return '**' + label + ':** ' + m.text;
+    }).join('\n\n');
+  }
+
+  function formatMessagesText(msgs) {
+    return msgs.map(function (m) {
+      var label = m.role === 'user' ? window.junctionT('you', 'You') : window.junctionT('assistant', 'Assistant');
+      return label + ': ' + m.text;
+    }).join('\n\n');
+  }
+
+  /** Share menu: ENTIRE history up to this post. */
   function openShareForRow(row, triggerBtn) {
+    if (!row) return;
+    var trigger = triggerBtn || row;
+    if (!window.choiceMenu) return;
+    var items = [
+      { id: 'markdown', label: window.junctionT('copyAsMarkdown', 'Copy as Markdown'), icon: 'markdown', action: function () { copyViaHost(formatMessagesMarkdown(getHistoryUpToRow(row))); } },
+      { id: 'text', label: window.junctionT('copyAsText', 'Copy as Text'), icon: 'clipboard', action: function () { copyViaHost(formatMessagesText(getHistoryUpToRow(row))); } },
+      { id: 'html', label: window.junctionT('exportHtml', 'Export HTML'), icon: 'file', action: downloadChatExportHtml },
+    ];
+    window.choiceMenu.open(trigger, {
+      title: window.junctionT('shareHistory', 'Share history'),
+      items: items,
+      placement: row && document.body.classList.contains('stream-layout-timeline') ? 'above' : undefined,
+    });
+  }
+
+  /** Copy menu: just this ONE post. */
+  function openCopyForRow(row, triggerBtn) {
     if (!row) return;
     var text = getRowCopyText(row);
     var role = row.classList.contains('user') ? window.junctionT('you', 'You') : window.junctionT('assistant', 'Assistant');
-    var messageId = row.getAttribute('data-message-id') || row.getAttribute('data-run-id') || '';
     var trigger = triggerBtn || row;
     if (!window.choiceMenu) return;
     var items = [
       { id: 'markdown', label: window.junctionT('copyAsMarkdown', 'Copy as Markdown'), icon: 'markdown', action: function () { copyViaHost('**' + role + ':** ' + text); } },
       { id: 'text', label: window.junctionT('copyAsText', 'Copy as Text'), icon: 'clipboard', action: function () { copyViaHost(text); } },
-      { id: 'html', label: window.junctionT('exportHtml', 'Export HTML'), icon: 'file', action: downloadChatExportHtml },
     ];
-    items.push({ id: 'fork', label: window.junctionT('fork', 'Fork'), icon: 'git-branch', action: function () { forkMessage(messageId); } });
     window.choiceMenu.open(trigger, {
-      title: window.junctionT('messageActions', 'Message actions'),
+      title: window.junctionT('copyMessage', 'Copy message'),
       items: items,
       placement: row && document.body.classList.contains('stream-layout-timeline') ? 'above' : undefined,
     });
@@ -578,12 +623,8 @@
       b.addEventListener('click', function (event) {
         event.preventDefault();
         event.stopPropagation();
-        if (a.act === 'copy') {
-          copyViaHost(getRowCopyText(getActionRow(bar, messageId)));
-          b.classList.remove('codicon-copy');
-          b.classList.add('codicon-check');
-          setTimeout(function () { b.classList.remove('codicon-check'); b.classList.add('codicon-copy'); }, 1500);
-        } else if (a.act === 'share') { openShareForRow(getActionRow(bar, messageId), b); }
+        if (a.act === 'copy') { openCopyForRow(getActionRow(bar, messageId), b); }
+        else if (a.act === 'share') { openShareForRow(getActionRow(bar, messageId), b); }
         else if (a.act === 'fork') {
           openForkMenu(getActionRow(bar, messageId), b, messageId, false);
         }

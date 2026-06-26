@@ -1,6 +1,6 @@
 /* Timeline activity mode: chronological activity rail. */
 
-body.stream-layout-timeline {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) {
   --junction-timeline-accent: #d97757;
   --junction-timeline-rail: var(--vscode-sideBarActivityBarTop-border, var(--vscode-panel-border, color-mix(in srgb, var(--vscode-descriptionForeground) 34%, transparent)));
   --junction-timeline-dot: var(--vscode-descriptionForeground);
@@ -8,12 +8,12 @@ body.stream-layout-timeline {
   --junction-timeline-sticky-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
 }
 
-body.stream-layout-timeline #chat-messages .chat-row.user {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user {
   align-items: stretch;
   padding-left: 0;
 }
 
-body.stream-layout-timeline #chat-messages .chat-row.user .msg-text {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user .msg-text {
   width: 100%;
   max-width: none;
   box-sizing: border-box;
@@ -23,16 +23,16 @@ body.stream-layout-timeline #chat-messages .chat-row.user .msg-text {
   color: var(--vscode-input-foreground, var(--vscode-foreground));
 }
 
-body.stream-layout-timeline #chat-messages .chat-row.user .msg-text[data-tip] {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user .msg-text[data-tip] {
   border-radius: var(--corner-radius-large);
 }
 
-body.stream-layout-timeline #chat-messages .chat-row.assistant:has(> .msg-actions) {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.assistant:has(> .msg-actions) {
   padding-top: 12px;
   padding-bottom: calc(12px + 30px);
 }
 
-body.stream-layout-timeline #chat-messages .chat-row.assistant > .msg-actions {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.assistant > .msg-actions {
   top: auto;
   bottom: 4px;
   left: 24px;
@@ -40,19 +40,19 @@ body.stream-layout-timeline #chat-messages .chat-row.assistant > .msg-actions {
 }
 
 /* Pinned user prompt while scrolling timeline turns. */
-body.stream-layout-timeline #chat-messages {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages {
   isolation: isolate;
   padding-top: 0;
   padding-bottom: 40px;
 }
 
-body.stream-layout-timeline #chat-messages::before {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages::before {
   content: "";
   flex-shrink: 0;
   height: 20px;
 }
 
-body.stream-layout-timeline #chat-messages .chat-row.user.timeline-sticky-user {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user.timeline-sticky-user {
   --sticky-bg: var(--junction-timeline-sticky-bg);
   position: sticky;
   top: 0;
@@ -68,27 +68,27 @@ body.stream-layout-timeline #chat-messages .chat-row.user.timeline-sticky-user {
     linear-gradient(to bottom, var(--vscode-editor-background, var(--junction-timeline-sticky-bg)) calc(100% - 12px), transparent 100%);
 }
 
-body.stream-layout-timeline #chat-messages .chat-row.user.timeline-sticky-user:has(.msg-actions:hover),
-body.stream-layout-timeline #chat-messages .chat-row.user.timeline-sticky-user:has(.msg-actions:focus-within) {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user.timeline-sticky-user:has(.msg-actions:hover),
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user.timeline-sticky-user:has(.msg-actions:focus-within) {
   z-index: 3;
 }
 
-body.stream-layout-timeline #chat-messages .chat-row.user.timeline-sticky-user .msg-text {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user.timeline-sticky-user .msg-text {
   display: block;
   max-width: none;
   width: 100%;
 }
 
-body.stream-layout-timeline #chat-messages .activity-worklog {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-worklog {
   margin: 0;
 }
 
-body.stream-layout-timeline #chat-messages .activity-worklog > summary {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-worklog > summary {
   display: none;
 }
 
-body.stream-layout-timeline #chat-messages .activity-worklog.has-activity-thoughts > summary,
-body.stream-layout-timeline #chat-messages .activity-worklog.thinking > summary {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-worklog.has-activity-thoughts > summary,
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-worklog.thinking > summary {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -102,37 +102,37 @@ body.stream-layout-timeline #chat-messages .activity-worklog.thinking > summary 
   cursor: pointer;
 }
 
-body.stream-layout-timeline #chat-messages .activity-worklog > summary::-webkit-details-marker {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-worklog > summary::-webkit-details-marker {
   display: none;
 }
 
-body.stream-layout-timeline #chat-messages .activity-worklog > summary .activity-worklog-label {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-worklog > summary .activity-worklog-label {
   font-weight: 500;
 }
 
-body.stream-layout-timeline #chat-messages .activity-worklog > summary .thinking-throbber {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-worklog > summary .thinking-throbber {
   display: inline-block;
   flex: 0 0 auto;
 }
 
-body.stream-layout-timeline #chat-messages .activity-worklog > summary .activity-worklog-toggle {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-worklog > summary .activity-worklog-toggle {
   margin-left: 0.2em;
   color: var(--vscode-descriptionForeground);
   opacity: 0.85;
 }
 
-body.stream-layout-timeline #chat-messages .activity-worklog-body {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-worklog-body {
   padding-top: 0;
 }
 
-body.stream-layout-timeline #chat-messages .tool-calls {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-calls {
   display: flex;
   flex-direction: column;
   gap: 0;
   margin-top: 0;
 }
 
-body.stream-layout-timeline #chat-messages .tool-calls > :is(.reasoning-disclosure, .activity-note, .tool-row, .tool-group) {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-calls > :is(.reasoning-disclosure, .activity-note, .tool-row, .tool-group) {
   position: relative;
   margin: 0;
   padding: 8px 0 8px 24px;
@@ -144,18 +144,18 @@ body.stream-layout-timeline #chat-messages .tool-calls > :is(.reasoning-disclosu
   box-shadow: none;
 }
 
-body.stream-layout-timeline #chat-messages .tool-calls > :is(.reasoning-disclosure, .activity-note, .tool-row, .tool-group):hover,
-body.stream-layout-timeline #chat-messages .tool-calls > :is(.reasoning-disclosure, .tool-row, .tool-group)[open] {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-calls > :is(.reasoning-disclosure, .activity-note, .tool-row, .tool-group):hover,
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-calls > :is(.reasoning-disclosure, .tool-row, .tool-group)[open] {
   border-color: transparent;
   background: transparent;
 }
 
-body.stream-layout-timeline #chat-messages .reasoning-disclosure > summary::before {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .reasoning-disclosure > summary::before {
   content: none !important;
   display: none !important;
 }
 
-body.stream-layout-timeline #chat-messages .tool-calls > :is(.reasoning-disclosure, .activity-note)::before {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-calls > :is(.reasoning-disclosure, .activity-note)::before {
   content: "";
   position: absolute;
   left: 6px;
@@ -167,16 +167,16 @@ body.stream-layout-timeline #chat-messages .tool-calls > :is(.reasoning-disclosu
   background: var(--junction-timeline-dot);
 }
 
-body.stream-layout-timeline #chat-messages .tool-calls > .reasoning-disclosure.thinking::before {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-calls > .reasoning-disclosure.thinking::before {
   background: var(--junction-timeline-accent);
   animation: junction-dot-blink 1s linear infinite;
 }
 
-body.stream-layout-timeline #chat-messages .tool-status-icon {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-status-icon {
   display: none;
 }
 
-body.stream-layout-timeline #chat-messages .tool-row-status {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-row-status {
   position: absolute !important;
   left: 3px !important;
   top: 12px !important;
@@ -190,7 +190,7 @@ body.stream-layout-timeline #chat-messages .tool-row-status {
   background: var(--vscode-sideBar-background);
 }
 
-body.stream-layout-timeline #chat-messages .tool-row-status::before {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-row-status::before {
   content: "";
   display: block !important;
   width: 7px;
@@ -199,33 +199,33 @@ body.stream-layout-timeline #chat-messages .tool-row-status::before {
   background: var(--junction-timeline-dot);
 }
 
-body.stream-layout-timeline #chat-messages .tool-row-status.done::before {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-row-status.done::before {
   background: var(--vscode-charts-green, var(--vscode-gitDecoration-addedResourceForeground));
   opacity: 0.95;
 }
 
-body.stream-layout-timeline #chat-messages .tool-row-status.error::before {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-row-status.error::before {
   background: var(--vscode-charts-red, var(--vscode-errorForeground));
   opacity: 1;
 }
 
-body.stream-layout-timeline #chat-messages .tool-row-status.running .codicon {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-row-status.running .codicon {
   display: none;
 }
 
-body.stream-layout-timeline #chat-messages .tool-row-status.running::before {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-row-status.running::before {
   background: var(--junction-timeline-accent);
   animation: junction-dot-blink 1s linear infinite;
 }
 
-body.stream-layout-timeline.stream-dots-minimal #chat-messages .tool-row-status::before,
-body.stream-layout-timeline.stream-dots-minimal #chat-messages .tool-calls > :is(.reasoning-disclosure, .activity-note)::before {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)).stream-dots-minimal #chat-messages .tool-row-status::before,
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)).stream-dots-minimal #chat-messages .tool-calls > :is(.reasoning-disclosure, .activity-note)::before {
   background: var(--junction-timeline-dot);
   opacity: 0.9;
 }
 
-body.stream-layout-timeline.stream-dots-minimal #chat-messages .tool-row-status.running::before,
-body.stream-layout-timeline.stream-dots-minimal #chat-messages .tool-calls > .reasoning-disclosure.thinking::before {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)).stream-dots-minimal #chat-messages .tool-row-status.running::before,
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)).stream-dots-minimal #chat-messages .tool-calls > .reasoning-disclosure.thinking::before {
   background: var(--junction-timeline-accent);
 }
 
@@ -253,7 +253,7 @@ body.stream-rail.stream-layout-timeline #chat-messages .tool-calls > :is(.reason
   display: none;
 }
 
-body.stream-layout-timeline #chat-messages :is(.tool-row-summary, .tool-group-summary, .file-group-summary, .reasoning-disclosure > summary) {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages :is(.tool-row-summary, .tool-group-summary, .file-group-summary, .reasoning-disclosure > summary) {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -265,53 +265,53 @@ body.stream-layout-timeline #chat-messages :is(.tool-row-summary, .tool-group-su
   font-style: normal;
 }
 
-body.stream-layout-timeline #chat-messages :is(.tool-row-summary, .tool-group-summary, .file-group-summary, .reasoning-disclosure > summary):hover {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages :is(.tool-row-summary, .tool-group-summary, .file-group-summary, .reasoning-disclosure > summary):hover {
   background: transparent;
   color: var(--vscode-foreground);
   opacity: 0.84;
 }
 
-body.stream-layout-timeline #chat-messages :is(.tool-row-summary, .tool-group-summary, .file-group-summary, .reasoning-disclosure > summary):active {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages :is(.tool-row-summary, .tool-group-summary, .file-group-summary, .reasoning-disclosure > summary):active {
   opacity: 0.65;
 }
 
-body.stream-layout-timeline #chat-messages :is(.tool-chevron, .thinking-toggle) {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages :is(.tool-chevron, .thinking-toggle) {
   height: 1em;
   margin-left: 0.2em;
   color: var(--vscode-descriptionForeground);
   opacity: 0.85;
 }
 
-body.stream-layout-timeline #chat-messages .reasoning-label {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .reasoning-label {
   font-weight: 500;
   color: var(--vscode-descriptionForeground);
 }
 
-body.stream-layout-timeline #chat-messages .activity-thought {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-thought {
   cursor: pointer;
 }
 
-body.stream-layout-timeline #chat-messages .activity-thought-note {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-thought-note {
   cursor: default;
 }
 
-body.stream-layout-timeline #chat-messages .activity-thought-note .reasoning-content {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-thought-note .reasoning-content {
   padding-top: 0 !important;
 }
 
-body.stream-layout-timeline #chat-messages .activity-thought > summary {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-thought > summary {
   display: none;
 }
 
-body.stream-layout-timeline #chat-messages .tool-verb,
-body.stream-layout-timeline #chat-messages .tool-group-title {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-verb,
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-group-title {
   flex: 0 0 auto;
   color: var(--vscode-foreground);
   font-size: 1.04em;
   font-weight: 700;
 }
 
-body.stream-layout-timeline #chat-messages :is(.tool-target, .file-group-name) {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages :is(.tool-target, .file-group-name) {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -322,27 +322,27 @@ body.stream-layout-timeline #chat-messages :is(.tool-target, .file-group-name) {
   border-bottom: 1px dotted color-mix(in srgb, var(--vscode-textLink-foreground) 60%, transparent);
 }
 
-body.stream-layout-timeline #chat-messages :is(.tool-target, .file-group-name):hover {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages :is(.tool-target, .file-group-name):hover {
   color: var(--vscode-textLink-activeForeground, var(--vscode-textLink-foreground));
   border-bottom-color: currentColor;
   background: transparent;
 }
 
-body.stream-layout-timeline #chat-messages .tool-target.mono {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-target.mono {
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.96em;
 }
 
-body.stream-layout-timeline #chat-messages :is(.file-group-count, .reasoning-activity-summary, .activity-note) {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages :is(.file-group-count, .reasoning-activity-summary, .activity-note) {
   color: var(--vscode-descriptionForeground);
 }
 
-body.stream-layout-timeline #chat-messages .activity-note {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-note {
   font-size: 1em;
   line-height: 1.5;
 }
 
-body.stream-layout-timeline #chat-messages :is(.tool-detail, .tool-group-body, .reasoning-content) {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages :is(.tool-detail, .tool-group-body, .reasoning-content) {
   margin: 0 !important;
   padding-left: 0 !important;
   border-left: 0;
@@ -350,16 +350,16 @@ body.stream-layout-timeline #chat-messages :is(.tool-detail, .tool-group-body, .
   background: transparent;
 }
 
-body.stream-layout-timeline #chat-messages .tool-detail {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-detail {
   padding-top: 8px;
   padding-left: 0 !important;
 }
 
-body.stream-layout-timeline #chat-messages .tool-group-body {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-group-body {
   padding-top: 6px;
 }
 
-body.stream-layout-timeline #chat-messages .reasoning-content {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .reasoning-content {
   padding-top: 8px !important;
   max-height: none;
   color: var(--vscode-foreground);
@@ -369,11 +369,11 @@ body.stream-layout-timeline #chat-messages .reasoning-content {
   overflow: visible;
 }
 
-body.stream-layout-timeline #chat-messages .activity-thought[open] .reasoning-content {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-thought[open] .reasoning-content {
   overflow: visible;
 }
 
-body.stream-layout-timeline #chat-messages .activity-thought .activity-thought-chunk + .activity-thought-chunk {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-thought .activity-thought-chunk + .activity-thought-chunk {
   margin-top: 12px;
 }
 
@@ -388,149 +388,113 @@ body:not(.stream-rail) #chat-messages .tool-detail {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body.stream-layout-timeline #chat-messages .tool-row-status.running::before,
-  body.stream-layout-timeline #chat-messages .tool-calls > .reasoning-disclosure.thinking::before {
+  :is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-row-status.running::before,
+  :is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .tool-calls > .reasoning-disclosure.thinking::before {
     animation: none;
   }
 }
 
-/* Queue: timeline mode */
-body.stream-layout-timeline .queued-followups {
+/* ── Queue panel: hidden for inline-only (Claude-style) ────────────────────── */
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) .queued-followups {
+  display: none !important;
+}
+
+/* ── Claude-style inline queued messages ─────────────────────────────────────
+   Integrated with the timeline rail: dimmed with a pending dot, queue actions
+   on hover. */
+
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"] {
+  opacity: 0.62;
+  filter: saturate(0.5);
+  transition: opacity 0.15s, filter 0.15s;
+}
+
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"]:hover,
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"]:focus-within {
+  opacity: 0.9;
+  filter: saturate(0.8);
+}
+
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"] .msg-text {
+  border-color: var(--vscode-descriptionForeground);
+}
+
+/* Inline queue action bar */
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"] .queue-inline-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 6;
   display: flex;
-  max-height: 30dvh;
-  flex-direction: column;
-  gap: 1px;
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--vscode-widget-border, var(--vscode-input-border, transparent));
-  background: color-mix(in srgb, var(--vscode-input-background) 70%, transparent);
-  scrollbar-width: thin;
-}
-
-body.stream-layout-timeline .queued-followups[hidden] {
-  display: none;
-}
-
-body.stream-layout-timeline .queued-followup {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 4px 0;
-  border: none;
-  border-radius: var(--corner-radius-small, 4px);
-  background: transparent;
-  color: var(--vscode-foreground);
-  font-size: var(--vscode-font-size, 13px);
-}
-
-body.stream-layout-timeline .queued-followup:hover,
-body.stream-layout-timeline .queued-followup:focus-within,
-body.stream-layout-timeline .queued-followup.drag-over {
-  background: color-mix(in srgb, var(--vscode-list-hoverBackground, var(--vscode-foreground)) 45%, transparent);
-}
-
-body.stream-layout-timeline .queued-followup.dragging {
-  opacity: 0.55;
-}
-
-body.stream-layout-timeline .queued-followup.grouped {
-  border-top: none;
-}
-
-body.stream-layout-timeline .queued-followup-handle {
-  position: relative;
-  display: inline-flex;
-  width: 18px;
-  height: 18px;
-  align-items: center;
-  justify-content: center;
-  align-self: start;
-  margin-top: 2px;
-  color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground));
-  cursor: grab;
-  opacity: 0.68;
-}
-
-body.stream-layout-timeline .queued-followup-handle:active {
-  cursor: grabbing;
-}
-
-body.stream-layout-timeline .queued-followup-handle .codicon {
-  font-size: 14px;
-}
-
-body.stream-layout-timeline .queued-followup-text {
-  display: -webkit-box;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--vscode-descriptionForeground);
-  line-height: 1.35;
-  white-space: normal;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-body.stream-layout-timeline .queued-followup:hover .queued-followup-text,
-body.stream-layout-timeline .queued-followup:focus-within .queued-followup-text {
-  color: var(--vscode-foreground);
-}
-
-body.stream-layout-timeline .queued-followup-actions {
-  display: inline-flex;
-  align-items: center;
-  align-self: start;
-  gap: 1px;
-}
-
-body.stream-layout-timeline .queued-followup-actions button {
-  display: inline-flex;
-  width: 24px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
-  border: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--vscode-widget-border, transparent);
   border-radius: 999px;
+  background: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 92%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--vscode-widget-shadow, var(--vscode-editor-background)) 28%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"]:hover .queue-inline-actions,
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"]:focus-within .queue-inline-actions,
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"].queue-editing .queue-inline-actions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"] .queue-inline-action {
   background: transparent;
+  border: none;
   color: var(--vscode-descriptionForeground);
   cursor: pointer;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 13px;
+  line-height: 22px;
+  text-align: center;
   font-family: codicon;
-  font-size: 14px;
-  opacity: 0.82;
 }
 
-body.stream-layout-timeline .queued-followup-actions button:hover,
-body.stream-layout-timeline .queued-followup-actions button.active {
-  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"] .queue-inline-action:hover {
   color: var(--vscode-foreground);
-  opacity: 1;
+  background: var(--vscode-list-hoverBackground);
 }
 
-body.stream-layout-timeline .queued-followup-edit {
-  grid-column: 2 / -1;
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"] .queue-inline-action:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Inline queue edit textarea */
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"] .queue-inline-edit {
   width: 100%;
-  min-height: 64px;
-  margin: 2px 0 4px;
+  min-height: 48px;
   resize: vertical;
   box-sizing: border-box;
   border: 1px solid var(--vscode-focusBorder, var(--vscode-input-border));
   border-radius: var(--corner-radius-small);
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground, var(--vscode-foreground));
-  font-family: var(--vscode-font-family);
-  font-size: var(--vscode-font-size, 13px);
-  line-height: 1.4;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
   padding: 6px;
+  margin-top: 4px;
 }
 
-body.stream-layout-timeline #chat-messages .chat-row.user[data-queued="true"] .msg-text {
-  border-color: var(--vscode-descriptionForeground);
+/* Hide standard msg-actions on queued rows */
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user[data-queued="true"] > .msg-actions {
+  display: none !important;
 }
 
-body.stream-layout-timeline #chat-messages .queue-badge,
-body.stream-layout-timeline #chat-messages .steer-badge {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .queue-badge,
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .steer-badge {
   display: inline-flex;
   align-items: center;
   margin-right: 6px;
@@ -544,7 +508,7 @@ body.stream-layout-timeline #chat-messages .steer-badge {
   vertical-align: middle;
 }
 
-body.stream-layout-timeline #chat-messages .steer-notice {
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .steer-notice {
   margin-top: 4px;
   color: var(--vscode-errorForeground);
   font-size: 10px;

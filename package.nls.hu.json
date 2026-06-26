@@ -1,6 +1,6 @@
 {
   "junction.displayName.junction": "Junction",
-  "junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine": "Junction — helyi AI kódoló ágens híd az OpenClaw, a Hermes és a Souveraine számára",
+  "junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine": "Junction; helyi AI kódoló ügynök híd az OpenClaw, Hermes, Souveraine, Goose, MiMoCode és még sok más számára!",
   "junction.contributes.viewsContainers.secondarySidebar.0.title.junction": "Junction",
   "junction.contributes.views.junction-explorer.0.name.junction": "Junction",
   "junction.contributes.commands.0.title.junction.configure.runtime": "Junction: futtatókörnyezet beállítása",

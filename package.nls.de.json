@@ -1,6 +1,6 @@
 {
   "junction.displayName.junction": "Junction",
-  "junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine": "Junction — lokale KI-Coding-Agent-Bridge für OpenClaw, Hermes und Souveraine",
+  "junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine": "Junction; lokale KI-Coding-Agent-Bridge für OpenClaw, Hermes, Souveraine, Goose, MiMoCode und vieles mehr!",
   "junction.contributes.viewsContainers.secondarySidebar.0.title.junction": "Junction",
   "junction.contributes.views.junction-explorer.0.name.junction": "Junction",
   "junction.contributes.commands.0.title.junction.configure.runtime": "Junction: Laufzeit konfigurieren",

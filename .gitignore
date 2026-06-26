@@ -13,7 +13,7 @@ dist
 futures/
 agents/
 .archive/
-
+.libraries/
 
 # Local working notes / scratch
 MEATBAGS.md

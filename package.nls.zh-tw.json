@@ -1,6 +1,6 @@
 {
   "junction.displayName.junction": "Junction",
-  "junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine": "Junction — 本地 AI 程式設計代理橋接器，支援 OpenClaw、Hermes 與 Souveraine",
+  "junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine": "Junction；適用於 OpenClaw、Hermes、Souveraine、Goose、MiMoCode 等的本地 AI 程式設計代理橋接器！",
   "junction.contributes.viewsContainers.secondarySidebar.0.title.junction": "Junction",
   "junction.contributes.views.junction-explorer.0.name.junction": "Junction",
   "junction.contributes.commands.0.title.junction.configure.runtime": "Junction：設定執行環境",

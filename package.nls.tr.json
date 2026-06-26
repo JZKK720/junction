@@ -1,6 +1,6 @@
 {
   "junction.displayName.junction": "Junction",
-  "junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine": "Junction — OpenClaw, Hermes ve Souveraine için yerel yapay zeka kodlama aracısı köprüsü",
+  "junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine": "Junction; OpenClaw, Hermes, Souveraine, Goose, MiMoCode ve daha fazlası için yerel AI kodlama aracısı köprüsü!",
   "junction.contributes.viewsContainers.secondarySidebar.0.title.junction": "Junction",
   "junction.contributes.views.junction-explorer.0.name.junction": "Junction",
   "junction.contributes.commands.0.title.junction.configure.runtime": "Junction: Çalışma Zamanını Yapılandır",

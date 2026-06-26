@@ -1,6 +1,6 @@
 {
   "junction.displayName.junction": "Junction",
-  "junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine": "Junction — lokalt AI-kodbryggprogram för OpenClaw, Hermes och Souveraine",
+  "junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine": "Junction; lokal AI-kodningsagentbrygga för OpenClaw, Hermes, Souveraine, Goose, MiMoCode och mycket mer!",
   "junction.contributes.viewsContainers.secondarySidebar.0.title.junction": "Junction",
   "junction.contributes.views.junction-explorer.0.name.junction": "Junction",
   "junction.contributes.commands.0.title.junction.configure.runtime": "Junction: Konfigurera körtid",

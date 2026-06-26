@@ -55,6 +55,7 @@ export class ConfigManager {
             activityRail: config().get<boolean>('activityStream.rail', true),
             activityDots: config().get<string>('activityStream.dots', 'status'),
             activityCondensed: config().get<boolean>('activityStream.condensed', true),
+            queueDisplayMode: config().get<string>('queueDisplayMode', 'auto'),
             betaForkRewind: false,
             bubbleRadius: config().get<number>('bubble.radius', 16),
             bubbleTip: config().get<string>('bubble.tip', 'none'),

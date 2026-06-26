@@ -62,6 +62,7 @@ export interface WebviewConfigPayload {
     activityRail: boolean;
     activityDots: string;
     activityCondensed: boolean;
+    queueDisplayMode?: string;
     betaForkRewind: boolean;
     bubbleRadius: number;
     bubbleTip: string;

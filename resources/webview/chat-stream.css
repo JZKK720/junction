@@ -251,6 +251,36 @@ textarea[data-has-canvas]::selection {
   border: 1px solid var(--junction-inline-code-border);
 }
 
+/* ── Inline code copy button ─────────────────────────────────────────────── */
+.inline-code-wrap {
+  position: relative;
+  display: inline;
+}
+.inline-code-wrap code {
+  padding-right: 20px;
+}
+.inline-code-copy {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--vscode-icon-foreground, var(--vscode-editor-foreground));
+  cursor: pointer;
+  padding: 0 3px;
+  border-radius: var(--corner-radius-small, 4px);
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.1s;
+  line-height: 1;
+}
+.inline-code-wrap:hover .inline-code-copy { opacity: 0.6; }
+.inline-code-copy:hover {
+  opacity: 1 !important;
+  background: var(--vscode-list-hoverBackground);
+}
+
 /* ── Markdown element styles ──────────────────────────────────────────────── */
 .msg-text h1, .msg-text h2, .msg-text h3, .msg-text h4, .msg-text h5, .msg-text h6 {
   color: var(--vscode-foreground);
@@ -1582,5 +1612,40 @@ body:not(.stream-rail) #chat-messages .tool-detail {
   color: var(--vscode-foreground);
   font-weight: 500;
 }
+
+/* ── Debug stall pill (queue testing) ────────────────────────────────────── */
+.debug-stall-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-input-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vscode-input-background) 82%, transparent);
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.debug-stall-pill .debug-stall-icon {
+  font-size: 12px;
+}
+
+.debug-stall-pill:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--vscode-focusBorder);
+}
+
+.debug-stall-pill.active {
+  border-color: color-mix(in srgb, var(--vscode-button-background) 70%, transparent);
+  background: color-mix(in srgb, var(--vscode-button-background) 15%, var(--vscode-input-background));
+  color: var(--vscode-button-background);
+}
+
+.debug-stall-pill[hidden] { display: none; }
 
 /* ── Accordion overrides live in activity-accordion.css ─────────────────── */

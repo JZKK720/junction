@@ -363,6 +363,11 @@
           document.body.classList.toggle('tool-output-wrap', wrapTools);
           document.body.classList.toggle('tool-output-nowrap', !wrapTools);
         }
+        if (msg.queueDisplayMode) {
+          document.body.classList.remove('queue-display-timeline', 'queue-display-compact');
+          if (msg.queueDisplayMode === 'timeline') document.body.classList.add('queue-display-timeline');
+          else if (msg.queueDisplayMode === 'compact') document.body.classList.add('queue-display-compact');
+        }
         if (msg.betaForkRewind !== undefined) window.betaForkRewind = !!msg.betaForkRewind;
         if (msg.bubbleRadius !== undefined) document.documentElement.style.setProperty('--junction-bubble-radius', msg.bubbleRadius + 'px');
         if (msg.bubbleTip !== undefined) document.documentElement.style.setProperty('--junction-bubble-tip', msg.bubbleTip);
@@ -456,6 +461,9 @@
           }
           var badge = row.querySelector('.steer-badge');
           if (badge) badge.remove();
+          // Clean up any stale inline actions so queueState can rebuild
+          var oldInline = row.querySelector('.queue-inline-actions');
+          if (oldInline) oldInline.remove();
         }
         break;
       case 'queuedUserAdded':
@@ -469,6 +477,7 @@
             qBadge.textContent = window.junctionT('queued', 'QUEUED');
             addedBubble.insertBefore(qBadge, addedBubble.firstChild);
           }
+          // Queue actions will be attached by queueState → buildAllInlineQueueActions
         }
         break;
       case 'queuedUserActivated':
@@ -477,6 +486,11 @@
           activeRow.removeAttribute('data-queued');
           var activeBadge = activeRow.querySelector('.queue-badge');
           if (activeBadge) activeBadge.remove();
+          var activeInlineActions = activeRow.querySelector('.queue-inline-actions');
+          if (activeInlineActions) activeInlineActions.remove();
+          var activeInlineEdit = activeRow.querySelector('.queue-inline-edit');
+          if (activeInlineEdit) activeInlineEdit.remove();
+          activeRow.classList.remove('queue-editing');
         }
         break;
       case 'queuedUserSteered':
@@ -495,6 +509,12 @@
               steeredBubble.insertBefore(sBadge, steeredBubble.firstChild);
             }
           }
+          // Remove inline queue actions
+          var steeredInlineActions = steeredRow.querySelector('.queue-inline-actions');
+          if (steeredInlineActions) steeredInlineActions.remove();
+          var steeredInlineEdit = steeredRow.querySelector('.queue-inline-edit');
+          if (steeredInlineEdit) steeredInlineEdit.remove();
+          steeredRow.classList.remove('queue-editing');
         }
         break;
       case 'queuedUserUpdated':
@@ -509,6 +529,11 @@
             updatedBadge.textContent = window.junctionT('queued', 'QUEUED');
             queuedText.insertBefore(updatedBadge, queuedText.firstChild);
           }
+          // Refresh inline actions
+          var existingActions = queuedRow.querySelector('.queue-inline-actions');
+          if (existingActions) existingActions.remove();
+          var existingEdit = queuedRow.querySelector('.queue-inline-edit');
+          if (existingEdit) existingEdit.remove();
         }
         break;
       case 'queuedUserRemoved':
@@ -551,10 +576,12 @@
         window.setWorking(!!msg.active);
         break;
       case 'thinking_chunk':
+        if (msg.sessionKey && window.junctionActiveSessionKey && msg.sessionKey !== window.junctionActiveSessionKey) break;
         window.renderReasoning(msg.runId, msg.fullText, { deltaText: msg.text || '' });
         window.suppressWorking(true);
         break;
       case 'thinking_end':
+        if (msg.sessionKey && window.junctionActiveSessionKey && msg.sessionKey !== window.junctionActiveSessionKey) break;
         window.finalizeReasoning(msg.runId, msg.durationMs);
         if (window.setWorklogState) window.setWorklogState(msg.runId, 'done', msg.durationMs);
         window.suppressWorking(false);

@@ -69,6 +69,8 @@ export abstract class ChatBase {
     protected currentModelId: string | undefined;
     protected pendingNewChat = false;
     protected injectedHiddenContexts = new Set<string>();
+    protected debugQueueStall = false;
+    protected debugQueueStallEnabled = true;
 
     /** Composed modules. */
     protected readonly configManager: ConfigManager;
@@ -94,9 +96,21 @@ export abstract class ChatBase {
         this.eventRouter.configManager = this.configManager;
 
         this.attachBridgeStreamListener(this.bridgeRegistry.active);
+        this.attachReconnectListener(this.bridgeRegistry.active);
         this.bridgeRegistry.on('changed', (newBridge) => {
             this.detachBridgeStreamListener();
+            this.detachReconnectListener();
+            // Unwatch the old bridge's session before switching so stale events
+            // from the previous gateway are gated at transport level.
+            // NOTE: this.bridge already points to the new bridge by the time
+            // 'changed' fires (registry sets activeId before emitting). The old
+            // bridge is already disconnected — its watchedSessions don't matter
+            // anymore. Just clear the view-level session tracking.
+            this.viewSessionKey = null;
+            this.pendingSessionAdoption = false;
+            this.activeRunIdsBySession.clear();
             this.attachBridgeStreamListener(newBridge);
+            this.attachReconnectListener(newBridge);
             this.cachedHistory = [];
             this.transcript = [];
             this.runTurnIds.clear();
@@ -106,6 +120,7 @@ export abstract class ChatBase {
             this.currentModelDisplay = '';
             this.currentModelId = undefined;
             this.currentThinking = undefined;
+            this.injectedHiddenContexts.clear();
             this.clearFollowUpQueue();
             this.postToWebview({ type: 'clearChat' });
             void this.handleInitRequest();
@@ -186,6 +201,7 @@ export abstract class ChatBase {
             handleApprovalRespond: (data) => this.handleApprovalRespond(data),
             handleInputRespond: (data) => this.handleInputRespond(data),
             handleCompactContext: () => this.handleCompactContext(),
+            handleSetDebugQueueStall: (stall) => this.handleSetDebugQueueStall(stall),
             postToWebview: (message) => this.postToWebview(message),
         };
     }
@@ -197,14 +213,23 @@ export abstract class ChatBase {
     /** Bound stream handler reference for clean attach/detach. */
     private _streamHandler?: (event: any) => void;
     private _streamBridge?: ChatBridge;
+    private _reconnectHandler?: () => void;
+    private _reconnectBridge?: ChatBridge;
 
     private attachBridgeStreamListener(bridge?: ChatBridge): void {
         const target = bridge || this.bridgeRegistry.active;
         this._streamHandler = (event: any) => {
             event._bridgeId = target.id;
             if (!event.sessionKey) {
-                const key = target.getCurrentSessionKey?.();
-                if (key) event.sessionKey = key;
+                // Do NOT stamp with bridge.getCurrentSessionKey() — that is a
+                // per-folder shared mutable in SessionManager and can point to a
+                // session owned by a different view, causing cross-session bleed.
+                // Use this view's own adopted session instead.  If the view has no
+                // session yet the event will be dropped by handleStreamEvent's
+                // viewSessionKey guard, which is the correct outcome.
+                if (this.viewSessionKey) {
+                    event.sessionKey = this.viewSessionKey;
+                }
             }
             this.handleStreamEvent(event);
         };
@@ -217,6 +242,43 @@ export abstract class ChatBase {
             this._streamBridge.removeListener('stream', this._streamHandler);
             this._streamHandler = undefined;
             this._streamBridge = undefined;
+        }
+    }
+
+    private attachReconnectListener(bridge?: ChatBridge): void {
+        const target = bridge || this.bridgeRegistry.active;
+        this._reconnectHandler = async () => {
+            this.injectedHiddenContexts.clear();
+            const sessionKey = this.bridge.getCurrentSessionKey();
+            if (sessionKey) {
+                this.adoptViewSession(sessionKey);
+                const dispatchContext = await this.gatherContext();
+                await this.ensureHiddenWorkspaceContext(sessionKey, dispatchContext).catch(() => false);
+            }
+            await this.historyManager.restoreHistory(
+                this.bridge,
+                this.transcript,
+                (turns, historyItems) => {
+                    this.transcript = turns;
+                    this.cachedHistory = historyItems;
+                }
+            );
+            if (this.activeRunId) {
+                const stillActive = this.activeRuns.has(this.activeRunId);
+                if (!stillActive) {
+                    this.finalizeRun(this.activeRunId);
+                }
+            }
+        };
+        this._reconnectBridge = target;
+        target.on('reconnected', this._reconnectHandler);
+    }
+
+    private detachReconnectListener(): void {
+        if (this._reconnectHandler && this._reconnectBridge) {
+            this._reconnectBridge.removeListener('reconnected', this._reconnectHandler);
+            this._reconnectHandler = undefined;
+            this._reconnectBridge = undefined;
         }
     }
 
@@ -281,11 +343,17 @@ export abstract class ChatBase {
             if (next) this.bridge.watchSession?.(next);
             return;
         }
-        if (this.viewSessionKey) this.bridge.unwatchSession?.(this.viewSessionKey);
+        // Save current transcript before switching sessions
+        if (this.viewSessionKey) {
+            this.persistCurrentTranscript();
+            this.bridge.unwatchSession?.(this.viewSessionKey);
+        }
         this.viewSessionKey = next;
         if (next) this.bridge.watchSession?.(next);
         const running = !!(next && this.activeRunIdsBySession.get(next));
         this.activeRunId = next ? (this.activeRunIdsBySession.get(next) ?? null) : null;
+        // Restore transcript for the new session from cache
+        if (next) this.restoreTranscriptFromCache(next);
         this.postToWebview({ type: 'runActive', active: running, sessionKey: next ?? undefined });
     }
 
@@ -586,7 +654,19 @@ export abstract class ChatBase {
             activeBridge: this.bridgeRegistry.active.id,
             messageReactions: this.supportsMessageReactions(),
             interleaveTimeline: !!this.bridgeRegistry.active.capabilities.timelineInterleaves,
+            debugQueueStallEnabled: this.debugQueueStallEnabled,
         });
+        // Also push debug stall state
+        this.sendDebugQueueStallState();
+        this.sendDebugQueueStallOverride();
+    }
+
+    protected sendDebugQueueStallState(): void {
+        this.postToWebview({ type: 'debugQueueStallState', stalled: this.debugQueueStall });
+    }
+
+    protected sendDebugQueueStallOverride(): void {
+        this.postToWebview({ type: 'debugQueueStallOverride', debugMode: this.debugQueueStallEnabled, stalled: this.debugQueueStall });
     }
 
     protected renderBridgeConfig(): { activeBridge: string; sessionKey?: string; interleaveTimeline: boolean; compactTimelineMode: boolean } {
@@ -1040,6 +1120,11 @@ export abstract class ChatBase {
         this.postToWebview({ type: 'queuedUserRemoved', messageId });
         this.persistCurrentTranscript();
         this.pushFollowUpQueue();
+    }
+
+    protected handleSetDebugQueueStall(stall: boolean): void {
+        this.debugQueueStall = stall;
+        this.sendDebugQueueStallState();
     }
 
     protected async handleRequestEnvironmentChoices(): Promise<void> {
@@ -1696,6 +1781,50 @@ export abstract class ChatBase {
         }
     }
 
+    /** Add a staged pill from external commands (sendFilePath, WorkspaceTracker). */
+    public addStagedPill(pill: AttachedPill): void {
+        this.addAttachedPill(pill);
+    }
+
+    /** Stage file context from WorkspaceTracker auto-send as a visible pill. */
+    public addStagedFileContext(fileContext: string): void {
+        const match = /^Current file:\s*(.+)$/m.exec(fileContext);
+        if (!match) return;
+        const absolutePath = match[1].trim();
+        const workspace = vscode.workspace.workspaceFolders?.[0];
+        const filePath = workspace
+            ? path.relative(workspace.uri.fsPath, absolutePath)
+            : absolutePath;
+
+        // Extract selection info from the context string
+        const selMatch = /Selected code:\n```(\S+)\n([\s\S]*?)```/.exec(fileContext);
+        const language = selMatch?.[1];
+        const selectedText = selMatch?.[2]?.trim();
+
+        // Try to get line numbers from the active editor
+        let startLine: number | undefined;
+        let endLine: number | undefined;
+        const editor = vscode.window.activeTextEditor;
+        if (editor && editor.document.fileName === absolutePath && !editor.selection.isEmpty) {
+            startLine = editor.selection.start.line + 1;
+            endLine = editor.selection.end.line + 1;
+        }
+
+        const displayText = selectedText && startLine
+            ? `${filePath}:${startLine}${endLine && endLine !== startLine ? '-' + endLine : ''}`
+            : filePath;
+
+        this.addAttachedPill({
+            filePath,
+            displayText,
+            isLive: false,
+            startLine,
+            endLine,
+            language,
+            selectedText,
+        });
+    }
+
     protected addAttachedPill(pill: AttachedPill): void {
         this.attachedPills.set(pill.filePath, pill);
         if (pill.isLive) this.livePillPath = pill.filePath;
@@ -1733,38 +1862,13 @@ export abstract class ChatBase {
 
     protected buildOutboundFileContext(): {
         fileContext: string;
-        pendingFileContext: string | null;
         attachedFileContext: string;
-        skippedPendingFileContext: string | null;
     } {
-        const pendingFileContext = this.bridge.getPendingFileContext();
         const attachedFileContext = this.buildAttachedFileContext();
-        const pendingForSend = this.shouldDropPendingFileContext(pendingFileContext)
-            ? null
-            : pendingFileContext;
-        const fileContext = [pendingForSend, attachedFileContext].filter(Boolean).join('\n\n');
         return {
-            fileContext,
-            pendingFileContext,
+            fileContext: attachedFileContext,
             attachedFileContext,
-            skippedPendingFileContext: pendingForSend ? null : pendingFileContext,
         };
-    }
-
-    protected shouldDropPendingFileContext(pendingFileContext: string | null): boolean {
-        if (!pendingFileContext || this.attachedPills.size === 0) return false;
-        const pendingPath = this.extractCurrentFilePath(pendingFileContext);
-        if (!pendingPath) return false;
-        const normalizedPending = this.normalizeWorkspacePath(pendingPath);
-        for (const pill of this.attachedPills.values()) {
-            if (this.normalizeWorkspacePath(pill.filePath) === normalizedPending) return true;
-        }
-        return false;
-    }
-
-    protected extractCurrentFilePath(fileContext: string): string | null {
-        const match = /^Current file:\s*(.+)$/m.exec(fileContext);
-        return match?.[1]?.trim() || null;
     }
 
     protected normalizeWorkspacePath(filePath: string): string {
@@ -1890,7 +1994,10 @@ export abstract class ChatBase {
         if (this.activeRunId) {
             this.refreshFollowUpMode();
             const savedMode = this.followUpMode;
-            if (dispatchOverride === 'queue' || dispatchOverride === 'steer' || dispatchOverride === 'interrupt') {
+            // Debug stall: force queue mode regardless of config
+            if (this.debugQueueStall) {
+                this.followUpMode = 'queue';
+            } else if (dispatchOverride === 'queue' || dispatchOverride === 'steer' || dispatchOverride === 'interrupt') {
                 this.followUpMode = dispatchOverride;
             }
             const sessionKey = this.bridge.getCurrentSessionKey();
@@ -1997,21 +2104,14 @@ export abstract class ChatBase {
             const sessionKey = this.bridge.getCurrentSessionKey();
             const {
                 fileContext,
-                pendingFileContext,
                 attachedFileContext,
-                skippedPendingFileContext,
             } = this.buildOutboundFileContext();
+            // File context from attached pills is always prepended to the
+            // user's message so the agent sees it as part of the same turn.
+            // (The hidden workspace context injection via
+            // ensureHiddenWorkspaceContext is the separate intended turn.)
             if (fileContext) {
-                if (sessionKey && this.bridge.canAdminInject()) {
-                    try {
-                        await this.bridge.injectMessage(sessionKey, '[Workspace File Context]\n' + fileContext);
-                    } catch (err) {
-                        Logger.getInstance().warn('chat.inject failed, falling back to prepend', err);
-                        text = fileContext + '\n\n' + text;
-                    }
-                } else {
-                    text = fileContext + '\n\n' + text;
-                }
+                text = fileContext + '\n\n' + text;
             }
             const hiddenContextOk = await this.ensureHiddenWorkspaceContext(sessionKey, dispatchContext);
             const outboundText = hiddenContextOk ? text : this.withWorkspaceContext(text, dispatchContext);
@@ -2022,9 +2122,7 @@ export abstract class ChatBase {
                 outboundText,
                 context: dispatchContext,
                 fileContext,
-                pendingFileContext,
                 attachedFileContext,
-                skippedPendingFileContext,
             });
             captureBridgeDebug(this.bridgeRegistry.active.id, 'request', {
                 operation: 'sendChatMessage',
@@ -2033,7 +2131,6 @@ export abstract class ChatBase {
                 outboundText,
                 context: dispatchContext,
                 hasFileContext: !!fileContext,
-                hasPendingFileContext: !!pendingFileContext,
                 hasAttachedFileContext: !!attachedFileContext,
             });
             if (!this.viewSessionKey) {
@@ -2250,6 +2347,7 @@ export abstract class ChatBase {
                 runId,
                 text: delta,
                 fullText: buf,
+                sessionKey: event.sessionKey,
             });
             const hideRawThinking = this.hidesRawThinking();
             Logger.getInstance().captureDebugStream('chat-stream-filtered', {
@@ -2456,6 +2554,7 @@ export abstract class ChatBase {
                 runId,
                 tokenCount: thinkingBuf.length,
                 durationMs,
+                sessionKey: this.viewSessionKey,
             });
             this.thinkingBuffers.delete(runId);
             this.thinkingStart.delete(runId);

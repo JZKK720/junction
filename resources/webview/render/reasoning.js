@@ -178,6 +178,7 @@
       : 'Reasoning\u2026';
     block.classList.toggle('thinking', isActive);
     var summary = block.querySelector('summary');
+    if (!summary) { return; }
     var labelEl = summary.querySelector('.reasoning-label');
     var existingBar = summary.querySelector('.thinking-bar');
 

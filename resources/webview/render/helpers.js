@@ -100,6 +100,7 @@
         return '<div class="code-editor">' +
           '<div class="code-editor-header">' +
             '<span class="code-editor-lang">' + escapeHtml(cleanLang) + '</span>' +
+            '<button class="code-editor-copy" title="Copy"><span class="codicon codicon-copy"></span></button>' +
           '</div>' +
           '<div class="code-editor-body">' +
             codeLineNumbersHtml(str) +
@@ -107,6 +108,43 @@
           '</div>' +
         '</div>';
       }
+    });
+
+    // Override inline code to add a copy button
+    md.renderer.rules.code_inline = function (tokens, idx) {
+      var content = escapeHtml(tokens[idx].content);
+      return '<span class="inline-code-wrap"><code>' + content + '</code>' +
+        '<button class="inline-code-copy" title="Copy"><span class="codicon codicon-copy"></span></button>' +
+        '</span>';
+    };
+  }
+
+  /** Copy handler for code blocks and inline code. Delegated on chat-messages. */
+  function handleCodeCopy(btn) {
+    var isInline = btn.classList.contains('inline-code-copy');
+    var code;
+    if (isInline) {
+      var wrap = btn.closest('.inline-code-wrap');
+      code = wrap ? wrap.querySelector('code') : null;
+    } else {
+      code = btn.closest('.code-editor').querySelector('code');
+    }
+    if (!code) return;
+    var text = code.textContent || '';
+    if (window.vscode) { window.vscode.postMessage({ type: 'copyToClipboard', text: text }); }
+    else { navigator.clipboard.writeText(text); }
+    var icon = btn.querySelector('.codicon') || btn;
+    var orig = icon.className;
+    icon.className = 'codicon codicon-check';
+    setTimeout(function () { icon.className = orig; }, 1500);
+  }
+
+  // Event delegation for copy buttons
+  var chatMsg = document.getElementById('chat-messages');
+  if (chatMsg) {
+    chatMsg.addEventListener('click', function (e) {
+      var btn = e.target.closest('.code-editor-copy, .inline-code-copy');
+      if (btn) { e.preventDefault(); handleCodeCopy(btn); }
     });
   }
 

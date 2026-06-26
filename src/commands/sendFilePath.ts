@@ -4,7 +4,8 @@ import { t } from '../l10n';
 
 export function registerSendFilePathCommand(
     context: vscode.ExtensionContext,
-    bridgeRegistry: BridgeRegistry
+    bridgeRegistry: BridgeRegistry,
+    chatViewProvider?: { addStagedPill: (pill: any) => void }
 ): void {
     const handler = async () => {
         const editor = vscode.window.activeTextEditor;
@@ -18,13 +19,23 @@ export function registerSendFilePathCommand(
         const selection = editor.selection;
         const selectedText = editor.document.getText(selection);
 
-        let message = `Current file: ${filePath}`;
+        // Create a pill so the user can see and remove the staged context
+        const relativePath = vscode.workspace.asRelativePath(filePath);
+        const startLine = selection.start.line + 1;
+        const endLine = selection.end.line + 1;
+        const displayText = selection.isEmpty
+            ? relativePath
+            : `${relativePath}:${startLine}${endLine !== startLine ? '-' + endLine : ''}`;
 
-        if (selectedText) {
-            message += `\n\nSelected code:\n\`\`\`${editor.document.languageId}\n${selectedText}\n\`\`\``;
-        }
-
-        bridgeRegistry.active.setPendingFileContext(message);
+        chatViewProvider?.addStagedPill({
+            filePath: relativePath,
+            displayText,
+            isLive: false,
+            startLine: startLine,
+            endLine: endLine,
+            language: editor.document.languageId,
+            selectedText: selectedText || undefined,
+        });
         vscode.window.showInformationMessage(t('File context staged for next message'));
     };
 

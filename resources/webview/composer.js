@@ -315,125 +315,98 @@
   }
 
   function renderQueue(items) {
+    /* Queue panel hidden — queued messages display inline in #chat-messages.
+       This function is kept for state-tracking (updating inline queue actions)
+       but the DOM panel stays hidden. */
     if (!queueList) return;
     queueList.innerHTML = '';
+    queueList.hidden = true;
+    // Refresh inline queue actions on all queued message rows
+    buildAllInlineQueueActions(items);
+  }
+
+  function buildInlineQueueActions(row, item, index) {
+    if (!row || !item) return;
+    // Remove any existing inline actions
+    var existing = row.querySelector('.queue-inline-actions');
+    if (existing) existing.remove();
+    var existingEdit = row.querySelector('.queue-inline-edit');
+    if (existingEdit) existingEdit.remove();
+
+    var actions = document.createElement('div');
+    actions.className = 'queue-inline-actions';
+
+    function iconButton(icon, title, fn, disabled) {
+      var btn = document.createElement('button');
+      btn.className = 'codicon codicon-' + icon + ' queue-inline-action';
+      btn.title = title;
+      btn.disabled = !!disabled;
+      btn.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        fn(btn);
+      });
+      actions.appendChild(btn);
+      return btn;
+    }
+
+    // Steer button
+    iconButton('send', window.junctionT('steerQueuedTextNow', 'Steer queued text now'), function () {
+      post('steerQueuedFollowUp', { index: index, id: item.id });
+    }, item.canSteer === false);
+
+    // Edit button
+    iconButton('edit', window.junctionT('editQueuedText', 'Edit queued text'), function () {
+      startInlineQueueEdit(row, index, item.text || '');
+    });
+
+    // Delete button
+    iconButton('trash', window.junctionT('removeQueuedText', 'Remove queued text'), function () {
+      post('removeQueuedFollowUp', { index: index });
+    });
+
+    row.appendChild(actions);
+  }
+  window.buildInlineQueueActions = buildInlineQueueActions;
+  window.buildAllInlineQueueActions = buildAllInlineQueueActions;
+  window.startInlineQueueEdit = startInlineQueueEdit;
+
+  function buildAllInlineQueueActions(items) {
     var list = Array.isArray(items) ? items : [];
-    queueList.hidden = list.length === 0;
     list.forEach(function (item, index) {
-      var row = document.createElement('div');
-      row.className = 'queued-followup' + (item.groupWithPrevious ? ' grouped' : '');
-      row.dataset.index = String(index);
-      row.dataset.id = String(item.id || index);
-      row.draggable = true;
-
-      var handle = document.createElement('span');
-      handle.className = 'queued-followup-handle';
-      handle.title = window.junctionT('dragToReorder', 'Drag to reorder');
-      handle.innerHTML = '<span class="codicon codicon-gripper"></span>';
-      row.appendChild(handle);
-
-      var text = document.createElement('div');
-      text.className = 'queued-followup-text';
-      text.textContent = item.text || '';
-      text.title = item.text || '';
-      row.appendChild(text);
-
-      var actions = document.createElement('div');
-      actions.className = 'queued-followup-actions';
-      function iconButton(icon, title, fn, className) {
-        var btn = document.createElement('button');
-        btn.className = 'codicon codicon-' + icon;
-        if (className) btn.classList.add(className);
-        btn.title = title;
-        btn.addEventListener('click', function (event) {
-          event.preventDefault();
-          event.stopPropagation();
-          fn(btn);
-        });
-        actions.appendChild(btn);
-        return btn;
-      }
-      var steer = iconButton('send', window.junctionT('steerQueuedTextNow', 'Steer queued text now'), function () {
-        post('steerQueuedFollowUp', { index: index, id: item.id });
-      }, 'queue-steer-action');
-      steer.disabled = item.canSteer === false;
-      var group = iconButton('link', window.junctionT('groupWithPrevious', 'Group with previous'), function () {
-        post('toggleQueuedFollowUpGroup', { index: index });
-      }, 'queue-group-action');
-      group.disabled = index === 0;
-      if (item.groupWithPrevious) group.classList.add('active');
-      iconButton('edit', window.junctionT('editQueuedText', 'Edit queued text'), function () {
-        startQueueEdit(row, index, item.text || '');
-      }, 'queue-edit-action');
-      iconButton('trash', window.junctionT('removeQueuedText', 'Remove queued text'), function () {
-        post('removeQueuedFollowUp', { index: index });
-      }, 'queue-delete-action');
-      row.addEventListener('dragstart', function (event) {
-        row.classList.add('dragging');
-        if (event.dataTransfer) {
-          event.dataTransfer.effectAllowed = 'move';
-          event.dataTransfer.setData('text/plain', row.dataset.id || String(index));
-        }
-      });
-      row.addEventListener('dragend', function () {
-        row.classList.remove('dragging');
-        queueList.querySelectorAll('.queued-followup.drag-over').forEach(function (el) { el.classList.remove('drag-over'); });
-      });
-      row.addEventListener('dragover', function (event) {
-        event.preventDefault();
-        row.classList.add('drag-over');
-        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-      });
-      row.addEventListener('dragleave', function () {
-        row.classList.remove('drag-over');
-      });
-      row.addEventListener('drop', function (event) {
-        event.preventDefault();
-        row.classList.remove('drag-over');
-        var fromId = event.dataTransfer ? event.dataTransfer.getData('text/plain') : '';
-        var toId = row.dataset.id || String(index);
-        if (!fromId || fromId === toId) return;
-        var order = Array.prototype.map.call(queueList.querySelectorAll('.queued-followup'), function (el) {
-          return el.dataset.id || '';
-        }).filter(Boolean);
-        var from = order.indexOf(fromId);
-        var to = order.indexOf(toId);
-        if (from < 0 || to < 0) return;
-        order.splice(from, 1);
-        order.splice(to, 0, fromId);
-        post('reorderQueuedFollowUps', { order: order });
-      });
-      row.appendChild(actions);
-      queueList.appendChild(row);
+      var row = document.querySelector('#chat-messages .chat-row.user[data-message-id="' + (item.id || '') + '"]');
+      if (row) buildInlineQueueActions(row, item, index);
     });
   }
 
-  function startQueueEdit(row, index, value) {
-    if (!row || row.querySelector('.queued-followup-edit')) return;
+  function startInlineQueueEdit(row, index, value) {
+    if (!row || row.querySelector('.queue-inline-edit')) return;
+    row.classList.add('queue-editing');
     var textarea = document.createElement('textarea');
-    textarea.className = 'queued-followup-edit';
+    textarea.className = 'queue-inline-edit';
     textarea.value = value;
-    var save = document.createElement('button');
-    save.className = 'codicon codicon-check';
-    save.title = window.junctionT('saveQueuedText', 'Save queued text');
-    var cancel = document.createElement('button');
-    cancel.className = 'codicon codicon-close';
-    cancel.title = window.junctionT('cancelEdit', 'Cancel edit');
-    var actions = row.querySelector('.queued-followup-actions');
+    var actions = row.querySelector('.queue-inline-actions');
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'codicon codicon-check queue-inline-action';
+    saveBtn.title = window.junctionT('saveQueuedText', 'Save queued text');
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'codicon codicon-close queue-inline-action';
+    cancelBtn.title = window.junctionT('cancelEdit', 'Cancel edit');
     function closeEdit() {
       textarea.remove();
-      save.remove();
-      cancel.remove();
+      saveBtn.remove();
+      cancelBtn.remove();
+      row.classList.remove('queue-editing');
     }
-    save.addEventListener('click', function () {
+    saveBtn.addEventListener('click', function () {
       post('editQueuedFollowUp', { index: index, text: textarea.value });
       closeEdit();
     });
-    cancel.addEventListener('click', closeEdit);
+    cancelBtn.addEventListener('click', closeEdit);
     row.appendChild(textarea);
     if (actions) {
-      actions.appendChild(save);
-      actions.appendChild(cancel);
+      actions.appendChild(saveBtn);
+      actions.appendChild(cancelBtn);
     }
     textarea.focus();
     textarea.select();
@@ -794,8 +767,45 @@
       case 'queueState':
         renderQueue(msg.items || []);
         break;
+      case 'debugQueueStallState':
+        updateDebugStallPill(!!msg.stalled);
+        break;
+      case 'debugQueueStallOverride':
+        // Show/hide the debug pill based on debug mode
+        if (msg.debugMode === true) {
+          document.getElementById('debug-stall-pill').hidden = false;
+          if (msg.stalled !== undefined) updateDebugStallPill(!!msg.stalled);
+        } else {
+          document.getElementById('debug-stall-pill').hidden = true;
+        }
+        break;
     }
   });
+
+  // ── Debug stall pill ─────────────────────────────────────────────────────
+  var debugStallPill = document.getElementById('debug-stall-pill');
+  function updateDebugStallPill(stalled) {
+    if (!debugStallPill) return;
+    if (stalled) {
+      debugStallPill.classList.add('active');
+      var icon = debugStallPill.querySelector('.debug-stall-icon');
+      if (icon) { icon.className = 'codicon codicon-debug-pause debug-stall-icon'; }
+      var label = debugStallPill.querySelector('.debug-stall-label');
+      if (label) label.textContent = 'Stalled';
+    } else {
+      debugStallPill.classList.remove('active');
+      var icon2 = debugStallPill.querySelector('.debug-stall-icon');
+      if (icon2) { icon2.className = 'codicon codicon-debug-start debug-stall-icon'; }
+      var label2 = debugStallPill.querySelector('.debug-stall-label');
+      if (label2) label2.textContent = 'Stall';
+    }
+  }
+  if (debugStallPill) {
+    debugStallPill.addEventListener('click', function () {
+      var isActive = debugStallPill.classList.contains('active');
+      post('setDebugQueueStall', { stall: !isActive });
+    });
+  }
 
   // Public API for other modules
   window.resetComposer = function () { composerInput.value = ''; composerInput.style.height = 'auto'; setSending(false); };
