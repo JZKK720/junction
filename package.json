@@ -2,7 +2,7 @@
   "name": "junction",
   "displayName": "%junction.displayName.junction%",
   "description": "%junction.description.junction.local.ai.coding.agent.bridge.for.openclaw.hermes.and.souveraine%",
-  "version": "0.0.1",
+  "version": "0.1.1",
   "preview": true,
   "publisher": "Plaer1",
   "icon": "resources/icon.png",
@@ -633,6 +633,21 @@
           "default": "default",
           "description": "%junction.contributes.configuration.properties.junction.openhands.followUpMode.description.follow.up.mode.for.openhands.default.uses.the.global.junction.followupmode%",
           "order": 84
+        },
+        "junction.queueDisplayMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "timeline",
+            "compact"
+          ],
+          "enumDescriptions": [
+            "Follow the current activity mode (timeline uses timeline queue, compact uses compact queue)",
+            "Always use timeline-style queue (inline items with drag handles)",
+            "Always use compact-style queue (condensed panel above composer)"
+          ],
+          "default": "auto",
+          "description": "Queue display mode. 'auto' follows the activity mode; 'timeline' or 'compact' forces that style regardless of activity mode."
         }
       }
     }
