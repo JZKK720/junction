@@ -343,9 +343,11 @@ export abstract class ChatBase {
             if (next) this.bridge.watchSession?.(next);
             return;
         }
-        // Save current transcript before switching sessions
+        // Don't persist here — callers must persist BEFORE calling adoptViewSession.
+        // persistCurrentTranscript uses bridge.getCurrentSessionKey() which may have
+        // already been changed by setActiveSession, causing the transcript to be saved
+        // under the wrong key.
         if (this.viewSessionKey) {
-            this.persistCurrentTranscript();
             this.bridge.unwatchSession?.(this.viewSessionKey);
         }
         this.viewSessionKey = next;
@@ -493,6 +495,8 @@ export abstract class ChatBase {
     }
 
     protected persistCurrentTranscript(): void {
+        const key = this.bridge.getCurrentSessionKey();
+        Logger.sessionDebug(this.bridgeRegistry.context, { op: 'persistTranscript', key, viewSessionKey: this.viewSessionKey, transcriptLen: this.transcript.length });
         this.historyManager.persistCurrentTranscript(
             this.sessionTranscripts,
             this.bridge,
@@ -771,7 +775,7 @@ export abstract class ChatBase {
         // If adoptViewSession restored a cached transcript, send switchToChat
         // WITH the cached history so the webview switches views and shows it.
         if (this.restoreTranscriptFromCache(key)) {
-            Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.cacheHit', key });
+            Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.cacheHit', key, transcriptLen: this.transcript.length, transcriptSample: this.transcript.slice(0, 3).map(t => ({ role: t.role, content: String(t.content).slice(0, 50) })) });
             this.postToWebview({ type: 'switchToChat', title, history: this.historyMessages(), ...this.renderBridgeConfig() });
             return;
         }
