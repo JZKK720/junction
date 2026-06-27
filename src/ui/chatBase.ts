@@ -753,6 +753,7 @@ export abstract class ChatBase {
 
     protected async handleResumeSession(key: string): Promise<void> {
         if (!key) return;
+        Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession', key, viewSessionKey: this.viewSessionKey, activeSessionId: this.bridge.getCurrentSessionKey()?.toString() });
         this.persistCurrentTranscript();
         const folderUri = this.bridge.getSessionToFolder().get(key)
             ?? this.boundSessionWorkspace(key)
@@ -769,8 +770,13 @@ export abstract class ChatBase {
         const title = this.sessionTitle(key);
         this.postToWebview({ type: 'switchToChat', title, history: [], ...this.renderBridgeConfig() });
         this.postToWebview({ type: 'updateTitle', key, title });
+        Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.postSwitch', viewSessionKey: this.viewSessionKey });
         await this.ensureHiddenWorkspaceContext(key, await this.gatherContext()).catch(() => false);
-        if (this.restoreTranscriptFromCache(key)) return;
+        if (this.restoreTranscriptFromCache(key)) {
+            Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.cacheHit', key });
+            return;
+        }
+        Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.restoreHistory', key });
         await this.historyManager.restoreHistory(
             this.bridge,
             this.transcript,
@@ -1977,7 +1983,7 @@ export abstract class ChatBase {
         const messageId = this.makeMessageId('m');
 
         let isSteer = false;
-        if (this.activeRunId) {
+        if (this.activeRunId && (!this.pendingNewChat || this.viewSessionKey)) {
             this.refreshFollowUpMode();
             const mode = (dispatchOverride === 'queue' || dispatchOverride === 'steer' || dispatchOverride === 'interrupt')
                 ? dispatchOverride
@@ -2314,7 +2320,10 @@ export abstract class ChatBase {
         });
         if (event._bridgeId && event._bridgeId !== this.bridgeRegistry.active.id) return;
         const eventSession = String(event?.sessionKey ?? '').trim();
-        if (!eventSession) return;
+        if (!eventSession) {
+            Logger.sessionDebug(this.bridgeRegistry.context, { op: 'stream.dropped.noSessionKey', eventType: event?.type, runId: event?.runId });
+            return;
+        }
         const currentSession = String(this.bridge.getCurrentSessionKey() ?? '').trim();
         if (!this.viewSessionKey && this.pendingSessionAdoption) {
             if (currentSession && eventSession === currentSession) {
@@ -2326,7 +2335,10 @@ export abstract class ChatBase {
             this.adoptViewSession(currentSession);
             this.pendingSessionAdoption = false;
         }
-        if (!this.viewSessionKey || eventSession !== this.viewSessionKey) return;
+        if (!this.viewSessionKey || eventSession !== this.viewSessionKey) {
+            Logger.sessionDebug(this.bridgeRegistry.context, { op: 'stream.dropped.sessionMismatch', eventSession, viewSessionKey: this.viewSessionKey, eventType: event?.type });
+            return;
+        }
 
         if (event.type === 'agent_lifecycle' && event.phase === 'start') {
             this.beginRunIfNeeded(event.runId || this.resolveRunId(event, 'agent'), event.sessionKey);
