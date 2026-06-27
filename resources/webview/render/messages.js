@@ -705,7 +705,7 @@
     } else {
       mDiv.appendChild(row);
     }
-    if (!window.isRestoringHistory) window.forceScrollToBottom();
+    if (!window.isRestoringHistory) window.scrollToBottom();
     return row;
   }
   window.addUserRow = addUserRow;
