@@ -16,6 +16,24 @@ export class Logger {
         this.ch = channel;
     }
 
+    /** Check if session debug logging is enabled via VS Code settings. */
+    static isSessionDebugEnabled(): boolean {
+        const cfg = vscode.workspace.getConfiguration('junction');
+        if (!cfg.get<boolean>('debug.enabled', false)) return false;
+        return cfg.get<boolean>('debug.sessionLog', false);
+    }
+
+    /** Append a line to the session-debug JSONL file. Gated on junction.debug settings. */
+    static sessionDebug(context: vscode.ExtensionContext | null, data: Record<string, unknown>): void {
+        if (!Logger.instance || !context) return;
+        if (!Logger.isSessionDebugEnabled()) return;
+        const dir = Logger.instance.debugDir;
+        if (!dir) return;
+        const file = path.join(dir, 'junction-session-debug.jsonl');
+        const entry = { ts: new Date().toISOString(), ...data };
+        void fs.promises.appendFile(file, JSON.stringify(entry) + '\n', 'utf8').catch(() => {});
+    }
+
     public static getInstance(): Logger {
         if (!Logger.instance) {
             Logger.instance = new Logger();

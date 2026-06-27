@@ -740,7 +740,7 @@ export abstract class ChatBase {
 
     protected async handleCreateChat(text?: string): Promise<void> {
         await this.handleNewChat();
-        this.postToWebview({ type: 'switchToChat', title: this.defaultChatTitle(), history: [], ...this.renderBridgeConfig() });
+        this.postToWebview({ type: 'switchToChat', title: this.defaultChatTitle(), history: [], ...this.renderBridgeConfig(), sessionKey: null });
         if (text && text.trim()) {
             await this.handleUserMessage(text);
         }
@@ -1629,7 +1629,7 @@ export abstract class ChatBase {
         this.completedRunIds.clear();
         this.activeRunId = null;
         this.clearFollowUpQueue();
-        this.postToWebview({ type: 'history', messages: [], ...this.renderBridgeConfig() });
+        this.postToWebview({ type: 'history', messages: [], ...this.renderBridgeConfig(), sessionKey: null });
     }
 
     protected async handleStopRun(): Promise<void> {
