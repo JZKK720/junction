@@ -80,16 +80,28 @@ export class GatewayConnection extends EventEmitter {
 
   public watchSession(key: string): void {
     const k = String(key ?? '').trim();
-    if (k) this.watchedSessions.add(k);
+    if (k) {
+      this.watchedSessions.add(k);
+      // Per-session transcript subscription — prevents global firehose bleed
+      this.sendRequest('sessions.messages.subscribe', { sessionKey: k }).catch(() => {});
+    }
   }
 
   public unwatchSession(key: string): void {
-    this.watchedSessions.delete(String(key ?? '').trim());
+    const k = String(key ?? '').trim();
+    if (k) {
+      this.watchedSessions.delete(k);
+      this.sendRequest('sessions.messages.unsubscribe', { sessionKey: k }).catch(() => {});
+    }
   }
 
   public isWatchedSession(key: unknown): boolean {
     const k = String(key ?? '').trim();
     return !!k && this.watchedSessions.has(k);
+  }
+
+  public getWatchedSessions(): string[] {
+    return [...this.watchedSessions];
   }
 
   /**
@@ -452,6 +464,7 @@ export class GatewayConnection extends EventEmitter {
   private static readonly SESSION_GATED_TYPES = new Set([
     'chat_message', 'agent_message', 'thinking_chunk',
     'tool_event', 'item_event', 'session_message',
+    'agent_lifecycle',
   ]);
 
   /**
