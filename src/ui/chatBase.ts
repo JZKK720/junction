@@ -354,6 +354,9 @@ export abstract class ChatBase {
         if (next) this.bridge.watchSession?.(next);
         const running = !!(next && this.activeRunIdsBySession.get(next));
         this.activeRunId = next ? (this.activeRunIdsBySession.get(next) ?? null) : null;
+        // Clear follow-up queue from the old session — don't carry stale
+        // queued messages into the new session's view.
+        this.clearFollowUpQueue();
         // Restore transcript for the new session from cache
         if (next) this.restoreTranscriptFromCache(next);
         this.postToWebview({ type: 'runActive', active: running, sessionKey: next ?? undefined });
@@ -1646,7 +1649,7 @@ export abstract class ChatBase {
     protected async handleStopRun(): Promise<void> {
         const sessionKey = this.viewSessionKey ?? this.bridge.getCurrentSessionKey();
         if (!sessionKey) return;
-        const runId = this.activeRunId ?? this.activeRunIdsBySession.get(sessionKey) ?? undefined;
+        const runId = this.activeRunIdsBySession.get(sessionKey) ?? this.activeRunId ?? undefined;
         try {
             Logger.getInstance().captureDebugStream('chat-stop', {
                 bridgeId: this.bridgeRegistry.active.id,
@@ -1993,8 +1996,12 @@ export abstract class ChatBase {
         }
         const messageId = this.makeMessageId('m');
 
+        // Check if the CURRENT session has an active run — not just any session.
+        const currentSessionKey = this.viewSessionKey ?? this.bridge.getCurrentSessionKey();
+        const sessionRunId = currentSessionKey ? this.activeRunIdsBySession.get(currentSessionKey) : undefined;
+        const hasActiveRunInSession = !!sessionRunId;
         let isSteer = false;
-        if (this.activeRunId && (!this.pendingNewChat || this.viewSessionKey)) {
+        if (hasActiveRunInSession && (!this.pendingNewChat || this.viewSessionKey)) {
             this.refreshFollowUpMode();
             const mode = (dispatchOverride === 'queue' || dispatchOverride === 'steer' || dispatchOverride === 'interrupt')
                 ? dispatchOverride
@@ -2008,7 +2015,7 @@ export abstract class ChatBase {
         const checkpointed = await this.snapshotCheckpoint(messageId, text);
         this.markCheckpoint(messageId, checkpointed);
 
-        if (this.activeRunId) {
+        if (hasActiveRunInSession) {
             this.refreshFollowUpMode();
             const savedMode = this.followUpMode;
             // Debug stall: force queue mode regardless of config
@@ -2034,7 +2041,7 @@ export abstract class ChatBase {
                 }
             }
             if (this.followUpMode === 'interrupt' && sessionKey) {
-                try { await this.bridge.stopRun(sessionKey, this.activeRunId); }
+                try { await this.bridge.stopRun(sessionKey, sessionRunId ?? undefined); }
                 catch (err) { Logger.getInstance().warn('interrupt abort failed', err); }
             } else {
                 this.enqueueFollowUp(text, messageId);
