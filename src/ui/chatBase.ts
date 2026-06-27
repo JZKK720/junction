@@ -768,10 +768,11 @@ export abstract class ChatBase {
         this.postToWebview({ type: 'updateTitle', key, title });
         Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.postSwitch', viewSessionKey: this.viewSessionKey });
         await this.ensureHiddenWorkspaceContext(key, await this.gatherContext()).catch(() => false);
-        // If adoptViewSession restored a cached transcript, we're done.
-        // Don't send switchToChat — it would clear what we just rendered.
+        // If adoptViewSession restored a cached transcript, send switchToChat
+        // WITH the cached history so the webview switches views and shows it.
         if (this.restoreTranscriptFromCache(key)) {
             Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.cacheHit', key });
+            this.postToWebview({ type: 'switchToChat', title, history: this.historyMessages(), ...this.renderBridgeConfig() });
             return;
         }
         // Cache miss: clear state, send switchToChat with empty history,
