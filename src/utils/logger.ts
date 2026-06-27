@@ -19,8 +19,7 @@ export class Logger {
     /** Check if session debug logging is enabled via VS Code settings. */
     static isSessionDebugEnabled(): boolean {
         const cfg = vscode.workspace.getConfiguration('junction');
-        if (!cfg.get<boolean>('debug.enabled', false)) return false;
-        return cfg.get<boolean>('debug.sessionLog', false);
+        return cfg.get<boolean>('debug.enabled', false);
     }
 
     /** Append a line to the session-debug JSONL file. Gated on junction.debug settings. */

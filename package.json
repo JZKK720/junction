@@ -647,19 +647,14 @@
             "Always use compact-style queue (condensed panel above composer)"
           ],
           "default": "auto",
-          "description": "Queue display mode. 'auto' follows the activity mode; 'timeline' or 'compact' forces that style regardless of activity mode."
+          "description": "Queue display mode. 'auto' follows the activity mode; 'timeline' or 'compact' forces that style regardless of activity mode.",
+          "order": 20
         },
         "junction.debug.enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Enable debug session logging. When off, all debug log settings below are hidden.",
+          "description": "Enable debug session logging to disk. When on, session debug logs are written to the extension's debug-captures directory.",
           "order": 90
-        },
-        "junction.debug.sessionLog": {
-          "type": "boolean",
-          "default": true,
-          "description": "Log session-switching debug info to disk (junction-session-debug.jsonl). Auto-enabled when junction.debug.enabled is true.",
-          "order": 91
         }
       }
     }
