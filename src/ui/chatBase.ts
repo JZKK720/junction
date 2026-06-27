@@ -760,22 +760,28 @@ export abstract class ChatBase {
             ?? vscode.workspace.workspaceFolders?.[0]?.uri;
         if (folderUri) this.bridge.setActiveSession(folderUri, key);
         this.rememberSessionWorkspace(key, folderUri);
+        // adoptViewSession restores cached transcript and renders it —
+        // don't clear anything after this if cache hits.
         this.adoptViewSession(key);
+        this.pendingNewChat = false;
+        const title = this.sessionTitle(key);
+        this.postToWebview({ type: 'updateTitle', key, title });
+        Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.postSwitch', viewSessionKey: this.viewSessionKey });
+        await this.ensureHiddenWorkspaceContext(key, await this.gatherContext()).catch(() => false);
+        // If adoptViewSession restored a cached transcript, we're done.
+        // Don't send switchToChat — it would clear what we just rendered.
+        if (this.restoreTranscriptFromCache(key)) {
+            Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.cacheHit', key });
+            return;
+        }
+        // Cache miss: clear state, send switchToChat with empty history,
+        // then load from the bridge.
         this.cachedHistory = [];
         this.transcript = [];
         this.runTurnIds.clear();
         this.activeRuns.clear();
         this.completedRunIds.clear();
-        this.pendingNewChat = false;
-        const title = this.sessionTitle(key);
         this.postToWebview({ type: 'switchToChat', title, history: [], ...this.renderBridgeConfig() });
-        this.postToWebview({ type: 'updateTitle', key, title });
-        Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.postSwitch', viewSessionKey: this.viewSessionKey });
-        await this.ensureHiddenWorkspaceContext(key, await this.gatherContext()).catch(() => false);
-        if (this.restoreTranscriptFromCache(key)) {
-            Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.cacheHit', key });
-            return;
-        }
         Logger.sessionDebug(this.bridgeRegistry.context, { op: 'resumeSession.restoreHistory', key });
         await this.historyManager.restoreHistory(
             this.bridge,

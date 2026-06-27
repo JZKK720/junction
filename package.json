@@ -657,8 +657,8 @@
         },
         "junction.debug.sessionLog": {
           "type": "boolean",
-          "default": false,
-          "description": "Log session-switching debug info to disk (junction-session-debug.jsonl). Only active when junction.debug.enabled is true.",
+          "default": true,
+          "description": "Log session-switching debug info to disk (junction-session-debug.jsonl). Auto-enabled when junction.debug.enabled is true.",
           "order": 91
         }
       }
