@@ -21,5 +21,3 @@ Initial public release.
 - Automatic reconnection to the agent runtime when a connection drops.
 - Animated splash screen with a customizable matrix-style rain effect and exit
   animations, configurable from an in-editor settings panel.
-
-
