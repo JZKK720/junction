@@ -7,7 +7,7 @@
 (function () {
   'use strict';
 
-  var JUNCTION_SHOW_ANIMATION_DEBUG_INFO = true;
+  var JUNCTION_SHOW_ANIMATION_DEBUG_INFO = !!window.MASTER_DEBUG;
 
   window.toggleChatPreviewPanel = function () {
     // Splash is the only shipping animation, so the panel opens splash-only.

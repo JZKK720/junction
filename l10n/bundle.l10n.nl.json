@@ -197,5 +197,9 @@
   "Working...": "Verwerken...",
   "Workspace": "Werkruimte",
   "You": "Jij",
-  "Compact this thread’s context": "Context van deze thread comprimeren"
+  "Compact this thread’s context": "Context van deze thread comprimeren",
+  "showMore": "Toon meer",
+  "showLess": "Toon minder",
+  "copyHistoryAsMarkdown": "Geschiedenis kopiëren als Markdown",
+  "copyHistoryAsText": "Geschiedenis kopiëren als tekst"
 }

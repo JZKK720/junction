@@ -569,39 +569,37 @@
     }).join('\n\n');
   }
 
-  /** Share menu: ENTIRE history up to this post. */
+  /** Share menu: ENTIRE history up to this post, plus copy single post as Markdown. */
   function openShareForRow(row, triggerBtn) {
-    if (!row) return;
-    var trigger = triggerBtn || row;
-    if (!window.choiceMenu) return;
-    var items = [
-      { id: 'markdown', label: window.junctionT('copyAsMarkdown', 'Copy as Markdown'), icon: 'markdown', action: function () { copyViaHost(formatMessagesMarkdown(getHistoryUpToRow(row))); } },
-      { id: 'text', label: window.junctionT('copyAsText', 'Copy as Text'), icon: 'clipboard', action: function () { copyViaHost(formatMessagesText(getHistoryUpToRow(row))); } },
-      { id: 'html', label: window.junctionT('exportHtml', 'Export HTML'), icon: 'file', action: downloadChatExportHtml },
-    ];
-    window.choiceMenu.open(trigger, {
-      title: window.junctionT('shareHistory', 'Share history'),
-      items: items,
-      placement: row && document.body.classList.contains('stream-layout-timeline') ? 'above' : undefined,
-    });
-  }
-
-  /** Copy menu: just this ONE post. */
-  function openCopyForRow(row, triggerBtn) {
     if (!row) return;
     var text = getRowCopyText(row);
     var role = row.classList.contains('user') ? window.junctionT('you', 'You') : window.junctionT('assistant', 'Assistant');
     var trigger = triggerBtn || row;
     if (!window.choiceMenu) return;
     var items = [
-      { id: 'markdown', label: window.junctionT('copyAsMarkdown', 'Copy as Markdown'), icon: 'markdown', action: function () { copyViaHost('**' + role + ':** ' + text); } },
-      { id: 'text', label: window.junctionT('copyAsText', 'Copy as Text'), icon: 'clipboard', action: function () { copyViaHost(text); } },
+      { id: 'single-md', label: window.junctionT('copyAsMarkdown', 'Copy as Markdown'), icon: 'markdown', action: function () { copyViaHost('**' + role + ':** ' + text); } },
+      { id: 'separator', separator: true },
+      { id: 'markdown', label: window.junctionT('copyHistoryAsMarkdown', 'Copy history as Markdown'), icon: 'markdown', action: function () { copyViaHost(formatMessagesMarkdown(getHistoryUpToRow(row))); } },
+      { id: 'text', label: window.junctionT('copyHistoryAsText', 'Copy history as Text'), icon: 'clipboard', action: function () { copyViaHost(formatMessagesText(getHistoryUpToRow(row))); } },
+      { id: 'html', label: window.junctionT('exportHtml', 'Export HTML'), icon: 'file', action: downloadChatExportHtml },
     ];
     window.choiceMenu.open(trigger, {
-      title: window.junctionT('copyMessage', 'Copy message'),
+      title: window.junctionT('shareHistory', 'Share'),
       items: items,
       placement: row && document.body.classList.contains('stream-layout-timeline') ? 'above' : undefined,
     });
+  }
+
+  /** Copy menu: just copies this ONE post as plain text. */
+  function openCopyForRow(row, triggerBtn) {
+    if (!row) return;
+    var text = getRowCopyText(row);
+    copyViaHost(text);
+    if (triggerBtn) {
+      triggerBtn.classList.remove('codicon-copy');
+      triggerBtn.classList.add('codicon-check');
+      setTimeout(function () { triggerBtn.classList.remove('codicon-check'); triggerBtn.classList.add('codicon-copy'); }, 1500);
+    }
   }
 
   // ── Message actions bar ──────────────────────────────────────────────────
@@ -683,6 +681,30 @@
     bubble.dataset.rawText = text;
     bubble.innerHTML = window.renderMarkdown(text);
     row.appendChild(bubble);
+
+    // Sticky user row truncation: clamp, then check if overflowed.
+    // Dev/beta-gated behind MASTER_DEBUG — unfinished in compact/accordion layout.
+    if (window.MASTER_DEBUG && row.classList.contains('timeline-sticky-user')) {
+      bubble.classList.add('is-clamped');
+      setTimeout(function () {
+        if (bubble.scrollHeight <= bubble.offsetHeight + 4) {
+          bubble.classList.remove('is-clamped');
+          return;
+        }
+        var showMore = document.createElement('button');
+        showMore.className = 'sticky-show-more';
+        showMore.textContent = window.junctionT('showMore', 'Show more');
+        showMore.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          var isClamped = bubble.classList.toggle('is-clamped');
+          showMore.textContent = isClamped
+            ? window.junctionT('showMore', 'Show more')
+            : window.junctionT('showLess', 'Show less');
+        });
+        row.appendChild(showMore);
+      }, 0);
+    }
 
     if (isSteer) {
       var steerBadge = document.createElement('span');

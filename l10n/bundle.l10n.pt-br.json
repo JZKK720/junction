@@ -197,5 +197,9 @@
   "Worked for {duration}": "Trabalhou por {duration}",
   "Working...": "Trabalhando...",
   "Workspace": "Área de trabalho",
-  "You": "Você"
+  "You": "Você",
+  "showMore": "Mostrar mais",
+  "showLess": "Mostrar menos",
+  "copyHistoryAsMarkdown": "Copiar histórico como Markdown",
+  "copyHistoryAsText": "Copiar histórico como texto"
 }

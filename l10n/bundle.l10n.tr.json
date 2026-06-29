@@ -197,5 +197,9 @@
   "Working...": "Çalışıyor...",
   "Workspace": "Çalışma alanı",
   "You": "Sen",
-  "Compact this thread’s context": "Bu konunun bağlamını sıkıştır"
+  "Compact this thread’s context": "Bu konunun bağlamını sıkıştır",
+  "showMore": "Daha fazla göster",
+  "showLess": "Daha az göster",
+  "copyHistoryAsMarkdown": "Geçmişi Markdown olarak kopyala",
+  "copyHistoryAsText": "Geçmişi metin olarak kopyala"
 }

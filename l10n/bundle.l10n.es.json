@@ -197,5 +197,9 @@
   "Working...": "Trabajando...",
   "Workspace": "Espacio de trabajo",
   "You": "Tú",
-  "Compact this thread’s context": "Compactar el contexto de este hilo"
+  "Compact this thread’s context": "Compactar el contexto de este hilo",
+  "showMore": "Mostrar más",
+  "showLess": "Mostrar menos",
+  "copyHistoryAsMarkdown": "Copiar historial como Markdown",
+  "copyHistoryAsText": "Copiar historial como texto"
 }

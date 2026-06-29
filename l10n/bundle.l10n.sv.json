@@ -197,5 +197,9 @@
   "Working...": "Arbetar...",
   "Workspace": "Arbetsyta",
   "You": "Du",
-  "Compact this thread’s context": "Komprimera denna tråds kontext"
+  "Compact this thread’s context": "Komprimera denna tråds kontext",
+  "showMore": "Visa mer",
+  "showLess": "Visa mindre",
+  "copyHistoryAsMarkdown": "Kopiera historik som Markdown",
+  "copyHistoryAsText": "Kopiera historik som text"
 }

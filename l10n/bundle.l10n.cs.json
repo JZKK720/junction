@@ -197,5 +197,9 @@
   "Working...": "Pracuji...",
   "Workspace": "Pracovní prostor",
   "You": "Vy",
-  "Compact this thread’s context": "Komprimovat kontext tohoto vlákna"
+  "Compact this thread’s context": "Komprimovat kontext tohoto vlákna",
+  "showMore": "Zobrazit více",
+  "showLess": "Zobrazit méně",
+  "copyHistoryAsMarkdown": "Kopírovat historii jako Markdown",
+  "copyHistoryAsText": "Kopírovat historii jako text"
 }

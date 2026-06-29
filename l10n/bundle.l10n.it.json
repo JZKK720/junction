@@ -197,5 +197,9 @@
   "Working...": "Elaborazione...",
   "Workspace": "Area di lavoro",
   "You": "Tu",
-  "Compact this thread’s context": "Compatta il contesto di questo thread"
+  "Compact this thread’s context": "Compatta il contesto di questo thread",
+  "showMore": "Mostra di più",
+  "showLess": "Mostra meno",
+  "copyHistoryAsMarkdown": "Copia cronologia come Markdown",
+  "copyHistoryAsText": "Copia cronologia come testo"
 }

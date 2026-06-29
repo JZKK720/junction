@@ -197,5 +197,9 @@
   "Working...": "Работи...",
   "Workspace": "Работно пространство",
   "You": "Вие",
-  "Compact this thread’s context": "Компактирай контекста на тази нишка"
+  "Compact this thread’s context": "Компактирай контекста на тази нишка",
+  "showMore": "Покажи повече",
+  "showLess": "Покажи по-малко",
+  "copyHistoryAsMarkdown": "Копирай историята като Markdown",
+  "copyHistoryAsText": "Копирай историята като текст"
 }

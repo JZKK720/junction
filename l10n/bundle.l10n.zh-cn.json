@@ -197,5 +197,9 @@
   "Worked for {duration}": "运行了 {duration}",
   "Working...": "正在处理……",
   "Workspace": "工作区",
-  "You": "你"
+  "You": "你",
+  "showMore": "展开更多",
+  "showLess": "收起",
+  "copyHistoryAsMarkdown": "以 Markdown 复制历史",
+  "copyHistoryAsText": "以文本复制历史"
 }

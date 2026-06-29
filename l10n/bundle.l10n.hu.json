@@ -197,5 +197,9 @@
   "Working...": "Feldolgozás...",
   "Workspace": "Munkaterület",
   "You": "Ön",
-  "Compact this thread’s context": "Ezen szál kontextusának tömörítése"
+  "Compact this thread’s context": "Ezen szál kontextusának tömörítése",
+  "showMore": "Több mutatása",
+  "showLess": "Kevesebb mutatása",
+  "copyHistoryAsMarkdown": "Előzmények másolása Markdownként",
+  "copyHistoryAsText": "Előzmények másolása szövegként"
 }

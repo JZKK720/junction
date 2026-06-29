@@ -54,6 +54,8 @@ export function webviewL10nBundle(): Record<string, string> {
         modelProviders: t('Model providers'),
         allChats: t('All chats'),
         seeMore: t('See more'),
+        showMore: t('Show more'),
+        showLess: t('Show less'),
         loading: t('Loading...'),
         queued: t('QUEUED'),
         steer: t('STEER'),

@@ -197,5 +197,9 @@
   "Worked for {duration}": "عمل لمدة {duration}",
   "Working...": "جارٍ العمل...",
   "Workspace": "مساحة العمل",
-  "You": "أنت"
+  "You": "أنت",
+  "showMore": "عرض المزيد",
+  "showLess": "عرض أقل",
+  "copyHistoryAsMarkdown": "نسخ السجل كـ Markdown",
+  "copyHistoryAsText": "نسخ السجل كنص"
 }

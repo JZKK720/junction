@@ -197,5 +197,9 @@
   "Worked for {duration}": "已執行 {duration}",
   "Working...": "處理中...",
   "Workspace": "工作區",
-  "You": "你"
+  "You": "你",
+  "showMore": "展開更多",
+  "showLess": "收起",
+  "copyHistoryAsMarkdown": "以 Markdown 複製歷史",
+  "copyHistoryAsText": "以文字複製歷史"
 }

@@ -197,5 +197,9 @@
   "Worked for {duration}": "{duration} तक काम किया",
   "Working...": "कार्यरत...",
   "Workspace": "कार्यक्षेत्र",
-  "You": "आप"
+  "You": "आप",
+  "showMore": "और दिखाएं",
+  "showLess": "कम दिखाएं",
+  "copyHistoryAsMarkdown": "इतिहास को Markdown के रूप में कॉपी करें",
+  "copyHistoryAsText": "इतिहास को टेक्स्ट के रूप में कॉपी करें"
 }

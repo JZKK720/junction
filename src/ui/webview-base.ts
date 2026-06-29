@@ -10,6 +10,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { Logger } from '../utils/logger';
 import { webviewL10nBundle } from '../l10n';
+import { MASTER_DEBUG } from '../debug-flag';
 
 /**
  * Assemble the modular webview HTML from resources/webview/.
@@ -69,6 +70,7 @@ export function buildWebviewHtml(
     const moduleScripts = [
         `  <script nonce="${nonce}" src="${mdUri}"></script>`,
         `  <script nonce="${nonce}" src="${assetUri('pretext.bundle.js')}"></script>`,
+        `  <script nonce="${nonce}">window.MASTER_DEBUG=${JSON.stringify(MASTER_DEBUG)};</script>`,
         `  <script nonce="${nonce}">window.JUNCTION_L10N=${JSON.stringify(webviewL10nBundle())};</script>`,
         `  <script nonce="${nonce}">window.JUNCTION_ACTIVITY_TIMELINE_JS_URI=${JSON.stringify(assetUri('activity-timeline.js'))};</script>`,
         ...jsFiles.map((f) => `  <script nonce="${nonce}" src="${assetUri(f)}"></script>`),

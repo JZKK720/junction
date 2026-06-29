@@ -197,5 +197,9 @@
   "Worked for {duration}": "Gearbeitet für {duration}",
   "Working...": "Wird bearbeitet...",
   "Workspace": "Arbeitsbereich",
-  "You": "Du"
+  "You": "Du",
+  "showMore": "Mehr anzeigen",
+  "showLess": "Weniger anzeigen",
+  "copyHistoryAsMarkdown": "Verlauf als Markdown kopieren",
+  "copyHistoryAsText": "Verlauf als Text kopieren"
 }

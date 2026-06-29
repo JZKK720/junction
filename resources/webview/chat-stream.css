@@ -1648,4 +1648,118 @@ body:not(.stream-rail) #chat-messages .tool-detail {
 
 .debug-stall-pill[hidden] { display: none; }
 
+/* ── Tool pill truncation + show-more modal ──────────────────────────── */
+
+/* Clamp tool detail in pills to ~5 lines */
+.tool-row-pill[open] .tool-detail {
+  max-height: 7.5em; /* ~5 lines at 1.5em */
+  overflow: hidden;
+  position: relative;
+}
+
+/* Fade bottom edge to hint at truncated content */
+.tool-row-pill[open] .tool-detail::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2em;
+  background: linear-gradient(to bottom, transparent, var(--vscode-editor-background, #1e1e1e));
+  pointer-events: none;
+}
+
+/* Show-more button on tool pills */
+.tool-row-pill .pill-show-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 1px 8px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.tool-row-pill .pill-show-more:hover {
+  opacity: 1;
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+/* Modal — no backdrop, above chat */
+.pill-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 8vh 5vw 10vh;
+  background: transparent;
+  pointer-events: none;
+}
+
+.pill-modal-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+.pill-modal-content {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+  width: 100%;
+  max-width: 720px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: 16px 20px 20px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-input-border));
+  border-radius: var(--corner-radius-large);
+  background: var(--vscode-editor-background, var(--vscode-sideBar-background));
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  color: var(--vscode-editor-foreground, var(--vscode-foreground));
+  font-size: var(--vscode-font-size, 13px);
+}
+
+.pill-modal-close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+  font-family: codicon;
+  font-size: 16px;
+}
+
+.pill-modal-close:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-foreground);
+}
+
+/* ── Sticky message truncation (unconditional — works across all layouts) ── */
+body.stream-layout-timeline   { --junction-user-post-clamp-height: 4.8em; }  /* 3 lines */
+body.stream-layout-accordion  { --junction-user-post-clamp-height: 14.4em; } /* 9 lines */
+
+.chat-row.user.timeline-sticky-user .msg-text.is-clamped {
+  max-height: var(--junction-user-post-clamp-height, 4.8em);
+  overflow: hidden;
+}
+
 /* ── Accordion overrides live in activity-accordion.css ─────────────────── */

@@ -197,5 +197,9 @@
   "Worked for {duration}": "Работал {duration}",
   "Working...": "Работаю...",
   "Workspace": "Рабочее пространство",
-  "You": "Вы"
+  "You": "Вы",
+  "showMore": "Показать больше",
+  "showLess": "Показать меньше",
+  "copyHistoryAsMarkdown": "Копировать историю как Markdown",
+  "copyHistoryAsText": "Копировать историю как текст"
 }

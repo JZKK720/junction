@@ -14,13 +14,16 @@
 }
 
 :is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user .msg-text {
-  width: 100%;
+  width: 94%;
   max-width: none;
   box-sizing: border-box;
+  margin: 0 auto;
+  padding: 0.6em 0.8em;
   background: var(--junction-timeline-user-bg);
   border: 1px solid var(--vscode-input-border, transparent);
   border-radius: var(--corner-radius-large);
   color: var(--vscode-input-foreground, var(--vscode-foreground));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 :is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user .msg-text[data-tip] {
@@ -77,6 +80,48 @@
   display: block;
   max-width: none;
   width: 100%;
+  padding: 0.6em 0.8em;
+  margin: 0 auto;
+}
+
+/* Base — both layouts */
+.chat-row.user.timeline-sticky-user .sticky-show-more {
+  padding: 2px 8px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: var(--corner-radius-small);
+  color: var(--vscode-textLink-foreground);
+  font-size: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Timeline — hidden by default, revealed on row hover, absolutely positioned */
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user.timeline-sticky-user .sticky-show-more {
+  display: none;
+  position: absolute;
+  bottom: 16px;
+  right: 12px;
+  z-index: 4;
+  background: var(--junction-timeline-sticky-bg);
+}
+
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user.timeline-sticky-user:hover .sticky-show-more {
+  display: inline-block;
+}
+
+:is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .chat-row.user.timeline-sticky-user .sticky-show-more:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
+}
+
+/* Accordion/compact — inline, always visible, no absolute positioning */
+body.stream-layout-accordion #chat-messages .chat-row.user.timeline-sticky-user .sticky-show-more {
+  display: inline-block;
+  margin-top: 4px;
+  background: transparent;
+}
+
+body.stream-layout-accordion #chat-messages .chat-row.user.timeline-sticky-user .sticky-show-more:hover {
+  background: var(--vscode-toolbar-hoverBackground, var(--vscode-list-hoverBackground));
 }
 
 :is(body.queue-display-timeline, body.stream-layout-timeline:not(.queue-display-compact)) #chat-messages .activity-worklog {

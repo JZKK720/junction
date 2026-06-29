@@ -197,5 +197,9 @@
   "Worked for {duration}": "{duration} 動作しました",
   "Working...": "処理中...",
   "Workspace": "ワークスペース",
-  "You": "あなた"
+  "You": "あなた",
+  "showMore": "もっと見る",
+  "showLess": "少なく表示",
+  "copyHistoryAsMarkdown": "履歴をMarkdownでコピー",
+  "copyHistoryAsText": "履歴をテキストでコピー"
 }

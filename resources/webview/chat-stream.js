@@ -251,16 +251,20 @@
         }
         oldCanvas.remove();
       }
-      var w = window.innerWidth;
-      var h = window.innerHeight;
-      var canvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: w, height: h, loaderMagic: window.getAnimVal('loaderMagic', false) });
-      if (canvas) {
-        canvas.id = 'startup-matrix';
-        startupLoader.classList.add('real-splash-ready');
-        var fallbackWordmark = document.getElementById('startup-fallback-wordmark');
-        if (fallbackWordmark) setTimeout(function () { fallbackWordmark.remove(); }, 220);
-        startupLoader.insertBefore(canvas, startupLoader.firstChild);
-      }
+      // Wait for fonts to load before rendering canvas — prevents font pop-in
+      startupLoader.classList.add('real-splash-ready');
+      var fallbackWordmark = document.getElementById('startup-fallback-wordmark');
+      if (fallbackWordmark) fallbackWordmark.style.display = 'none';
+      document.fonts.ready.then(function () {
+        if (startupLoader.classList.contains('dismissed')) return;
+        var w = window.innerWidth;
+        var h = window.innerHeight;
+        var canvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: w, height: h, loaderMagic: window.getAnimVal('loaderMagic', false) });
+        if (canvas) {
+          canvas.id = 'startup-matrix';
+          startupLoader.insertBefore(canvas, startupLoader.firstChild);
+        }
+      });
     }
   }
 
@@ -290,9 +294,12 @@
     loader.style.opacity = '1'; loader.style.pointerEvents = 'auto'; loader.style.display = 'block';
     if (typeof window.applySplashWordmarkScale === 'function') window.applySplashWordmarkScale(loader);
     loader.innerHTML = '';
-    var w = window.innerWidth, h = window.innerHeight;
-    var canvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: w, height: h, loaderMagic: window.getAnimVal('loaderMagic', false) });
-    if (canvas) { canvas.id = 'startup-matrix'; loader.insertBefore(canvas, loader.firstChild); }
+    document.fonts.ready.then(function () {
+      if (loader.classList.contains('dismissed')) return;
+      var w = window.innerWidth, h = window.innerHeight;
+      var canvas = window.createAnimatedCanvas('Junction', { loader: true, isSplash: true, width: w, height: h, loaderMagic: window.getAnimVal('loaderMagic', false) });
+      if (canvas) { canvas.id = 'startup-matrix'; loader.insertBefore(canvas, loader.firstChild); }
+    });
     var prompt = document.createElement('div');
     prompt.id = 'startup-start-prompt';
     prompt.textContent = 'push any to start';

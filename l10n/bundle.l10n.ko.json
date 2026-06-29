@@ -197,5 +197,9 @@
   "Worked for {duration}": "{duration} 동안 작업함",
   "Working...": "작업 중...",
   "Workspace": "작업 공간",
-  "You": "나"
+  "You": "나",
+  "showMore": "더 보기",
+  "showLess": "간략히",
+  "copyHistoryAsMarkdown": "기록을 Markdown으로 복사",
+  "copyHistoryAsText": "기록을 텍스트로 복사"
 }

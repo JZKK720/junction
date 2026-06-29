@@ -18,6 +18,7 @@ import {
     LEGACY_VSCODE_WORKSPACE_CONTEXT_PREFIX,
 } from './chatTypes';
 import { buildWebviewHtml } from './webview-base';
+import { MASTER_DEBUG } from '../debug-flag';
 import { ConfigManager } from './config-manager';
 import { HistoryManager } from './history-manager';
 import { EventRouter, ChatBaseHandlers } from './event-router';
@@ -70,7 +71,7 @@ export abstract class ChatBase {
     protected pendingNewChat = false;
     protected injectedHiddenContexts = new Set<string>();
     protected debugQueueStall = false;
-    protected debugQueueStallEnabled = true;
+    protected debugQueueStallEnabled = MASTER_DEBUG;
 
     /** Composed modules. */
     protected readonly configManager: ConfigManager;
@@ -370,6 +371,7 @@ export abstract class ChatBase {
         return this.bridge.boundSessionWorkspace?.(sessionKey);
     }
 
+    /** Just record that workspace context was presented — never inject separately. */
     protected async ensureHiddenWorkspaceContext(sessionKey: string | null | undefined, context: any): Promise<boolean> {
         const key = String(sessionKey || '').trim();
         if (!key) return false;
@@ -384,18 +386,10 @@ export abstract class ChatBase {
         if (!message) return false;
         const marker = hiddenContextKey(key, bridgeContext);
         if (this.injectedHiddenContexts.has(marker)) return true;
-        let ok = false;
-        try {
-            if (typeof this.bridge.injectHiddenContext === 'function') {
-                ok = await this.bridge.injectHiddenContext(key, bridgeContext, message);
-            } else if (this.bridge.canAdminInject() || this.bridge.canSteer()) {
-                ok = await this.bridge.injectMessage(key, message);
-            }
-        } catch (err) {
-            Logger.getInstance().warn('hidden workspace context injection failed', err);
-        }
-        if (ok) this.injectedHiddenContexts.add(marker);
-        return ok;
+        // Never inject as a separate message — it's always prepended in dispatchUserMessage.
+        // Just return false so the caller knows to prepend.
+        this.injectedHiddenContexts.add(marker);
+        return false;
     }
 
     protected async listBridgeSessions(scope: 'folder' | 'all', includeArchived = false): Promise<any[]> {
@@ -2132,13 +2126,20 @@ export abstract class ChatBase {
             } = this.buildOutboundFileContext();
             // File context from attached pills is always prepended to the
             // user's message so the agent sees it as part of the same turn.
-            // (The hidden workspace context injection via
-            // ensureHiddenWorkspaceContext is the separate intended turn.)
             if (fileContext) {
                 text = fileContext + '\n\n' + text;
             }
-            const hiddenContextOk = await this.ensureHiddenWorkspaceContext(sessionKey, dispatchContext);
-            const outboundText = hiddenContextOk ? text : this.withWorkspaceContext(text, dispatchContext);
+            // Never send workspace context as a separate hidden message.
+            // Always prepend it to the first user message of the session.
+            if (sessionKey) {
+                const contextKey = hiddenContextKey(sessionKey, { workspaceFolder: dispatchContext?.workspaceFolder });
+                const alreadySent = this.injectedHiddenContexts.has(contextKey);
+                if (!alreadySent) {
+                    this.injectedHiddenContexts.add(contextKey);
+                    text = this.withWorkspaceContext(text, dispatchContext);
+                }
+            }
+            const outboundText = text;
             Logger.getInstance().captureDebugStream('chat-dispatch', {
                 bridgeId: this.bridgeRegistry.active.id,
                 sessionKey: this.bridge.getCurrentSessionKey(),
